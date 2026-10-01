@@ -1,0 +1,4 @@
+.superpowers/brainstorm/
+dist/
+__pycache__/
+*.pyc
