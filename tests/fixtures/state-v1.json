@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "/home/user/.claude/themes/moonlit-candle.json",
+      "backup": null,
+      "installed_sha256": "0a4ef3e250904b822cea5c11c970c7f9168d63ae9cdc85705e8589469c7235fa"
+    },
+    {
+      "path": "/home/user/.claude/output-styles/witchynibbles.md",
+      "backup": null,
+      "installed_sha256": "a12aff2e4ef6ddcfa51150c9ff890232c573bb816805d080d1bb2c1c5d229184"
+    },
+    {
+      "path": "/home/user/.claude/witchy/statusline.py",
+      "backup": null,
+      "installed_sha256": "068395efaddb32d144dd50f62a61709ff7a6874ecf560d4f96b995b46696a225"
+    },
+    {
+      "path": "/home/user/.claude/witchy/tips.json",
+      "backup": null,
+      "installed_sha256": "d137b302580ddf7793cc8224db1e418dec6299b35dbfcc0bb7e4f5027db9b1c6"
+    }
+  ],
+  "claude_settings": {
+    "path": "/home/user/.claude/settings.json",
+    "existed": true,
+    "backup": "/home/user/.claude/settings.json.bak-witchy-20261001-214641",
+    "installed_sha256": "7d746fd3124267022790b4850fab5a568b5860f7df5da62be2cfac4264eace92",
+    "byte_restore_ok": true,
+    "keys": {
+      "theme": {
+        "previous": {
+          "value": "dark"
+        },
+        "installed": "custom:moonlit-candle"
+      },
+      "statusLine": {
+        "previous": {
+          "absent": true
+        },
+        "installed": {
+          "type": "command",
+          "command": "/usr/bin/python3 -I /home/user/.claude/witchy/statusline.py",
+          "padding": 0
+        }
+      },
+      "spinnerVerbs": {
+        "previous": {
+          "absent": true
+        },
+        "installed": {
+          "mode": "replace",
+          "verbs": [
+            "Brewing",
+            "Conjuring",
+            "Scrying",
+            "Hexing",
+            "Divining",
+            "Transmuting",
+            "Warding",
+            "Exorcising",
+            "Summoning",
+            "Enchanting",
+            "Incanting",
+            "Stirring the cauldron",
+            "Consulting the grimoire",
+            "Reading the runes",
+            "Lighting candles",
+            "Scrying the query plan",
+            "Bewitching",
+            "Charming",
+            "Channeling",
+            "Invoking",
+            "Distilling",
+            "Foretelling",
+            "Spellcasting",
+            "Binding",
+            "Casting circles",
+            "Drawing sigils",
+            "Steeping herbs",
+            "Grinding mandrake",
+            "Tending the familiar",
+            "Whispering to the daemon",
+            "Banishing bugs",
+            "Unhexing the build",
+            "Reading tea leaves",
+            "Gathering moonlight",
+            "Sweeping the cobwebs",
+            "Carving runes",
+            "Chanting",
+            "Shuffling the tarot",
+            "Charging crystals",
+            "Consulting the stars"
+          ]
+        }
+      },
+      "spinnerTipsOverride": {
+        "previous": {
+          "absent": true
+        },
+        "installed": {
+          "label": "Grimoire",
+          "tipsFile": "~/.claude/witchy/tips.json",
+          "excludeDefault": false
+        }
+      },
+      "outputStyle": {
+        "previous": {
+          "absent": true
+        },
+        "installed": "WitchyNibbles"
+      }
+    }
+  },
+  "windows_terminal": {
+    "path": "/mnt/c/Users/user/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json",
+    "existed": true,
+    "backup": "/mnt/c/Users/user/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json.bak-witchy-20261001-214641",
+    "installed_sha256": "1253ebdf308b1c92f042d2c84ba1c29dba85d558cebbd07fa2bd1d9120969011",
+    "byte_restore_ok": true,
+    "profile_guid": "{51855cb2-8cce-5362-8f54-464b92b32386}",
+    "previous_color_scheme": {
+      "value": "PastelOneDark"
+    },
+    "previous_scheme": {
+      "absent": true
+    },
+    "schemes_key_absent": false,
+    "installed_color_scheme": "Moonlit Candle"
+  }
+}
