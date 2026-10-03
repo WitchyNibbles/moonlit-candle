@@ -1,7 +1,6 @@
 """font: Maple Mono NF for the current Windows user (no admin rights needed). Uninstall keeps it."""
 from __future__ import annotations
 
-import hashlib
 import http.client
 import subprocess
 from pathlib import Path
@@ -52,14 +51,14 @@ class FontComponent:
 
     def _archive(self, ctx: Any, path: Path) -> bytes:
         cached = read(path)
-        if cached is not None and hashlib.sha256(cached).hexdigest() == fonts.SHA256:
+        if cached is not None and sha(cached) == fonts.SHA256:
             return cached
         try:
             data = ctx.fetch(fonts.URL)
         except (OSError, ValueError, http.client.HTTPException) as exc:
             ctx.say(f"font: download failed ({exc}); {KEEP}.")
             raise ComponentFailed(f"download failed ({exc})") from exc
-        if hashlib.sha256(data).hexdigest() != fonts.SHA256:
+        if sha(data) != fonts.SHA256:
             path.unlink(missing_ok=True)
             ctx.say("font: checksum mismatch, nothing installed.")
             raise ComponentFailed("checksum mismatch")

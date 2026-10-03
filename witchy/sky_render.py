@@ -70,9 +70,9 @@ def render(bin_: int, colours: dict[str, str], size: tuple[int, int] = SIZE) -> 
     radius = 150 * scale
     cx, cy = width - 260 * scale, height - 260 * scale
     lit, dark, rim = _rgb(colours["moon"]), _rgb(colours["moon_dark"]), _rgb(colours["moon_rim"])
-    light = (1 - math.cos(2 * math.pi * bin_ / BINS)) / 2
-    waxing = bin_ <= BINS // 2
     terminator_scale = math.cos(2 * math.pi * bin_ / BINS)
+    light = (1 - terminator_scale) / 2
+    waxing = bin_ <= BINS // 2
     reach = radius * 1.35
     rim_width = max(1.0, 2 * scale)
     for y in range(max(0, int(cy - reach)), min(height, int(cy + reach) + 1)):

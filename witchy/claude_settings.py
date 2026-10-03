@@ -23,5 +23,3 @@ def desired_keys(home: Path, python: str, verbs: list[str]) -> dict[str, Any]:
         "spinnerTipsOverride": {"label": TIPS_LABEL, "tipsFile": TIPS_FILE, "excludeDefault": False},
         "outputStyle": OUTPUT_STYLE,
     }
-
-
