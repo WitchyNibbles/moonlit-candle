@@ -69,7 +69,7 @@ class Component(Protocol):
 2. Validate (section 11). Failure: exit 1, nothing written.
 3. Load state, migrating v1 (section 3.3).
 4. Plan every selected component in order: `claude`, `font`, `windows-terminal`, `fish`. `claude` aborting (its `settings.json` is not plain JSON) stops everything with exit 1, as today.
-5. Apply each component in order. After each one, save state. A failing `font`, `windows-terminal` or `fish` step records `skipped: <reason>` and the runner continues.
+5. Apply each component in order. After each one, save state. A failing `font`, `windows-terminal` or `fish` step records `skipped: <reason>` (its plan skipped) or `failed: <reason>` (applying it failed) and the runner continues.
 6. Uninstall runs `restore` in reverse order.
 7. Print an end summary, e.g. `3/4 components installed · skipped: font (offline)`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings).
 
@@ -123,6 +123,8 @@ fish files are rendered at install time from `content/fish/*.fish` templates (pl
 
 On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the profile the current state already records.
 
+`settings.json` is found first, in this order: `--wt-settings`; the path recorded in state, if it still exists; `%USERPROFILE%` mapped to `/mnt/<drive>/…`; `C:\Users\%USERNAME%`. On this machine the account name and the profile folder differ.
+
 ### 4.2 Profile keys (`WT_PROFILE` in the variant)
 
 ```json
@@ -143,18 +145,19 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 ```
 
 - Each key is snapshotted before the first install and restored only if it still holds an installed value; for `backgroundImage`, any of the 8 sky values counts as installed.
-- `font` replaces the whole object (the current `"features": {"aalt": 0}` goes away while installed). It is set only if Maple Mono NF is registered; otherwise it is left untouched and the result is `skipped`.
+- `font` replaces the whole object (the current `"features": {"aalt": 0}` goes away while installed). It is set only if Maple Mono NF is registered: the `font` component is recorded in state, or it is planned in this run and installs successfully. Otherwise the key is left untouched and the summary says so.
 - The background keys are set only after the sky images are copied.
 - `suppressApplicationTitle` keeps the tab title at "witchyterm".
-- Install, uninstall and the sky job all take `~/.cache/witchy/wt.lock` before touching `settings.json`, re-check its hash, then replace it atomically.
+- Install, uninstall and the sky job all take `~/.cache/witchy/wt.lock` before touching `settings.json`, re-check its hash, then replace it atomically. The installer holds it only while it writes the Windows Terminal files.
 
 ### 4.3 Maple Mono NF (`font` component)
 
 - The release zip from `github.com/subframe7536/maple-font`, pinned in `font.py` to one release tag and its SHA-256, downloaded over HTTPS with default certificate checks into `~/.cache/witchy/`.
 - Extract only the `Regular`, `Italic`, `Bold` and `BoldItalic` TTF members, by exact name, each capped at 20 MB, to fixed file names in `/mnt/c/Users/<U>/AppData/Local/Microsoft/Windows/Fonts/`.
 - Register each with `reg.exe add "HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts" /v "<name> (TrueType)" /t REG_SZ /d "<windows path>" /f`. `<name>` is read from the TTF `name` table (full font name, ID 4), not hard-coded.
-- Already present: any registry value whose name starts with "Maple Mono NF" and points to an existing file counts as installed; nothing is downloaded or copied. An identical file already in place is not rewritten.
+- Already present: Maple Mono NF counts as installed when all four styles are registered (`Maple Mono NF Regular|Italic|Bold|Bold Italic (TrueType)`) and point to existing files; nothing is downloaded or copied, and a witchy install already recorded in state is kept as it is. A partial set (for example after a failed `reg.exe` call) is completed by the next install. An identical file already in place is not rewritten.
 - Windows Terminal needs a restart to see a newly installed font; the summary says so.
+- A failed download, checksum, copy or `reg.exe` call records `failed: <reason>` for `font`; font files already copied stay (uninstall never removes fonts).
 
 ### 4.4 Sky images
 
@@ -163,6 +166,7 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 - The moon: radius 150 px, centred about 260 px from the right and bottom edges. The lit part is drawn for the bin's phase in `#FFD477`; the dark part is a faint `#1D1230` disc with a `#38234D` rim; a soft glow scales with illumination.
 - Output is deterministic. Renders are cached in `~/.cache/witchy/sky/<hash of renderer source + palette>/`, so only the first build pays (about 1 s per image).
 - **Spike gate:** before building the sky job, a manual check confirms that Windows Terminal applies a changed `backgroundImage` path without a restart. If it does not, ship a single image for the install-day phase (`moonlit-candle-sky.png`) and no sky job; everything else in this spec is unchanged.
+- **Spike result (2026-10-03): passed.** An atomic replace of `settings.json` that only changed `backgroundImage` was applied to an open tab without a restart, so the eight images and the sky job stay in scope.
 
 ### 4.5 Sky job
 
