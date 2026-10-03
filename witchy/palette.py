@@ -6,7 +6,7 @@ and the status line palette; validate.py holds all of it to the contrast rules.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 THEME_NAME = "Moonlit Candle"
 THEME_SLUG = "moonlit-candle"
@@ -126,6 +126,17 @@ STATUSLINE: dict[str, str] = {
     "left_low": "#FF67B7",
 }
 
+# The Windows Terminal sky (sky_render.py). Decorative, so exempt from the contrast rules (spec 11.2).
+SKY: dict[str, str] = {
+    "background": BACKGROUND,
+    "moon": "#FFD477",
+    "moon_dark": "#1D1230",
+    "moon_rim": "#38234D",
+    "star": FOREGROUND,
+    "star_gold": "#FFD477",
+    "star_violet": "#B99AFF",
+}
+
 
 @dataclass(frozen=True)
 class Variant:
@@ -139,9 +150,11 @@ class Variant:
     claude_overrides: dict[str, str]
     wt_scheme: dict[str, str]
     statusline: dict[str, str]
+    sky: dict[str, str] = field(default_factory=dict)
 
 
 DEFAULT_VARIANT = "midnight"
 VARIANTS: dict[str, Variant] = {
-    "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE),
+    "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE,
+                        sky=SKY),
 }

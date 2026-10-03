@@ -166,5 +166,12 @@ class VariantValidateTest(unittest.TestCase):
         self.assertIn(("text-contrast", "claude.claude"), {(f.rule, f.item) for f in failures})
 
 
+class SkyValidateTest(unittest.TestCase):
+    def test_sky_colours_must_be_hex(self):
+        with mock.patch.dict(palette.SKY, {"moon": "gold"}):
+            failures = validate.validate_all()
+        self.assertIn(("format", "sky.moon"), {(f.rule, f.item) for f in failures})
+
+
 if __name__ == "__main__":
     unittest.main()

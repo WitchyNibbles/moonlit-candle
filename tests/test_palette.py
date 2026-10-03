@@ -57,6 +57,7 @@ class VariantTest(unittest.TestCase):
         self.assertIs(midnight.wt_scheme, palette.WT_SCHEME)
         self.assertIs(midnight.statusline, palette.STATUSLINE)
         self.assertEqual((midnight.background, midnight.foreground), (palette.BACKGROUND, palette.FOREGROUND))
+        self.assertIs(midnight.sky, palette.SKY)
 
 
 if __name__ == "__main__":

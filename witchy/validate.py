@@ -219,6 +219,8 @@ def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
     for variant in palette.VARIANTS.values():
         failures += validate_palette(variant.claude_overrides, variant.wt_scheme, variant.statusline,
                                      variant.background, variant.foreground)
+        failures += [Failure("format", f"sky.{key}", str(value), "is not #RRGGBB in uppercase")
+                     for key, value in variant.sky.items() if not isinstance(value, str) or not HEX.match(value)]
     try:
         spinner = content.load_spinner(content_dir)
         style = content.read_output_style(content_dir)
