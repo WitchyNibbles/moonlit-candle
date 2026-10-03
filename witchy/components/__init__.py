@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from .claude import ClaudeComponent
+from .font import FontComponent
 from .windows_terminal import WindowsTerminalComponent
 
 
 def all_components() -> list:
-    return [ClaudeComponent(), WindowsTerminalComponent()]
+    return [ClaudeComponent(), FontComponent(), WindowsTerminalComponent()]
 
 
 NAMES: tuple[str, ...] = tuple(component.name for component in all_components())

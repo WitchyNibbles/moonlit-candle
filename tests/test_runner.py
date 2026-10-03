@@ -140,6 +140,15 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertEqual(self.log, [("plan", "a"), ("apply", "a")])
         self.assertEqual(self.state()["components"], {"a": {"installed": "a"}, "b": {"old": True}})
 
+    def test_dry_run_lists_planned_actions(self):
+        class Acting(Fake):
+            def plan(self, ctx, entry):
+                super().plan(ctx, entry)
+                return Plan(actions=["font: download x"])
+
+        self.assertEqual(runner.install(self.ctx(dry_run=True), [Acting("a", self.log)]), 0)
+        self.assertIn("font: download x", self.out.getvalue())
+
 
 class UninstallRunnerTest(RunnerTestCase):
     def test_uninstall_runs_in_reverse_order_and_removes_state(self):

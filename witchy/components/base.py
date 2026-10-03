@@ -58,12 +58,13 @@ class JsonPlan:
 
 @dataclass
 class Plan:
-    """What a component will do. ``skip`` set means it will do nothing, and says why."""
+    """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs."""
 
     changes: list[Change] = field(default_factory=list)
     skip: str | None = None
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    actions: list[str] = field(default_factory=list)
     data: dict[str, Any] = field(default_factory=dict)
 
     @classmethod

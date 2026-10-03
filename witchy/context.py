@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, TextIO
 
-from . import build, windows
+from . import build, fonts, windows
 
 
 @dataclass
@@ -28,10 +28,16 @@ class Context:
     variant: str | None = None
     outputs: dict[str, str] | None = None
     mount_root: Path = field(default_factory=lambda: windows.MOUNT_ROOT)
+    fetch: Callable[[str], bytes] = fonts.fetch_url
 
     @property
     def claude_dir(self) -> Path:
         return self.home / ".claude"
+
+    @property
+    def cache_dir(self) -> Path:
+        """Disposable: renders, downloads and locks that can be deleted at any time."""
+        return self.home / ".cache" / "witchy"
 
     @property
     def state_path(self) -> Path:

@@ -51,7 +51,8 @@ class InstallTestCase(unittest.TestCase):
         self.out = io.StringIO()
         return install.Context(home=self.home, env={"WT_PROFILE_ID": UBUNTU} if env is None else env, out=self.out,
                                dry_run=dry_run, wt_settings=self.wt, python="/usr/bin/python3", stamp=stamp,
-                               run=refuse_cmd, dist=self.root / "dist", lock_path=self.root / "witchy.lock")
+                               run=refuse_cmd, dist=self.root / "dist", lock_path=self.root / "witchy.lock",
+                               only=("claude", "windows-terminal"))
 
     def snapshot_without_state(self):
         return {path: data for path, data in self.snapshot().items() if not path.endswith("state.json")}

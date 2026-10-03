@@ -81,6 +81,10 @@ def _install(ctx: Any, components: list) -> int:
     changes = [change for _, plan in plans if plan.skip is None for change in plan.changes]
     if ctx.dry_run:
         show_changes(ctx, changes)
+        for _, plan in plans:
+            if plan.skip is None:
+                for action in plan.actions:
+                    ctx.say(action)
         ctx.say("Dry run: nothing was written.")
         return 0
     check_unchanged(changes)

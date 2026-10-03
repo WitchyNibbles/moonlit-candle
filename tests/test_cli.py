@@ -38,7 +38,7 @@ class CliTest(unittest.TestCase):
             env = {"HOME": str(home), "WT_PROFILE_ID": UBUNTU, "XDG_RUNTIME_DIR": tmp}
             with mock.patch.dict(os.environ, env), mock.patch.object(build, "DIST", Path(tmp) / "dist"), \
                     contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(main(["install", "--wt-settings", str(wt_file)]), 0)
+                self.assertEqual(main(["install", "--wt-settings", str(wt_file), "--only", "claude", "--only", "windows-terminal"]), 0)
                 self.assertTrue((home / ".claude" / "themes" / "moonlit-candle.json").is_file())
                 self.assertEqual(main(["uninstall"]), 0)
             self.assertFalse((home / ".claude" / "themes" / "moonlit-candle.json").exists())
