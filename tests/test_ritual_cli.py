@@ -3,8 +3,9 @@ import json
 import os
 import re
 import tempfile
+import time
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +16,14 @@ CEST = timezone(timedelta(hours=2))
 SAMHAIN_NIGHT = datetime(2026, 10, 31, 21, 30, tzinfo=CET)
 ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 PLAIN = {"NO_COLOR": "1", "FISH_VERSION": "3.7.0"}
+LOG_LINE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d greeting: bad arguments: (.*)$")
+
+
+class Terminal(io.StringIO):
+    """A stderr that a person reads."""
+
+    def isatty(self):
+        return True
 
 
 class CliTestCase(unittest.TestCase):
@@ -32,6 +41,14 @@ class CliTestCase(unittest.TestCase):
                         root=self.root, columns=columns)
         self.assertEqual(code, 0)
         return out.getvalue()
+
+    def bad_arguments(self, argv, tty=False):
+        """Run with arguments argparse rejects; return what went to stderr."""
+        err = Terminal() if tty else io.StringIO()
+        with mock.patch("sys.stderr", err), self.assertRaises(SystemExit) as caught:
+            cli.main(list(argv), env=PLAIN, out=io.StringIO(), now=SAMHAIN_NIGHT, home=self.home, root=self.root)
+        self.assertEqual(caught.exception.code, 2)
+        return err.getvalue()
 
     @property
     def stamp(self):
@@ -157,6 +174,66 @@ class SkyModeTest(CliTestCase):
         with mock.patch.object(sky, "run", return_value=0) as run:
             self.run_cli(["--sky", "--date", "2026-12-24"])
         run.assert_called_once_with(self.home, SAMHAIN_NIGHT)
+
+    def test_runs_the_job_on_now_and_prints_nothing(self):
+        with mock.patch.object(sky, "run", return_value=0) as run:
+            self.assertEqual(self.run_cli(["--sky"]), "")
+        run.assert_called_once_with(self.home, SAMHAIN_NIGHT)
+        self.assertFalse(self.stamp.exists())
+
+    def test_an_error_from_the_job_is_logged(self):
+        with mock.patch.object(sky, "run", side_effect=OSError("disk full")):
+            self.assertEqual(self.run_cli(["--sky"]), "")
+        self.assertIn("greeting: OSError('disk full')", self.log.read_text(encoding="utf-8"))
+        self.assertFalse(self.stamp.exists())
+
+    def test_sky_and_another_mode_is_an_argument_error(self):
+        for mode in ("--full", "--omen"):
+            with self.subTest(mode), mock.patch.object(sky, "run") as run:
+                self.assertIn(f"argument {mode}: not allowed with argument --sky", self.bad_arguments(["--sky", mode]))
+                run.assert_not_called()
+
+
+class ArgumentErrorTest(CliTestCase):
+    def test_a_typed_ritual_shows_usage_and_logs_nothing(self):
+        err = self.bad_arguments(["--full", "--omen"], tty=True)
+        self.assertTrue(err.startswith("usage: ritual "), err)
+        self.assertIn("ritual: error: argument --omen: not allowed with argument --full", err)
+        self.assertFalse(self.log.exists())
+
+    def test_the_greeting_logs_what_nobody_sees(self):
+        # fish_greeting sends stderr to /dev/null: the error must reach doctor through the log
+        err = self.bad_arguments(["--full", "--omen"])
+        self.assertTrue(err.startswith("usage: ritual "), err)
+        lines = self.log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(LOG_LINE.match(lines[0]).group(1), "argument --omen: not allowed with argument --full")
+
+    def test_the_date_must_be_yyyy_mm_dd(self):
+        for text in ("20261031", "2026-W44-6", "2026-1-5", "2026-02-30", "２０２６-10-31"):
+            with self.subTest(text):
+                self.assertIn(f"argument --date: {text!r} is not a date in the form YYYY-MM-DD",
+                              self.bad_arguments(["--date", text], tty=True))
+        self.assertEqual(cli.iso_day("2026-10-31"), date(2026, 10, 31))
+
+
+class PreviewZoneTest(CliTestCase):
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(time.tzset)  # runs last, once TZ is back
+        zone = mock.patch.dict(os.environ, {"TZ": "CET-1CEST,M3.5.0,M10.5.0/3"})  # Europe/Madrid's rules
+        zone.start()
+        self.addCleanup(zone.stop)
+        time.tzset()
+
+    def test_a_preview_takes_the_offset_of_its_own_day(self):
+        today = datetime(2026, 10, 3, 21, 30, tzinfo=CEST)
+        for day, hours in (("2026-12-01", 1), ("2026-10-10", 2)):
+            with self.subTest(day), mock.patch.object(cli, "omen_line", wraps=cli.omen_line) as omen:
+                self.run_cli(["--omen", "--date", day], now=today)
+                shown = omen.call_args.args[0]
+                self.assertEqual((shown.replace(tzinfo=None), shown.utcoffset()),
+                                 (datetime.combine(date.fromisoformat(day), today.time()), timedelta(hours=hours)))
 
 
 class EntryPointTest(unittest.TestCase):

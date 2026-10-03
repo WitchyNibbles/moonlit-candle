@@ -232,7 +232,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 
 | Module | Purpose |
 | :- | :- |
-| `__main__.py` | arguments: default (auto), `--full`, `--omen`, `--sky`, `--debug` (timing per stage), `--date YYYY-MM-DD` (preview another day) |
+| `__main__.py` | arguments: default (auto), `--full`, `--omen`, `--sky`, `--debug` (timing per stage), `--date YYYY-MM-DD` (preview another day: the same wall time, with that day's UTC offset; any other date form is an argument error) |
 | `moon.py` | mean-synodic phase, bin, illumination; Meeus ch. 49 exact new and full moon instants |
 | `wheel.py` | the 8 sabbats; Meeus ch. 27 solstices and equinoxes |
 | `art.py` | the ASCII moon disc and stars |
@@ -320,6 +320,7 @@ shell   fish 3.7.0
 - A fixed width table covers every glyph we print (emoji are 2 cells), so columns line up.
 - `NO_COLOR` set: plain text, no escape sequences.
 - Any exception: print nothing, exit 0, and append the error to `ritual.log`. Doctor shows the last logged error.
+- Bad arguments: usage on stderr, exit 2. When stderr is not a terminal (`fish_greeting` sends it to `/dev/null`), the error is also logged as `greeting: bad arguments: …`.
 - Budget: median under 200 ms over 10 runs. A test fails above 1 s, as a regression guard that never flakes.
 
 ## 7. eza
