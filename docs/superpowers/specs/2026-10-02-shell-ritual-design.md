@@ -90,6 +90,7 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 - A component's entry is absent until it is installed. Reinstall keeps the first recorded previous values, as today.
 - A copied file that someone edited after witchy wrote it is backed up again at the next install, and that backup becomes what uninstall gives back; while the file still holds witchy's bytes, the first backup stays.
 - An apply that stops part-way (a file write fails) still records the files witchy already wrote and reports `failed: <reason>`, so the next install does not mistake witchy's bytes for the user's and uninstall still removes them or gives back the original. A file the run did not write keeps its earlier record. A `claude` entry has no `settings` record until witchy has written `settings.json`; doctor then reports `settings keys not installed`.
+- `windows-terminal` cannot keep an entry without its `settings.json` record, so when that write fails it puts back the sky images it wrote (removing the ones it created) and the state keeps the earlier entry, if any. An image someone else changed in the meantime is left alone.
 - `~/.claude/witchy/` is durable. `~/.cache/witchy/` (stamps, fail marker, log, font zip, sky render cache) is disposable at any time.
 - `last_install.at` is the run stamp used for backups.
 
@@ -362,8 +363,9 @@ python3 -m witchy mood [VARIANT]
 | font | digest mismatch | delete the cached zip; `failed: checksum mismatch`, exit 2; nothing recorded for `font` | `font: checksum mismatch, nothing installed` |
 | font | bad archive (`FontArchiveError`); `OSError` on copy | `failed: <reason>`, exit 2; nothing recorded for `font`; files already copied stay | `font: …; keeping the current font` |
 | font | `reg.exe add` `OSError` / `TimeoutExpired` / non-zero exit | `failed: could not register <name>`, exit 2; nothing recorded for `font`; files already copied stay | warning naming the registry value |
-| windows-terminal | sky image copy `OSError` | set no background keys; the rest applies | `windows-terminal: sky images not copied (…)` |
-| windows-terminal | `StrictJsonError`, profile not found, write `OSError` | existing handling | existing messages |
+| windows-terminal | sky image copy `OSError` | set no background keys; the rest applies; the images already copied stay recorded | `windows-terminal: sky images not copied (…)` |
+| windows-terminal | `StrictJsonError`, profile not found | existing handling | existing messages |
+| windows-terminal | `settings.json` write `OSError` | `failed: could not write <path>`, exit 2; the sky images this run wrote are put back (best effort); state keeps the earlier entry | `Windows Terminal: could not write <path> (…); skipping the terminal colour scheme.` |
 | fish | no fish, no Tide, `TimeoutExpired` | skip the variables; files still install | `fish: fish not found; prompt not recoloured.`, `fish: Tide not found; prompt not recoloured.`, `fish: could not read the Tide variables (timed out after 5 s); prompt not recoloured.` |
 | fish | `set -U` non-zero (`CalledProcessError`) | stop; record the variables already set | warning naming the variable |
 | greeting | any exception | exit 0, no output, log | doctor `⚠ greeting: last run failed …` |

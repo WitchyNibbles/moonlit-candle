@@ -310,6 +310,28 @@ class InstallTest(InstallTestCase):
         self.assertEqual(self.snapshot(), before)
 
 
+    def test_a_failed_windows_terminal_write_gives_back_the_sky_images_it_replaced(self):
+        for bin_ in range(4):
+            (self.wt.parent / install.wt.sky_file(bin_)).write_bytes(b"my own sky %d" % bin_)
+        before = self.snapshot()
+        with self.wt_write_fails():
+            self.assertEqual(install.install(self.ctx()), 2)
+        self.assertNotIn("windows-terminal", self.state()["components"])
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_a_failed_windows_terminal_rewrite_keeps_the_sky_images_state_records(self):
+        before = self.snapshot()
+        install.install(self.ctx())
+        later = self.ctx(stamp="20260930-120500")
+        later.sky_size = (128, 72)
+        with self.wt_write_fails(), mock.patch.dict(install.palette.WT_SCHEME, {"cursorColor": "#FF9BD7"}):
+            self.assertEqual(install.install(later), 2)
+        self.assertEqual(runner.doctor(self.ctx()), 0)
+        self.assertEqual(install.install(self.ctx(stamp="20260930-120600")), 0)
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
     def test_uninstall_restores_bytes_after_a_reinstall_that_changes_the_output(self):
         # Hand-written spacing that json.dumps would not reproduce, so only a byte restore can bring it back.
         self.settings.write_text(json.dumps(CLAUDE_ORIGINAL, indent=2).replace('"theme": ', '"theme":') + "\n",
@@ -401,6 +423,23 @@ class InstallTest(InstallTestCase):
         self.settings.write_text(installed, encoding="utf-8")
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
         self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+
+    def test_windows_terminal_stays_while_its_settings_have_comments(self):
+        before = self.snapshot()
+        install.install(self.ctx())
+        installed = self.wt.read_text(encoding="utf-8")
+        self.wt.write_text("// a comment\n" + installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
+        self.assertIn(f"windows-terminal: {self.wt} is no longer plain JSON; make it plain JSON again; "
+                      "run uninstall again.", self.out.getvalue())
+        self.assertEqual(list(self.state()["components"]), ["windows-terminal"])
+        self.assertEqual(sorted(path.name for path in self.wt.parent.glob("moonlit-candle-sky-*.png")),
+                         [install.wt.sky_file(bin_) for bin_ in range(8)])
+        self.assertTrue((self.claude / "witchy" / "ritual-config.json").is_file())
+        self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+        self.wt.write_text(installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
+        self.assertEqual(self.snapshot(), before)
 
     def test_every_local_component_round_trips_bytes_and_fish_variables(self):
         mine = self.home / ".config" / "fish" / "functions" / "ll.fish"

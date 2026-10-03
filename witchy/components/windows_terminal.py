@@ -7,8 +7,8 @@ from typing import Any
 
 from .. import jsonio, palette, sky_render, wt
 from ..ritual import moon
-from .base import (Change, Check, ComponentFailed, JsonPlan, Plan, apply_changes, backup_checks, file_change,
-                   file_record, fix_command, read, restore_copy, restore_json, sha)
+from .base import (Change, Check, ComponentFailed, JsonPlan, Plan, applied_records, apply_changes, backup_checks,
+                   file_change, fix_command, read, restore_copy, restore_json, sha)
 
 WT_SKIP = "skipping the terminal colour scheme"
 WT_LOCK = "wt.lock"
@@ -43,12 +43,23 @@ def _font_source(ctx: Any) -> str | None:
     return "installed" if "font" in ctx.entries else None
 
 
-def _still_ours(change: Change, earlier: dict[Path, dict]) -> bool:
-    """The file holds witchy's bytes: this run's, or the ones an earlier install recorded."""
-    current = sha(read(change.path))
-    previous = earlier.get(change.path)
-    return current is not None and (current == sha(change.after) or
-                                    (previous is not None and current == previous["installed_sha256"]))
+def _put_back(images: list[Change]) -> None:
+    """Undo this run's image writes once settings.json refused the write: no entry will describe them.
+
+    Only a file that still holds this run's bytes is touched, and each one is best effort.
+    """
+    for image in images:
+        if image.before == image.after:
+            continue
+        try:
+            if read(image.path) != image.after:
+                continue
+            if image.before is None:
+                image.path.unlink()
+            else:
+                jsonio.write_atomic_bytes(image.path, image.before)
+        except OSError:
+            pass  # best effort: the settings write is the failure that gets reported
 
 
 class WindowsTerminalComponent:
@@ -109,7 +120,7 @@ class WindowsTerminalComponent:
         settings, images, config, earlier = json_plan.change, plan.data["images"], plan.data["config"], plan.data["earlier"]
         backups: dict[Path, Path] = {}
         try:
-            backups.update(apply_changes(ctx, images))
+            apply_changes(ctx, images, backups)
             background = True
         except OSError as exc:
             ctx.say(f"windows-terminal: sky images not copied ({exc})")
@@ -120,23 +131,18 @@ class WindowsTerminalComponent:
         if (font, background) != (plan.data["font"] is not None, True):
             settings.after, json_plan.extra = plan.data["build"](font, background)
         try:
-            backups.update(apply_changes(ctx, [settings]))
+            apply_changes(ctx, [settings], backups)
         except OSError as exc:
-            for image in images:
-                if image.before is None:
-                    image.path.unlink(missing_ok=True)
+            _put_back(images)
             ctx.say(f"Windows Terminal: could not write {settings.path} ({exc}); {WT_SKIP}.")
             raise ComponentFailed(f"could not write {settings.path}") from exc
         entry = json_plan.entry(backups.get(settings.path))
-        files = [file_record(image, earlier, backups) for image in images if _still_ours(image, earlier)]
         if background:
             try:
-                backups.update(apply_changes(ctx, [config]))
+                apply_changes(ctx, [config], backups)
             except OSError as exc:
                 ctx.say(f"windows-terminal: could not write {config.path} ({exc}); the sky keeps tonight's phase.")
-        if _still_ours(config, earlier):
-            files.append(file_record(config, earlier, backups))
-        entry["files"] = files
+        entry["files"] = applied_records([*images, config], earlier, backups)
         return entry
 
     def restore(self, ctx: Any, entry: dict) -> Plan:
@@ -184,4 +190,4 @@ class WindowsTerminalComponent:
                        if sha(read(Path(record["path"]))) != record["installed_sha256"]]
             checks.append(Check("fail", self.name, "changed or missing: " + ", ".join(changed), fix) if changed
                           else Check("ok", self.name, f"{len(records)} sky files match"))
-        return checks + backup_checks(self.name, [entry.get("backup")])
+        return checks + backup_checks(self.name, [entry.get("backup"), *(record.get("backup") for record in records)])
