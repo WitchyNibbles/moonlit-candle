@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from witchy import content, install, jsonio, validate
+from witchy.components import base
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
 CLAUDE_ORIGINAL = {
@@ -50,7 +51,10 @@ class InstallTestCase(unittest.TestCase):
         self.out = io.StringIO()
         return install.Context(home=self.home, env={"WT_PROFILE_ID": UBUNTU} if env is None else env, out=self.out,
                                dry_run=dry_run, wt_settings=self.wt, python="/usr/bin/python3", stamp=stamp,
-                               run=refuse_cmd, dist=self.root / "dist")
+                               run=refuse_cmd, dist=self.root / "dist", lock_path=self.root / "witchy.lock")
+
+    def snapshot_without_state(self):
+        return {path: data for path, data in self.snapshot().items() if not path.endswith("state.json")}
 
     def snapshot(self):
         files = {}
@@ -122,9 +126,9 @@ class InstallTest(InstallTestCase):
 
     def test_install_twice_is_idempotent(self):
         install.install(self.ctx())
-        after_first = self.snapshot()
+        after_first = self.snapshot_without_state()
         install.install(self.ctx(stamp="20260930-120500"))
-        self.assertEqual(self.snapshot(), after_first)
+        self.assertEqual(self.snapshot_without_state(), after_first)
 
     def test_reinstall_keeps_the_original_previous_value(self):
         install.install(self.ctx())
@@ -133,7 +137,7 @@ class InstallTest(InstallTestCase):
         self.settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         install.install(self.ctx(stamp="20260930-120500"))
         state = json.loads((self.claude / "witchy" / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual(state["claude_settings"]["keys"]["theme"]["previous"], {"value": "dark"})
+        self.assertEqual(state["components"]["claude"]["settings"]["keys"]["theme"]["previous"], {"value": "dark"})
         install.uninstall(self.ctx(stamp="20260930-130000"))
         self.assertEqual(self.claude_settings()["theme"], "dark")
 
@@ -150,7 +154,7 @@ class InstallTest(InstallTestCase):
         data = self.claude_settings()
         data["outputStyle"] = "Concise"
         self.settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        backup = self.state()["claude_settings"]["backup"]
+        backup = self.state()["components"]["claude"]["settings"]["backup"]
         install.uninstall(self.ctx(stamp="20260930-130000"))
         self.assertEqual(self.claude_settings()["outputStyle"], "Concise")
         self.assertEqual(self.claude_settings()["theme"], "dark")
@@ -186,16 +190,16 @@ class InstallTest(InstallTestCase):
     def test_windows_terminal_with_comments_is_left_alone(self):
         self.wt.write_text('{\n    // my comment\n    "profiles": {"list": []}\n}\n', encoding="utf-8")
         before = self.wt.read_bytes()
-        self.assertEqual(install.install(self.ctx()), 0)
+        self.assertEqual(install.install(self.ctx()), 2)
         self.assertEqual(self.wt.read_bytes(), before)
         self.assertIn('"colorScheme": "Moonlit Candle"', self.out.getvalue())
         self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
         state = json.loads((self.claude / "witchy" / "state.json").read_text(encoding="utf-8"))
-        self.assertIsNone(state["windows_terminal"])
+        self.assertNotIn("windows-terminal", state["components"])
 
     def test_no_windows_terminal_profile_skips_terminal(self):
         before = self.wt.read_bytes()
-        self.assertEqual(install.install(self.ctx(env={})), 0)
+        self.assertEqual(install.install(self.ctx(env={})), 2)
         self.assertEqual(self.wt.read_bytes(), before)
         self.assertIn(install.WT_SKIP, self.out.getvalue())
         self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
@@ -242,13 +246,13 @@ class InstallTest(InstallTestCase):
     def test_failed_windows_terminal_write_still_records_state(self):
         before = self.snapshot()
         with self.wt_write_fails():
-            self.assertEqual(install.install(self.ctx()), 0)
+            self.assertEqual(install.install(self.ctx()), 2)
         self.assertIn(install.WT_SKIP, self.out.getvalue())
         self.assertEqual(self.wt.read_bytes(), before[str(self.wt)])
         self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
         state = self.state()
-        self.assertIsNone(state["windows_terminal"])
-        self.assertEqual(state["claude_settings"]["keys"]["theme"]["previous"], {"value": "dark"})
+        self.assertNotIn("windows-terminal", state["components"])
+        self.assertEqual(state["components"]["claude"]["settings"]["keys"]["theme"]["previous"], {"value": "dark"})
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
         self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
         self.assertEqual(self.snapshot(), before)
@@ -260,8 +264,8 @@ class InstallTest(InstallTestCase):
         self.assertEqual(install.install(self.ctx(stamp="20260930-120500")), 0)
         self.assertEqual(self.ubuntu()["colorScheme"], "Moonlit Candle")
         state = self.state()
-        self.assertEqual(state["claude_settings"]["keys"]["theme"]["previous"], {"value": "dark"})
-        self.assertEqual(state["windows_terminal"]["previous_color_scheme"], {"value": "One Half Dark"})
+        self.assertEqual(state["components"]["claude"]["settings"]["keys"]["theme"]["previous"], {"value": "dark"})
+        self.assertEqual(state["components"]["windows-terminal"]["previous_color_scheme"], {"value": "One Half Dark"})
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
         self.assertEqual(self.snapshot(), before)
 
@@ -288,7 +292,7 @@ class InstallTest(InstallTestCase):
         before = self.snapshot()
         install.install(self.ctx())
         with self.wt_write_fails():
-            self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 1)
+            self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
         output = self.out.getvalue()
         self.assertIn(str(self.wt), output)
         self.assertIn("run uninstall again", output)
@@ -308,7 +312,7 @@ class InstallTest(InstallTestCase):
         before = self.snapshot()
         install.install(self.ctx())
         with self.wt_write_fails():
-            self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 1)
+            self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
         self.assertFalse(self.settings.exists())
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
         self.assertNotIn("no longer exists", self.out.getvalue())
@@ -325,8 +329,10 @@ class InstallTest(InstallTestCase):
 
         with mock.patch("witchy.install.jsonio.write_atomic_bytes", side_effect=write):
             install.uninstall(self.ctx(stamp="20260930-130000"))
-        # settings.json is written back while statusline.py is still there; Windows Terminal is written last
-        self.assertEqual(seen, [("settings.json", True), ("settings.json", False)])
+        # Windows Terminal is written first (reverse install order); Claude's settings.json is written back
+        # while statusline.py still exists, so the settings never point at a deleted file.
+        self.assertEqual([s for s in seen if s[0] == "settings.json"], [("settings.json", True), ("settings.json", True)])
+        self.assertFalse((self.claude / "witchy" / "statusline.py").exists())
 
     def test_install_aborts_when_a_file_changes_while_planning(self):
         before = self.snapshot()
@@ -350,7 +356,7 @@ class InstallTest(InstallTestCase):
 
     def test_uninstall_aborts_when_a_file_changes_while_planning(self):
         install.install(self.ctx())
-        real = install._restore_json
+        real = base.restore_json
         data = self.claude_settings()
         data["model"] = "opus"
         modified = (json.dumps(data, indent=2) + "\n").encode("utf-8")
@@ -362,11 +368,30 @@ class InstallTest(InstallTestCase):
             return change
 
         installed = self.snapshot()
-        with mock.patch("witchy.install._restore_json", side_effect=plan):
+        with mock.patch("witchy.components.claude.restore_json", side_effect=plan):
             self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 1)
         self.assertEqual(self.snapshot(), {**installed, str(self.settings): modified})
         self.assertEqual(list(self.home.rglob("*.bak-witchy-20260930-130000")), [])
         self.assertIn(f"{self.settings} changed while planning; nothing was written. Run the command again.",
+                      self.out.getvalue())
+
+    def test_a_v1_state_from_before_the_refactor_still_uninstalls(self):
+        before = self.snapshot()
+        install.install(self.ctx())
+        v2 = self.state()
+        v1 = {"version": 1, "files": v2["components"]["claude"]["files"],
+              "claude_settings": v2["components"]["claude"]["settings"],
+              "windows_terminal": v2["components"].get("windows-terminal")}
+        (self.claude / "witchy" / "state.json").write_text(json.dumps(v1, indent=2) + "\n", encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_no_windows_terminal_is_skipped_with_exit_2(self):
+        ctx = self.ctx()
+        ctx.wt_settings = self.root / "missing.json"
+        self.assertEqual(install.install(ctx), 2)
+        self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
+        self.assertIn("1/2 components installed · skipped: windows-terminal (settings.json not found)",
                       self.out.getvalue())
 
 

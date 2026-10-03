@@ -35,7 +35,7 @@ class CliTest(unittest.TestCase):
             home.mkdir()
             wt_file.write_text(json.dumps({"profiles": {"list": [
                 {"guid": UBUNTU, "name": "Ubuntu", "source": "Microsoft.WSL"}]}}, indent=4) + "\n")
-            env = {"HOME": str(home), "WT_PROFILE_ID": UBUNTU}
+            env = {"HOME": str(home), "WT_PROFILE_ID": UBUNTU, "XDG_RUNTIME_DIR": tmp}
             with mock.patch.dict(os.environ, env), mock.patch.object(build, "DIST", Path(tmp) / "dist"), \
                     contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main(["install", "--wt-settings", str(wt_file)]), 0)
