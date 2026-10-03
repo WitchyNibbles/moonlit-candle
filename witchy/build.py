@@ -11,6 +11,7 @@ from . import content, palette, validate
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 STATUSLINE_SOURCE = Path(__file__).resolve().parent / "statusline.py"
+RITUAL_SOURCE = Path(__file__).resolve().parent / "ritual"
 PALETTE_BLOCK = re.compile(r"(# BEGIN PALETTE\n)(.*?)(# END PALETTE\n)", re.DOTALL)
 
 THEME = "claude/themes/moonlit-candle.json"
@@ -27,6 +28,11 @@ def palette_block(colours: dict[str, str]) -> str:
 
 def statusline_source(colours: dict[str, str] = palette.STATUSLINE, source: Path = STATUSLINE_SOURCE) -> str:
     """The status line script with its PALETTE block rewritten from ``colours``."""
+    return with_palette(source, colours)
+
+
+def with_palette(source: Path, colours: dict[str, str]) -> str:
+    """``source`` with its one ``# BEGIN PALETTE`` block rewritten from ``colours``."""
     text = source.read_text(encoding="utf-8")
     rewritten, count = PALETTE_BLOCK.subn(lambda m: m.group(1) + palette_block(colours) + m.group(3), text)
     if count != 1:

@@ -139,6 +139,33 @@ SKY: dict[str, str] = {
 }
 
 
+# The greeting (witchy/ritual/palette.py, spec 6.4-6.6). Text and the sabbat accents must read at 4.5:1;
+# the moon art (lit, lit_mid, lit_soft, earthshine) and the stars are decorative (spec 11.2).
+# Order matters: build.py writes this dict into the ritual's PALETTE block verbatim.
+RITUAL: dict[str, str] = {
+    "salutation": "#FFD477",
+    "label": "#A99AB9",
+    "value": FOREGROUND,
+    "moon": "#B99AFF",
+    "tarot": "#FF67B7",
+    "muted": "#CFC3DB",
+    "lit": "#FFD477",
+    "lit_mid": "#FFDB8D",
+    "lit_soft": "#FFE3A3",
+    "earthshine": "#38234D",
+    "star": FOREGROUND,
+    "star_violet": "#B99AFF",
+    "imbolc": "#F3EAF7",
+    "ostara": "#74E8B8",
+    "beltane": "#FF67B7",
+    "litha": "#FFD477",
+    "lughnasadh": "#FFB86B",
+    "mabon": "#FFB86B",
+    "samhain": "#FFB86B",
+    "yule": "#E6DCEE",
+}
+RITUAL_DECORATIVE = ("lit", "lit_mid", "lit_soft", "earthshine", "star", "star_violet")
+
 # Windows Terminal profile settings (spec 4.2). backgroundImage is chosen at install time from the moon phase.
 WT_PROFILE: dict[str, Any] = {
     "font": {"face": "Maple Mono NF", "size": 12, "cellHeight": "1.1"},
@@ -169,10 +196,11 @@ class Variant:
     statusline: dict[str, str]
     sky: dict[str, str] = field(default_factory=dict)
     wt_profile: dict[str, Any] = field(default_factory=dict)
+    ritual: dict[str, str] = field(default_factory=dict)
 
 
 DEFAULT_VARIANT = "midnight"
 VARIANTS: dict[str, Variant] = {
     "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE,
-                        sky=SKY, wt_profile=WT_PROFILE),
+                        sky=SKY, wt_profile=WT_PROFILE, ritual=RITUAL),
 }
