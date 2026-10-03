@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from . import content, palette, tokens
+from . import content, palette, sky_render, tokens
 from .contrast import contrast_ratio
 
 HEX = re.compile(r"^#[0-9A-F]{6}$")
@@ -284,6 +284,23 @@ def validate_ritual_palette(colours: Mapping[str, Any], background: str = palett
     return failures
 
 
+def is_tide_colour(key: str) -> bool:
+    """Tide names a colour variable with the word ``color``: ``tide_pwd_bg_color``, ``tide_git_color_branch``."""
+    return "color" in key.split("_")
+
+
+def validate_sky(sky: Mapping[str, Any]) -> list[Failure]:
+    """Every colour the sky renderer reads is present and #RRGGBB. The sky is decorative: no contrast rule."""
+    failures: list[Failure] = []
+    for key in sky_render.COLOURS:
+        if key not in sky:
+            failures.append(Failure("missing-token", f"sky.{key}", "-", "is missing from the sky colours"))
+    for key, value in sky.items():
+        if not isinstance(value, str) or not HEX.match(value):
+            failures.append(Failure("format", f"sky.{key}", str(value), "is not #RRGGBB in uppercase"))
+    return failures
+
+
 def validate_tide(tide: Mapping[str, Any], background: str = palette.BACKGROUND) -> list[Failure]:
     """Every Tide variable is present; colours are RRGGBB without "#"; segment text reads on its background."""
     failures: list[Failure] = []
@@ -292,10 +309,10 @@ def validate_tide(tide: Mapping[str, Any], background: str = palette.BACKGROUND)
             failures.append(Failure("missing-token", f"tide.{key}", "-", "is missing from the Tide variables"))
     bad = set()
     for key, value in tide.items():
-        if "color" in key and not (isinstance(value, str) and TIDE_HEX.match(value)):
+        if is_tide_colour(key) and not (isinstance(value, str) and TIDE_HEX.match(value)):
             failures.append(Failure("format", f"tide.{key}", str(value), "is not RRGGBB in uppercase, without #"))
             bad.add(key)
-        elif "color" not in key and not (isinstance(value, str) or
+        elif not is_tide_colour(key) and not (isinstance(value, str) or
                                          (isinstance(value, tuple) and all(isinstance(v, str) for v in value))):
             failures.append(Failure("format", f"tide.{key}", str(value), "must be a string or a tuple of strings"))
     for pairs, rule, minimum in ((TIDE_TEXT_PAIRS, "text-contrast", TEXT_MIN),
@@ -336,8 +353,7 @@ def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
     for variant in palette.VARIANTS.values():
         failures += validate_palette(variant.claude_overrides, variant.wt_scheme, variant.statusline,
                                      variant.background, variant.foreground)
-        failures += [Failure("format", f"sky.{key}", str(value), "is not #RRGGBB in uppercase")
-                     for key, value in variant.sky.items() if not isinstance(value, str) or not HEX.match(value)]
+        failures += validate_sky(variant.sky)
         failures += validate_ritual_palette(variant.ritual, variant.background)
         failures += validate_tide(variant.tide, variant.background)
         failures += validate_eza(variant.eza, variant.background)

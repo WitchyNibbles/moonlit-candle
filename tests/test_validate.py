@@ -1,10 +1,11 @@
 import copy
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from witchy import content, palette, validate
+from witchy import content, palette, sky_render, validate
 
 
 def pairs(failures):
@@ -171,6 +172,21 @@ class SkyValidateTest(unittest.TestCase):
         with mock.patch.dict(palette.SKY, {"moon": "gold"}):
             failures = validate.validate_all()
         self.assertIn(("format", "sky.moon"), {(f.rule, f.item) for f in failures})
+
+    def test_every_colour_the_renderer_reads_must_be_present(self):
+        colours = {key: "#FFFFFF" for key in sky_render.COLOURS}
+        sky_render.render(0, colours, (64, 36))  # these are exactly the keys the renderer indexes
+        self.assertEqual(validate.validate_sky(colours), [])
+        for key in sky_render.COLOURS:
+            failures = validate.validate_sky({k: v for k, v in colours.items() if k != key})
+            self.assertEqual([(f.rule, f.item) for f in failures], [("missing-token", f"sky.{key}")])
+
+    def test_validate_all_reports_a_missing_sky_colour(self):
+        sky = {key: value for key, value in palette.SKY.items() if key != "moon_rim"}
+        variant = dataclasses.replace(palette.VARIANTS["midnight"], sky=sky)
+        with mock.patch.dict(palette.VARIANTS, {"midnight": variant}):
+            failures = validate.validate_all()
+        self.assertIn(("missing-token", "sky.moon_rim"), {(f.rule, f.item) for f in failures})
 
 
 if __name__ == "__main__":

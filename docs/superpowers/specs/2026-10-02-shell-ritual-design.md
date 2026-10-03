@@ -385,8 +385,8 @@ python3 -m witchy mood [VARIANT]
 ## 11. Validation additions
 
 1. `ritual.json`: exactly 22 tarot cards, `number` 0–21 each once, unique names, `upright` and `reversed` non-empty and at most 60 characters; `name` non-empty, at most 24 characters; the 8 sabbats present with a blessing; the 3 lunar lines present; blessings and lunar lines at most 48 characters.
-2. Ritual text colours and the 8 sabbat accents at least 4.5:1 on `#0D0916`; the earthshine `#38234D`, the sky images and the stars are exempt as decorative.
-3. Tide pairs at least 4.5:1: each segment's text colour on its background (moon, pwd anchors and dirs, git colours on all three git backgrounds, status, cmd_duration, time), and `character` colours on `#0D0916`. `tide_pwd_color_truncated_dirs` and the frame colour need 3:1.
+2. Ritual text colours and the 8 sabbat accents at least 4.5:1 on `#0D0916`; the earthshine `#38234D`, the sky images and the stars are exempt as decorative. Every sky colour the renderer reads must be present and `#RRGGBB`.
+3. Tide pairs at least 4.5:1: each segment's text colour on its background (moon, pwd anchors and dirs, git colours on all three git backgrounds, status, cmd_duration, time), and `character` colours on `#0D0916`. `tide_pwd_color_truncated_dirs` and the frame colour need 3:1. `tide_prompt_color_separator_same_color` has no contrast pair (it sits between segments that share a background); only its format is checked.
 4. eza colours at least 4.5:1 on `#0D0916`.
 5. Every variant passes every rule; colour format `^#?[0-9A-F]{6}$` (Tide values without `#`).
 

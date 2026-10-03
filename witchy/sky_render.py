@@ -21,6 +21,7 @@ SIZE = (2560, 1440)
 SEED = 1031  # fixed, so the starfield is identical in all eight images
 STARS = 220
 SPARKLES = 7
+COLOURS = ("background", "moon", "moon_dark", "moon_rim", "star", "star_gold", "star_violet")  # what render reads
 _KEY = re.compile(r"[0-9a-f]{16}")  # the cache directory names
 
 

@@ -207,6 +207,8 @@ TIDE: dict[str, str | tuple[str, ...]] = {
     "tide_character_color": "FF67B7",
     "tide_character_color_failure": "FF6B9F",
     "tide_prompt_color_frame_and_connection": "6E5A80",
+    # Drawn between segments that share a background, so no single background exists to test it on: it is
+    # in no contrast pair in validate.py, only format-checked.
     "tide_prompt_color_separator_same_color": "A99AB9",
     "tide_status_bg_color": "1D1230",
     "tide_status_color": "74E8B8",
@@ -219,18 +221,19 @@ TIDE: dict[str, str | tuple[str, ...]] = {
     "tide_time_color": "A99AB9",
 }
 
-# eza (spec 7): build.eza_colors turns these into EZA_COLORS. Git status uses Tide's three git colours.
+# eza (spec 7): build.eza_colors turns these into EZA_COLORS. Git status uses Tide's three git colours,
+# taken from TIDE (which has no "#").
 EZA: dict[str, str] = {
     "directory": "#B99AFF",
     "executable": "#74E8B8",
     "symlink": "#77D9FF",
     "size": "#A99AB9",
     "date": "#A99AB9",
-    "git_new": "#FFD477",
-    "git_modified": "#FFB86B",
-    "git_renamed": "#FFB86B",
-    "git_typechange": "#FFB86B",
-    "git_deleted": "#FF6B9F",
+    "git_new": "#" + TIDE["tide_git_bg_color"],
+    "git_modified": "#" + TIDE["tide_git_bg_color_unstable"],
+    "git_renamed": "#" + TIDE["tide_git_bg_color_unstable"],
+    "git_typechange": "#" + TIDE["tide_git_bg_color_unstable"],
+    "git_deleted": "#" + TIDE["tide_git_bg_color_urgent"],
 }
 
 
