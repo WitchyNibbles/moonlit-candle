@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.fakes import fake_windows, make_ttf, make_zip, reg_listing
-from witchy import fonts
+from witchy import fonts, jsonio
 from witchy.components.base import ComponentFailed
 from witchy.components.font import KEPT_WARNING, RESTART_WT_NOTE, FontComponent
 from witchy.context import Context
@@ -36,13 +36,23 @@ class FontComponentTest(unittest.TestCase):
         self.fetched.append(url)
         return self.archive
 
-    def ctx(self, reg=None, reg_add_code=0, fetch=None, echo=None):
+    def ctx(self, reg=None, reg_query_code=0, reg_add_code=0, fetch=None, echo=None):
         self.out = io.StringIO()
         run = fake_windows(echo={"USERPROFILE": "C:\\Users\\user\r\n"} if echo is None else echo,
-                           reg_query=reg_listing(OTHER_FONT if reg is None else reg), reg_add_code=reg_add_code,
-                           calls=self.calls)
+                           reg_query=reg_listing(OTHER_FONT if reg is None else reg), reg_query_code=reg_query_code,
+                           reg_add_code=reg_add_code, calls=self.calls)
         return Context(home=self.root / "home", env={}, out=self.out, run=run, mount_root=self.mnt,
                        fetch=fetch or self.fetch)
+
+    def release(self, members):
+        """Serve ``members`` as the release archive, with a matching checksum."""
+        self.archive = make_zip(members)
+        patcher = mock.patch.object(fonts, "SHA256", hashlib.sha256(self.archive).hexdigest())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def adds(self):
+        return [call for call in self.calls if call[:2] == ["reg.exe", "add"]]
 
     def install(self, **kwargs):
         ctx = self.ctx(**kwargs)
@@ -105,6 +115,44 @@ class FontComponentTest(unittest.TestCase):
         with self.assertRaises(ComponentFailed):
             self.install(reg_add_code=1)
         self.assertIn("could not register", self.out.getvalue())
+
+    def test_unreadable_registry_is_skipped(self):
+        plan = self.component.plan(self.ctx(reg_query_code=1), None)
+        self.assertEqual(plan.skip, "cannot read the font registry")
+        self.assertIn("font: cannot read the font registry (reg.exe); keeping the current font.", self.out.getvalue())
+        self.assertEqual(self.fetched, [])
+
+    def test_check_warns_when_the_registry_cannot_be_read(self):
+        _, _, entry = self.install()
+        checks = self.component.check(self.ctx(reg_query_code=1), entry)
+        self.assertEqual([(check.level, check.message) for check in checks],
+                         [("warn", "cannot read the font registry (reg.exe)")])
+
+    def test_an_unreadable_font_name_fails_before_anything_is_copied(self):
+        members = {name: make_ttf(f"Maple Mono NF {style}") for name, style in zip(fonts.MEMBERS, STYLES)}
+        self.release({**members, fonts.MEMBERS[2]: b"not a font"})
+        with self.assertRaisesRegex(ComponentFailed, r"^the font's name table is not readable \("):
+            self.install()
+        self.assertIn("font: the font's name table is not readable (", self.out.getvalue())
+        self.assertEqual(list(self.folder.iterdir()), [])
+        self.assertEqual(self.adds(), [])
+
+    def test_a_failed_copy_fails_and_registers_nothing(self):
+        real = jsonio.write_atomic_bytes
+        target = self.folder / fonts.MEMBERS[2]
+
+        def write(path, data):
+            if Path(path) == target:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, data)
+
+        with mock.patch("witchy.jsonio.write_atomic_bytes", side_effect=write):
+            with self.assertRaisesRegex(ComponentFailed, r"^could not copy the font files \(\[Errno 13\] "):
+                self.install()
+        self.assertIn(f"font: could not copy the font files ([Errno 13] Permission denied: '{target}'); "
+                      "keeping the current font.", self.out.getvalue())
+        self.assertEqual(sorted(path.name for path in self.folder.iterdir()), sorted(fonts.MEMBERS[:2]))
+        self.assertEqual(self.adds(), [])
 
     def test_no_windows_profile_is_skipped(self):
         plan = self.component.plan(self.ctx(echo={}), None)
