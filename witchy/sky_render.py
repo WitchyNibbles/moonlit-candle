@@ -8,6 +8,8 @@ import hashlib
 import json
 import math
 import random
+import re
+import shutil
 import struct
 import zlib
 from pathlib import Path
@@ -19,6 +21,7 @@ SIZE = (2560, 1440)
 SEED = 1031  # fixed, so the starfield is identical in all eight images
 STARS = 220
 SPARKLES = 7
+_KEY = re.compile(r"[0-9a-f]{16}")  # the cache directory names
 
 
 def _rgb(colour: str) -> tuple[int, int, int]:
@@ -96,20 +99,47 @@ def render(bin_: int, colours: dict[str, str], size: tuple[int, int] = SIZE) -> 
     return _png(width, height, bytes(raw))
 
 
+def _whole_png(data: bytes) -> bool:
+    return data.startswith(b"\x89PNG\r\n\x1a\n") and data.endswith(b"IEND\xaeB`\x82")
+
+
+def _read_png(path: Path) -> bytes | None:
+    """The cached image, or None when it is missing, unreadable, or not a whole PNG."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    return data if _whole_png(data) else None
+
+
+def _prune(root: Path, keep: str) -> None:
+    """Remove the cache directories of older renderers and palettes (their names are 16 hex characters)."""
+    try:
+        for entry in root.iterdir():
+            if entry.name != keep and _KEY.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry, ignore_errors=True)
+    except OSError:
+        pass  # leftovers only cost disk space
+
+
 def cached(root: Path, colours: dict[str, str], size: tuple[int, int] = SIZE, write: bool = True) -> list[bytes]:
     """All eight images, read from ``root/<key>/`` when this renderer, palette and size made them before."""
     key = hashlib.sha256(Path(__file__).read_bytes()
                          + json.dumps([colours, list(size)], sort_keys=True).encode("utf-8")).hexdigest()[:16]
     images = []
+    wrote = False
     for bin_ in range(BINS):
         path = root / key / f"sky-{bin_}.png"
-        data = path.read_bytes() if path.is_file() else None
+        data = _read_png(path)
         if data is None:
             data = render(bin_, colours, size)
             if write:
                 try:
                     jsonio.write_atomic_bytes(path, data)
+                    wrote = True
                 except OSError:
                     pass  # the cache only saves the next render
         images.append(data)
+    if wrote:
+        _prune(root, key)
     return images

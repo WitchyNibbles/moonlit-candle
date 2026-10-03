@@ -167,7 +167,7 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 - 8 PNGs, `moonlit-candle-sky-0.png` (new) to `-7.png` (waning crescent), 2560×1440 RGB on `#0D0916`, rendered by `witchy/sky_render.py` with a stdlib PNG writer into a pre-filled `bytearray`, touching only star and moon pixels.
 - Shared starfield: a fixed seed places about 220 stars (single pixels and 2×2 dots in `#F3EAF7`, `#FFD477`, `#B99AFF`) and 6–8 four-point sparkles; identical in all 8 images.
 - The moon: radius 150 px, centred about 260 px from the right and bottom edges. The lit part is drawn for the bin's phase in `#FFD477`; the dark part is a faint `#1D1230` disc with a `#38234D` rim; a soft glow scales with illumination.
-- Output is deterministic. Renders are cached in `~/.cache/witchy/sky/<hash of renderer source + palette>/`, so only the first build pays (about 1 s per image).
+- Output is deterministic. Renders are cached in `~/.cache/witchy/sky/<hash of renderer source + palette>/`, so only the first build pays (about 1 s per image). A cached file that cannot be read or is not a whole PNG is rendered again, and after a write the directories of older keys (16 lowercase hex characters) are removed.
 - **Spike gate:** before building the sky job, a manual check confirms that Windows Terminal applies a changed `backgroundImage` path without a restart. If it does not, ship a single image for the install-day phase (`moonlit-candle-sky.png`) and no sky job; everything else in this spec is unchanged.
 - **Spike result (2026-10-03): passed.** An atomic replace of `settings.json` that only changed `backgroundImage` was applied to an open tab without a restart, so the eight images and the sky job stay in scope.
 

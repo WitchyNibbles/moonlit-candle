@@ -61,6 +61,52 @@ class CacheTest(unittest.TestCase):
             sky_render.cached(Path(tmp), palette.SKY, SMALL, write=False)
             self.assertEqual(list(Path(tmp).iterdir()), [])
 
+    def test_an_unreadable_cache_file_is_a_miss(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = sky_render.cached(Path(tmp), palette.SKY, SMALL)
+            real = Path.read_bytes
+
+            def read_bytes(path):
+                if path.name == "sky-3.png":
+                    raise PermissionError("denied")
+                return real(path)
+
+            with mock.patch.object(Path, "read_bytes", read_bytes):
+                second = sky_render.cached(Path(tmp), palette.SKY, SMALL)
+        self.assertEqual(first, second)
+
+    def test_a_cache_file_that_is_not_a_whole_png_is_rendered_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = sky_render.cached(Path(tmp), palette.SKY, SMALL)
+            files = sorted(Path(tmp).glob("*/sky-*.png"))
+            files[0].write_bytes(b"not a png")
+            files[1].write_bytes(first[1][:-5])  # cut short, so no IEND
+            second = sky_render.cached(Path(tmp), palette.SKY, SMALL)
+            self.assertEqual(files[0].read_bytes(), first[0])
+        self.assertEqual(first, second)
+
+    def test_older_cache_directories_are_pruned_after_a_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "0123456789abcdef").mkdir()
+            (root / "0123456789abcdef" / "sky-0.png").write_bytes(b"old")
+            (root / "notes").mkdir()
+            (root / "ABCDEF0123456789").mkdir()  # not a key: keys are lowercase hex
+            (root / "0123456789abcde0").write_text("a file, not a directory")
+            sky_render.cached(root, palette.SKY, SMALL)
+            names = sorted(path.name for path in root.iterdir())
+            self.assertEqual(len(names), 4)
+            self.assertNotIn("0123456789abcdef", names)
+            self.assertEqual(sum(1 for name in names if len(name) == 16 and (root / name / "sky-0.png").is_file()), 1)
+            for kept in ("notes", "ABCDEF0123456789", "0123456789abcde0"):
+                self.assertIn(kept, names)
+
+    def test_a_dry_run_prunes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "0123456789abcdef").mkdir()
+            sky_render.cached(Path(tmp), palette.SKY, SMALL, write=False)
+            self.assertTrue((Path(tmp) / "0123456789abcdef").is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()
