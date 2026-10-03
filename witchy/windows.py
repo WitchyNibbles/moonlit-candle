@@ -20,7 +20,7 @@ class WindowsHome:
 
 
 def echo(variable: str, run: Callable[..., Any] = subprocess.run) -> str | None:
-    """The value of a Windows environment variable, or None."""
+    """The value of a Windows environment variable, or None. cmd.exe prints ``%VAR%`` back when it is unset."""
     try:
         # cwd=/mnt/c keeps cmd.exe from warning about a UNC working directory. cmd.exe answers in the OEM code
         # page, so a name like "José" is not valid UTF-8: replace instead of raising.
@@ -29,7 +29,7 @@ def echo(variable: str, run: Callable[..., Any] = subprocess.run) -> str | None:
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
     value = (done.stdout or "").strip()
-    return value if done.returncode == 0 and value and "%" not in value else None
+    return value if done.returncode == 0 and value and value != f"%{variable}%" else None
 
 
 def to_wsl(path: str, mount_root: Path = MOUNT_ROOT) -> Path | None:

@@ -68,7 +68,7 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by the comm
 | `⚠ fish  eza missing — sudo apt install eza` | `ll` and `lt` fall back to `ls` | `sudo apt install eza` |
 | `⚠ fish  greeting: last run failed …` | the greeting hit an error in the last 7 days and printed nothing | `tail -n 20 ~/.cache/witchy/ritual.log`; `ritual` shows the greeting |
 | `⚠ fish  sky: last run failed …` | the sky job could not move the moon (for example, you set your own `backgroundImage`); it retries once a day | `python3 -m witchy install --only windows-terminal` puts the moon sky back |
-| `⚠ …  last install (…): skipped: …` | a component was skipped or failed at the last install | read the reason, then install `--only` that component |
+| `⚠ …  last install (…): skipped: …` or `failed: …` | a component was skipped or failed at the last install | read the reason, then install `--only` that component |
 | `✗ state  … damaged` | `state.json` is not readable | fix or remove the file by hand |
 
 `install` and `uninstall` stop with `another witchy command is running` (exit 1) while a second witchy command holds the lock; wait for it to finish.

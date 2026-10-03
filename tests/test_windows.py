@@ -28,6 +28,14 @@ class UserHomeTest(unittest.TestCase):
         self.assertEqual(windows.user_home(run, self.mnt),
                          windows.WindowsHome("C:\\Users\\manue", self.mnt / "c" / "Users" / "manue"))
 
+    def test_a_percent_sign_in_the_profile_path_is_a_value_not_an_unset_variable(self):
+        (self.mnt / "c" / "Users" / "100%").mkdir(parents=True)
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\100%\r\n"})
+        self.assertEqual(windows.echo("USERPROFILE", run), "C:\\Users\\100%")
+        self.assertEqual(windows.user_home(run, self.mnt),
+                         windows.WindowsHome("C:\\Users\\100%", self.mnt / "c" / "Users" / "100%"))
+        self.assertIsNone(windows.echo("USERPROFILE", fake_windows()))  # cmd.exe prints %USERPROFILE% back
+
     def test_missing_folder_or_variable_is_none(self):
         self.assertIsNone(windows.user_home(fake_windows(echo={"USERPROFILE": "C:\\Users\\gone\r\n"}), self.mnt))
         self.assertIsNone(windows.user_home(fake_windows(), self.mnt))

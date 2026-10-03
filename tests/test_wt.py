@@ -209,9 +209,11 @@ class LookupFixTest(unittest.TestCase):
         self.settings.write_text("{}")
 
     def test_profile_folder_wins_over_a_renamed_account(self):
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"})
+        calls = []
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"}, calls=calls)
         found = wt.locate_settings(None, run=run, users_root=self.mnt / "c" / "Users", mount_root=self.mnt)
         self.assertEqual(found, self.settings)
+        self.assertNotIn(["cmd.exe", "/c", "echo %USERNAME%"], calls)
 
     def test_recorded_path_is_used_without_asking_windows(self):
         calls = []
