@@ -4,9 +4,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from witchy import runner, state
-from witchy.components.base import Abort, Change, ComponentFailed, Plan
+from witchy import palette, runner, state
+from witchy.components.base import Abort, Change, Check, ComponentFailed, Plan
 from witchy.context import Context
 
 
@@ -38,6 +39,17 @@ class Fake:
 
     def check(self, ctx, entry):
         return []
+
+
+class CheckingFake(Fake):
+    def __init__(self, name, log, checks=None, raises=None):
+        super().__init__(name, log)
+        self.checks, self.raises = checks or [], raises
+
+    def check(self, ctx, entry):
+        if self.raises:
+            raise self.raises
+        return self.checks
 
 
 class RunnerTestCase(unittest.TestCase):
@@ -157,6 +169,69 @@ class UninstallRunnerTest(RunnerTestCase):
     def test_nothing_to_uninstall(self):
         self.assertEqual(runner.uninstall(self.ctx(), [Fake("a", self.log)]), 0)
         self.assertIn("Nothing to uninstall", self.out.getvalue())
+
+
+class DoctorTest(RunnerTestCase):
+    def test_not_installed_is_a_warning(self):
+        self.assertEqual(runner.doctor(self.ctx(), [Fake("a", self.log)]), 0)
+        self.assertIn("⚠ a", self.out.getvalue())
+        self.assertIn("fix: python3 -m witchy install --only a", self.out.getvalue())
+
+    def test_failing_check_exits_1_and_shows_its_fix(self):
+        self.write_state({"a": {}})
+        failing = CheckingFake("a", self.log, checks=[Check("fail", "a", "theme drifted", "do the thing")])
+        self.assertEqual(runner.doctor(self.ctx(), [failing]), 1)
+        self.assertIn("✗ a", self.out.getvalue())
+        self.assertIn("theme drifted", self.out.getvalue())
+        self.assertIn("    fix: do the thing", self.out.getvalue())
+
+    def test_ok_checks_exit_0(self):
+        self.write_state({"a": {}})
+        self.assertEqual(runner.doctor(self.ctx(), [CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])]), 0)
+        self.assertIn("✓ a", self.out.getvalue())
+
+    def test_raising_check_is_reported_not_crashed(self):
+        self.write_state({"a": {}})
+        self.assertEqual(runner.doctor(self.ctx(), [CheckingFake("a", self.log, raises=KeyError("path"))]), 1)
+        self.assertIn("check crashed", self.out.getvalue())
+
+    def test_damaged_state_is_a_failure_line(self):
+        path = self.home / ".claude" / "witchy" / "state.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("{", encoding="utf-8")
+        self.assertEqual(runner.doctor(self.ctx(), [Fake("a", self.log)]), 1)
+        self.assertIn("✗ state", self.out.getvalue())
+
+    def test_last_install_skips_are_warned(self):
+        state.save(self.home / ".claude" / "witchy" / "state.json",
+                   dict(state.empty("midnight"), components={"a": {}},
+                        last_install={"at": "20261002-120000", "results": {"a": "skipped: offline"}}))
+        runner.doctor(self.ctx(), [CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])])
+        self.assertIn("last install (20261002-120000): skipped: offline", self.out.getvalue())
+
+
+class MoodTest(RunnerTestCase):
+    def test_lists_active_and_available(self):
+        self.assertEqual(runner.mood(self.ctx(), None, [Fake("a", self.log)]), 0)
+        self.assertIn("active: midnight", self.out.getvalue())
+        self.assertIn("available: midnight", self.out.getvalue())
+
+    def test_unknown_variant_exits_1(self):
+        self.assertEqual(runner.mood(self.ctx(), "dawn", [Fake("a", self.log)]), 1)
+        self.assertIn("unknown variant 'dawn'; available: midnight", self.out.getvalue())
+
+    def test_same_variant_is_a_no_op(self):
+        self.write_state({"a": {"installed": "a"}})
+        self.assertEqual(runner.mood(self.ctx(), "midnight", [Fake("a", self.log)]), 0)
+        self.assertIn("already midnight", self.out.getvalue())
+        self.assertEqual(self.log, [])
+
+    def test_switching_reinstalls_with_the_new_variant(self):
+        self.write_state({"a": {"installed": "a"}})
+        with mock.patch.dict(palette.VARIANTS, {"dawn": palette.VARIANTS["midnight"]}):
+            self.assertEqual(runner.mood(self.ctx(), "dawn", [Fake("a", self.log)]), 0)
+        self.assertEqual(self.state()["variant"], "dawn")
+        self.assertIn(("apply", "a"), self.log)
 
 
 if __name__ == "__main__":

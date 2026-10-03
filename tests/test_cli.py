@@ -55,6 +55,26 @@ class CliTest(unittest.TestCase):
         for command in ("validate", "build", "install", "uninstall"):
             self.assertIn(command, out.getvalue())
 
+    def test_help_lists_new_commands(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            main(["--help"])
+        for command in ("doctor", "mood"):
+            self.assertIn(command, out.getvalue())
+
+    def test_only_rejects_unknown_components(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            main(["install", "--only", "nope"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_doctor_and_mood_run_on_an_empty_home(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"HOME": tmp}), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(["doctor"]), 0)
+            self.assertEqual(main(["mood"]), 0)
+        self.assertIn("not installed", out.getvalue())
+        self.assertIn("active: midnight", out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

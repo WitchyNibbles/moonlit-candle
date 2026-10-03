@@ -7,7 +7,7 @@ from typing import Any, Iterator, Sequence
 
 from . import build, palette, state as statefile, validate
 from .components import all_components
-from .components.base import Component, apply_changes, check_unchanged, show_changes
+from .components.base import Check, Component, apply_changes, check_unchanged, fix_command, show_changes
 from .errors import Abort, ComponentFailed
 
 LOCK_BUSY = "another witchy command is running"
@@ -162,3 +162,60 @@ def _uninstall(ctx: Any, components: list) -> int:
         return 2
     ctx.say("Moonlit Candle uninstalled.")
     return 0
+
+
+SYMBOLS = {"ok": "✓", "warn": "⚠", "fail": "✗"}
+
+
+def _print_check(ctx: Any, check: Check) -> None:
+    ctx.say(f"{SYMBOLS[check.level]} {check.component:<17} {check.message}")
+    if check.fix and check.level != "ok":
+        ctx.say(f"    fix: {check.fix}")
+
+
+def doctor(ctx: Any, components: Sequence[Component] | None = None) -> int:
+    try:
+        state = statefile.load(ctx.state_path)
+    except Abort as exc:
+        _print_check(ctx, Check("fail", "state", " ".join(str(exc).split())))
+        return 1
+    entries = (state or {}).get("components", {})
+    checks: list[Check] = []
+    for component in _components(components):
+        entry = entries.get(component.name)
+        if entry is None:
+            checks.append(Check("warn", component.name, "not installed", fix_command(component.name)))
+            continue
+        try:
+            checks.extend(component.check(ctx, entry))
+        except Exception as exc:  # a broken check is reported as a failure line, never a traceback
+            checks.append(Check("fail", component.name, f"check crashed: {exc!r}"))
+    last = (state or {}).get("last_install") or {}
+    for name, result in last.get("results", {}).items():
+        if result != "ok":
+            checks.append(Check("warn", name, f"last install ({last.get('at')}): {result}", fix_command(name)))
+    for check in checks:
+        _print_check(ctx, check)
+    return 1 if any(check.level == "fail" for check in checks) else 0
+
+
+def mood(ctx: Any, variant: str | None, components: Sequence[Component] | None = None) -> int:
+    try:
+        state = statefile.load(ctx.state_path)
+    except Abort as exc:
+        ctx.say(str(exc))
+        return 1
+    active = (state or {}).get("variant") or palette.DEFAULT_VARIANT
+    available = ", ".join(palette.VARIANTS)
+    if variant is None:
+        ctx.say(f"active: {active}")
+        ctx.say(f"available: {available}")
+        return 0
+    if variant not in palette.VARIANTS:
+        ctx.say(f"unknown variant {variant!r}; available: {available}")
+        return 1
+    if state is not None and variant == active:
+        ctx.say(f"already {variant}")
+        return 0
+    ctx.variant = variant
+    return install(ctx, components)
