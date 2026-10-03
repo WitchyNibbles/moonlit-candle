@@ -61,7 +61,7 @@ class Component(Protocol):
     def check(self, ctx, entry: dict | None) -> list[Check]  # doctor lines: ok | warn | fail, message, fix
 ```
 
-`Plan` holds file `Change`s (the existing dataclass), commands to run (fish, `reg.exe`), notes and warnings. `--dry-run` prints every plan and runs nothing.
+`Plan` holds file `Change`s (the existing dataclass), commands to run (fish, `reg.exe`), notes and warnings. `--dry-run` prints every plan and runs nothing. A restore plan's `commands` run before its file changes, and its `prune` folders are removed afterwards when empty. A plan that applies only in part sets `outcome` (for example `skipped: Tide not found`), which the runner records instead of `ok`. A `restore` that cannot be planned (its `settings.json` is no longer plain JSON) raises `ComponentFailed`: nothing of that component is touched and it stays in state.
 
 ### 3.2 Runner (`witchy/runner.py`)
 
@@ -111,7 +111,7 @@ Variants change colours only; theme name, scheme name and installed paths stay t
 | `windows-terminal` | the scheme; the profile keys (4.2); `<WT LocalState>/moonlit-candle-sky-{0..7}.png`; `~/.claude/witchy/ritual-config.json` (settings path, profile GUID, the 8 sky values) |
 | `fish` | `~/.claude/witchy/ritual/` (greeting package); `~/.config/fish/functions/{fish_greeting,ritual,_tide_item_moon,_witchy_moon_bin,ll,lt}.fish`; `~/.config/fish/conf.d/witchy.fish`; the Tide universal variables (5.2) |
 
-fish files are rendered at install time from `content/fish/*.fish` templates (placeholders `@PYTHON@`, `@WITCHY_DIR@`).
+fish files are rendered at install time from `content/fish/functions/*.fish` and `content/fish/conf.d/witchy.fish` (placeholders `@PYTHON@`, `@WITCHY_DIR@`, `@EZA_COLORS@`, each written as a single-quoted fish word). They go to `$XDG_CONFIG_HOME/fish` when it is set, as fish itself does.
 
 ## 4. Windows Terminal
 
@@ -217,6 +217,9 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 - Uninstall restores a variable (or erases it with `set -e -U`) only if it still holds the installed value; otherwise it warns and leaves it.
 - Every `fish` call uses list arguments and a 5 s timeout through the injectable `ctx.run`.
 - Running shells keep their old prompt; the summary says to open a new tab.
+- `fish -c` runs the user's `config.fish` (0.4 s on this machine) and `--no-config` also turns off universal variables, so the calls are batched: one call reads Tide's presence and every variable, one call sets them all. Values travel on standard input as NUL-terminated fields, never in the script; the scripts print a `witchy-fish` marker first, so whatever `config.fish` prints is ignored. A global that `config.fish` sets is erased inside the reading call so the universal value shows.
+- When fish or Tide is missing, the files still install and the result is `skipped: fish not found` or `skipped: Tide not found`. A failed set records the files and the variables already set, and the result is `failed: could not set <name>`. When fish does not finish (for example a timeout), every planned variable is recorded, because restore skips one that still holds its previous value, and the result is `failed: fish did not finish setting the Tide variables`.
+- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left with a warning and the files still go; when fish exists but does not answer, the component stays installed.
 
 ## 6. Greeting (the ritual)
 
@@ -321,6 +324,7 @@ shell   fish 3.7.0
 - `conf.d/witchy.fish` exports `EZA_COLORS` built from the variant: directories `#B99AFF`, executables `#74E8B8`, symlinks `#77D9FF`, sizes and dates `#A99AB9`, git status in the git colours.
 - `ll` runs `eza -la --icons --group-directories-first --git`; `lt` runs `eza --tree --level=2 --icons`. Without eza they fall back to `ls -la` and `ls -R`.
 - `ls` itself is not aliased.
+- Codes: `di`, `ex`, `ln`, `sn` and `sb`, `da`, and git `ga` `#FFD477`, `gm`/`gv`/`gt` `#FFB86B`, `gd` `#FF6B9F` (Tide's three git colours), all as 24-bit `38;2;R;G;B`.
 - Doctor shows `⚠ eza missing — sudo apt install eza` when eza is absent.
 
 ## 8. CLI
@@ -337,9 +341,11 @@ python3 -m witchy mood [VARIANT]
 - Existing commands and flags are unchanged.
 - `--only` accepts `claude`, `font`, `windows-terminal`, `fish` (repeatable). Components not named keep their state untouched.
 - Install and uninstall exit 0 (all ok), 1 (nothing changed: validation, lock, abort), 2 (done with warnings).
-- An uninstall whose restore cannot be written keeps that component in state and exits 2; running uninstall again retries it.
+- An uninstall whose restore cannot be written, or cannot be planned, keeps that component in state and exits 2; running uninstall again retries it. A Claude or Windows Terminal `settings.json` that is no longer plain JSON keeps the whole component, files included, because the settings still point at them.
+- The end summary says `Nothing was installed.` instead of the install line when no component applied.
 - `doctor` prints one line per check, `✓`, `⚠` or `✗`, each `✗`/`⚠` with its fix (often `python3 -m witchy install --only <name>`). It uses the paths recorded in state (no `cmd.exe` lookup) and finishes under 2 s. Exit 1 on any `✗`, else 0. A `check()` that raises is reported as `✗` with the exception text.
 - Doctor checks: installed files match their recorded hashes; settings keys and profile keys hold installed values; the theme is active; the font is registered; the sky images and `ritual-config.json` exist; Tide variables match; eza is present; the backups state relies on still exist; the last `ritual.log` error; the sky fail marker; components skipped at the last install.
+- The newest `greeting` and `sky` errors are shown only when they are less than 7 days old, with their age (`today at 09:14`, `yesterday`, `3 days ago`) and cut to 100 characters. A sky fail marker for today adds `(it retries tomorrow)`. The log holds errors only, so an old error would otherwise warn for ever.
 - `mood` without an argument prints the active and available variants. With a variant it records it in state and re-runs install; an unknown variant exits 1 with `available: midnight`.
 
 ## 9. Error and rescue map

@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from witchy import content, install, jsonio, validate
+from tests.fakes import fake_fish
+from witchy import content, install, jsonio, palette, validate
 from witchy.components import base
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
@@ -351,6 +352,27 @@ class InstallTest(InstallTestCase):
         self.settings.write_text(installed, encoding="utf-8")
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
         self.assertEqual(self.snapshot(), before)
+
+    def test_every_local_component_round_trips_bytes_and_fish_variables(self):
+        mine = self.home / ".config" / "fish" / "functions" / "ll.fish"
+        mine.parent.mkdir(parents=True)
+        mine.write_text("function ll; ls -lh $argv; end\n", encoding="utf-8")
+        variables = {"tide_pwd_bg_color": {"value": ["FFB7C5"], "exported": False},
+                     "tide_time_color": {"value": ["5F8787"], "exported": True}}
+        original = json.loads(json.dumps(variables))
+        before = self.snapshot()
+
+        def ctx(stamp):
+            ctx = self.ctx(stamp=stamp)
+            ctx.run, ctx.only = fake_fish(variables), ("claude", "windows-terminal", "fish")
+            return ctx
+
+        self.assertEqual(install.install(ctx("20260930-120000")), 0)
+        self.assertEqual(variables["tide_pwd_bg_color"]["value"], [palette.TIDE["tide_pwd_bg_color"]])
+        self.assertTrue((self.claude / "witchy" / "ritual" / "__main__.py").is_file())
+        self.assertEqual(install.uninstall(ctx("20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(variables, original)
 
     def test_install_aborts_when_a_file_changes_while_planning(self):
         before = self.snapshot()
