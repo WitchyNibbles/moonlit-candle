@@ -28,6 +28,15 @@ class LogTest(unittest.TestCase):
         self.path.parent.write_text("a file, not a folder", encoding="utf-8")
         log.append(self.path, "boom", datetime(2026, 10, 31))  # must not raise
 
+    def test_corrupt_utf8_in_log_is_ignored(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(b"\xff\xfe broken\n")
+        # append must not raise when reading the corrupt log
+        log.append(self.path, "new message", datetime(2026, 10, 31, 12, 0, 0))
+        # last must not raise and should return None or a string
+        result = log.last(self.path)
+        self.assertIsNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()

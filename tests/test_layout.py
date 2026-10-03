@@ -24,6 +24,12 @@ class WidthTest(unittest.TestCase):
         self.assertEqual(layout.line_width(cut), 3)
         self.assertEqual(cut[0][0], "ab…")
 
+    def test_fit_with_zero_width_returns_empty(self):
+        self.assertEqual(layout.fit([("abc", None, False)], 0), [])
+
+    def test_fit_with_negative_width_returns_empty(self):
+        self.assertEqual(layout.fit([("abc", None, False)], -1), [])
+
 
 class SideBySideTest(unittest.TestCase):
     def test_short_info_is_centred_beside_the_art(self):

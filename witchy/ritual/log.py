@@ -15,7 +15,7 @@ def append(path: Path, message: str, now: datetime) -> None:
         line = f"{now:%Y-%m-%dT%H:%M:%S} " + " ".join(message.split())
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join([*old, line][-MAX_LINES:]) + "\n", encoding="utf-8")
-    except OSError:
+    except (OSError, ValueError):
         pass
 
 
@@ -23,6 +23,6 @@ def last(path: Path) -> str | None:
     """The newest line, or None when there is no log."""
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, ValueError):
         return None
     return lines[-1] if lines else None

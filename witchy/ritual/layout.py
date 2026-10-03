@@ -28,6 +28,8 @@ def line_width(line: Line) -> int:
 
 def fit(line: Line, width: int) -> Line:
     """``line`` cut to ``width`` cells, ending in an ellipsis when it was too long."""
+    if width < 1:
+        return []
     if line_width(line) <= width:
         return line
     result, used = [], 0
