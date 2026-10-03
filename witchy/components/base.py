@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 import difflib
+import fcntl
 import hashlib
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Iterator, Protocol
 
 from .. import jsonio
 from ..errors import Abort, ComponentFailed
 
 __all__ = ["Abort", "ComponentFailed", "Change", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
            "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes",
-           "restore_copy", "restore_json"]
+           "restore_copy", "restore_json", "file_lock"]
 
 
 def sha(data: bytes | None) -> str | None:
@@ -58,18 +61,42 @@ class JsonPlan:
 
 @dataclass
 class Plan:
-    """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs."""
+    """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied."""
 
     changes: list[Change] = field(default_factory=list)
     skip: str | None = None
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     actions: list[str] = field(default_factory=list)
+    lock: Path | None = None
     data: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def skipped(cls, reason: str) -> Plan:
         return cls(skip=reason)
+
+
+@contextmanager
+def file_lock(path: Path | None, timeout: float = 10.0) -> Iterator[None]:
+    """Hold ``path`` exclusively, waiting up to ``timeout`` seconds (the sky job holds it only briefly)."""
+    if path is None:
+        yield
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ComponentFailed(f"{path} is held by another process") from None
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 @dataclass(frozen=True)

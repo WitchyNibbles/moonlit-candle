@@ -7,7 +7,7 @@ from typing import Any, Iterator, Sequence
 
 from . import build, palette, state as statefile, validate
 from .components import all_components
-from .components.base import Check, Component, apply_changes, check_unchanged, fix_command, show_changes
+from .components.base import Check, Component, apply_changes, check_unchanged, file_lock, fix_command, show_changes
 from .errors import Abort, ComponentFailed
 
 LOCK_BUSY = "another witchy command is running"
@@ -52,6 +52,14 @@ def _summary(results: dict[str, str]) -> str:
         if named:
             line += f" · {kind}: " + ", ".join(named)
     return line
+
+
+def _recheck(changes: list) -> None:
+    """Under the plan's lock: another writer (the sky job) may have rewritten a file since planning."""
+    try:
+        check_unchanged(changes)
+    except Abort as exc:
+        raise ComponentFailed(str(exc)) from exc
 
 
 def install(ctx: Any, components: Sequence[Component] | None = None) -> int:
@@ -103,7 +111,9 @@ def _install(ctx: Any, components: list) -> int:
             results[component.name] = f"skipped: {plan.skip}"
         else:
             try:
-                new_state["components"][component.name] = component.apply(ctx, plan)
+                with file_lock(plan.lock):
+                    _recheck(plan.changes)
+                    new_state["components"][component.name] = component.apply(ctx, plan)
                 results[component.name] = "ok"
             except ComponentFailed as exc:
                 results[component.name] = f"failed: {exc}"
@@ -160,8 +170,10 @@ def _uninstall(ctx: Any, components: list) -> int:
     failed = []
     for component, plan in plans:
         try:
-            apply_changes(ctx, plan.changes)
-        except OSError as exc:
+            with file_lock(plan.lock):
+                _recheck(plan.changes)
+                apply_changes(ctx, plan.changes)
+        except (OSError, ComponentFailed) as exc:
             ctx.say(f"{component.name}: could not write ({exc}); run uninstall again.")
             failed.append(component.name)
             continue

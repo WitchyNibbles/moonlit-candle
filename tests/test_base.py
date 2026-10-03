@@ -1,8 +1,10 @@
+import fcntl
 import io
+import tempfile
 import unittest
 from pathlib import Path
 
-from witchy.components.base import Change, show_changes
+from witchy.components.base import Change, ComponentFailed, file_lock, show_changes
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
 
@@ -26,6 +28,21 @@ class ShowChangesTest(unittest.TestCase):
         ctx = Ctx()
         show_changes(ctx, [Change(Path("/x/a.json"), b'{"a": 1}\n', b'{"a": 2}\n')])
         self.assertIn('+{"a": 2}', ctx.out.getvalue())
+
+
+class FileLockTest(unittest.TestCase):
+    def test_busy_lock_times_out_as_a_component_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "wt.lock"
+            with open(path, "a") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with self.assertRaises(ComponentFailed):
+                    with file_lock(path, timeout=0.2):
+                        pass
+
+    def test_no_path_is_a_no_op(self):
+        with file_lock(None):
+            pass
 
 
 if __name__ == "__main__":

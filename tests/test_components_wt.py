@@ -2,12 +2,13 @@ import io
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from witchy import palette
+from witchy import jsonio, palette, wt
 from witchy.components.base import ComponentFailed, Plan, apply_changes
-from witchy.components.windows_terminal import NO_FONT_NOTE, WindowsTerminalComponent
+from witchy.components.windows_terminal import NO_FONT_NOTE, RITUAL_CONFIG, WindowsTerminalComponent
 from witchy.context import Context
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
@@ -31,7 +32,8 @@ class WindowsTerminalComponentTest(unittest.TestCase):
     def ctx(self, wt_settings=None, stamp="20261002-120000"):
         self.out = io.StringIO()
         return Context(home=self.root / "home", env={"WT_PROFILE_ID": UBUNTU}, out=self.out,
-                       wt_settings=wt_settings or self.wt, stamp=stamp, run=refuse_cmd, variant="midnight")
+                       wt_settings=wt_settings or self.wt, stamp=stamp, run=refuse_cmd, variant="midnight",
+                       sky_size=(256, 144), now=lambda: datetime(2024, 9, 18, 12, tzinfo=timezone.utc))
 
     def ubuntu(self):
         return json.loads(self.wt.read_text(encoding="utf-8"))["profiles"]["list"][0]
@@ -83,7 +85,8 @@ class WindowsTerminalComponentTest(unittest.TestCase):
     def test_recorded_settings_path_is_reused_without_cmd_exe(self):
         _, entry = self.install()
         ctx = Context(home=self.root / "home", env={"WT_PROFILE_ID": UBUNTU}, out=io.StringIO(), run=refuse_cmd,
-                      variant="midnight")
+                      variant="midnight", sky_size=(256, 144),
+                      now=lambda: datetime(2024, 9, 18, 12, tzinfo=timezone.utc))
         plan = self.component.plan(ctx, entry)
         self.assertIsNone(plan.skip)
         self.assertEqual(plan.data["json"].change.path, self.wt)
@@ -100,7 +103,7 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         ubuntu = self.ubuntu()
         self.assertEqual((ubuntu["cursorShape"], ubuntu["tabTitle"], ubuntu["opacity"]), ("filledBox", "witchyterm", 93))
         self.assertNotIn("font", ubuntu)
-        self.assertNotIn("backgroundImageOpacity", ubuntu)
+        self.assertEqual(ubuntu["backgroundImageOpacity"], 0.12)
         self.assertEqual(entry["profile_keys"]["cursorShape"], {"previous": {"absent": True}, "installed": "filledBox"})
         self.assertIn(NO_FONT_NOTE, plan.notes)
 
@@ -159,6 +162,55 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
         fails = [c for c in self.component.check(ctx, entry) if c.level == "fail"]
         self.assertEqual([c.message for c in fails], ["profile keys changed: tabTitle"])
+
+    def config(self):
+        return self.root / "home" / RITUAL_CONFIG
+
+    def test_sky_images_background_and_ritual_config(self):
+        _, entry = self.install()
+        for bin_ in range(8):
+            self.assertTrue((self.root / wt.sky_file(bin_)).is_file(), bin_)
+        ubuntu = self.ubuntu()
+        self.assertEqual(ubuntu["backgroundImage"], wt.SKY_VALUES[4])
+        self.assertEqual(ubuntu["backgroundImageOpacity"], 0.12)
+        self.assertEqual(json.loads(self.config().read_text(encoding="utf-8")),
+                         {"settings": str(self.wt), "profile_guid": UBUNTU, "sky": list(wt.SKY_VALUES)})
+        self.assertEqual(len(entry["files"]), 9)
+
+    def test_failed_image_copy_sets_no_background(self):
+        real = jsonio.write_atomic_bytes
+
+        def write(path, data):
+            if Path(path).suffix == ".png":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, data)
+
+        with mock.patch("witchy.jsonio.write_atomic_bytes", side_effect=write):
+            _, entry = self.install()
+        self.assertNotIn("backgroundImage", self.ubuntu())
+        self.assertEqual(self.ubuntu()["cursorShape"], "filledBox")
+        self.assertIn("sky images not copied", self.out.getvalue())
+        self.assertFalse(self.config().exists())
+        self.assertEqual(entry["files"], [])
+
+    def test_moved_sky_still_counts_as_installed(self):
+        ctx, entry = self.install()
+        data = json.loads(self.wt.read_text(encoding="utf-8"))
+        data["profiles"]["list"][0]["backgroundImage"] = wt.SKY_VALUES[6]  # what the sky job does
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        self.assertEqual({c.level for c in self.component.check(ctx, entry)}, {"ok"})
+        plan = self.component.restore(self.ctx(stamp="20261002-130000"), entry)
+        apply_changes(ctx, plan.changes)
+        self.assertNotIn("backgroundImage", self.ubuntu())
+        self.assertFalse(any("changed after install" in warning for warning in plan.warnings))
+        self.assertFalse((self.root / wt.sky_file(4)).exists())
+        self.assertFalse(self.config().exists())
+
+    def test_restore_writes_settings_first_under_the_lock(self):
+        ctx, entry = self.install()
+        plan = self.component.restore(ctx, entry)
+        self.assertEqual(plan.changes[0].path, self.wt)
+        self.assertEqual(plan.lock, ctx.cache_dir / "wt.lock")
 
 
 if __name__ == "__main__":

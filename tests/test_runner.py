@@ -165,6 +165,46 @@ class InstallRunnerTest(RunnerTestCase):
         runner.install(self.ctx(), [Fake("a", self.log), Watching("b", self.log)])
         self.assertEqual(seen, {"planned": ["a"], "results": {"a": "ok"}})
 
+    def test_a_file_changed_after_planning_fails_only_that_component(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Writing(Fake):
+            def plan(self, ctx, entry):
+                super().plan(ctx, entry)
+                return Plan(changes=[Change(target, b"{}", b'{"x": 1}')])
+
+        def sky_job(ctx):
+            target.write_text('{"sky": 3}', encoding="utf-8")
+
+        code = runner.install(self.ctx(), [Fake("a", self.log, on_apply=sky_job), Writing("b", self.log)])
+        self.assertEqual(code, 2)
+        self.assertTrue(self.state()["last_install"]["results"]["b"].startswith("failed: "))
+        self.assertEqual(target.read_text(encoding="utf-8"), '{"sky": 3}')
+        self.assertNotIn(("apply", "b"), self.log)
+
+    def test_the_plan_lock_is_held_while_applying(self):
+        lock = self.root / "wt.lock"
+        seen = []
+
+        class Locking(Fake):
+            def plan(self, ctx, entry):
+                super().plan(ctx, entry)
+                return Plan(lock=lock)
+
+            def apply(self, ctx, plan):
+                with open(lock, "a") as handle:
+                    try:
+                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        seen.append("free")
+                    except BlockingIOError:
+                        seen.append("held")
+                return super().apply(ctx, plan)
+
+        runner.install(self.ctx(), [Locking("a", self.log)])
+        self.assertEqual(seen, ["held"])
+
+
 
 class UninstallRunnerTest(RunnerTestCase):
     def test_uninstall_runs_in_reverse_order_and_removes_state(self):

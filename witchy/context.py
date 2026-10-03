@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, TextIO
 
-from . import build, fonts, windows
+from . import build, fonts, sky_render, windows
 
 
 @dataclass
@@ -32,6 +32,8 @@ class Context:
     planned: dict[str, Any] = field(default_factory=dict)
     entries: dict[str, dict] = field(default_factory=dict)
     results: dict[str, str] = field(default_factory=dict)
+    now: Callable[[], datetime] = datetime.now
+    sky_size: tuple[int, int] = field(default_factory=lambda: sky_render.SIZE)
     fetch: Callable[[str], bytes] = fonts.fetch_url
 
     @property

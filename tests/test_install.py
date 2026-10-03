@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -52,16 +53,18 @@ class InstallTestCase(unittest.TestCase):
         return install.Context(home=self.home, env={"WT_PROFILE_ID": UBUNTU} if env is None else env, out=self.out,
                                dry_run=dry_run, wt_settings=self.wt, python="/usr/bin/python3", stamp=stamp,
                                run=refuse_cmd, dist=self.root / "dist", lock_path=self.root / "witchy.lock",
-                               only=("claude", "windows-terminal"))
+                               only=("claude", "windows-terminal"), sky_size=(256, 144),
+                               now=lambda: datetime(2026, 9, 30, 12, tzinfo=timezone.utc))
 
     def snapshot_without_state(self):
         return {path: data for path, data in self.snapshot().items() if not path.endswith("state.json")}
 
     def snapshot(self):
         files = {}
+        cache = self.home / ".cache"
         for base in (self.home, self.wt.parent):
             for path in sorted(base.rglob("*")):
-                if path.is_file() and ".bak-witchy-" not in path.name:
+                if path.is_file() and ".bak-witchy-" not in path.name and cache not in path.parents:
                     files[str(path)] = path.read_bytes()
         return files
 
