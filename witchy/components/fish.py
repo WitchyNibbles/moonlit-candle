@@ -169,6 +169,7 @@ class FishComponent:
         variables = dict(plan.data["recorded"])
         updates = plan.data["updates"]
         done: set[str] = set()
+        unknown = False
         if updates:
             # After the files: the moon item must exist before Tide is told to show it (spec 5.3).
             try:
@@ -177,7 +178,13 @@ class FishComponent:
                 ok = result.returncode == 0
             except (ComponentFailed, ValueError):
                 ok = False
-            if not ok:
+                unknown = True
+            if unknown:
+                # Fish may have set any of them; restore skips one that still holds its previous value.
+                done = {name for name, _, _ in updates}
+                plan.outcome = "failed: fish did not finish setting the Tide variables"
+                ctx.say("fish: fish did not finish setting the Tide variables; run install again.")
+            elif not ok:
                 stopped = next((name for name, _, _ in updates if name not in done), updates[-1][0])
                 plan.outcome = f"failed: could not set {stopped}"
                 ctx.say(f"fish: could not set {stopped}; the Tide variables after it were not set.")

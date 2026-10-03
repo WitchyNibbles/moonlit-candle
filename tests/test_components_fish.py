@@ -126,7 +126,11 @@ class InstallTest(FishTestCase):
 
         self.assertEqual(runner.install(self.ctx(run=run)), 2)
         self.assertEqual(len(self.entry()["files"]), len(self.files()))
-        self.assertEqual(self.state()["last_install"]["results"]["fish"], "failed: could not set tide_left_prompt_items")
+        self.assertEqual(self.state()["last_install"]["results"]["fish"],
+                         "failed: fish did not finish setting the Tide variables")
+        self.assertEqual(set(self.entry()["variables"]), set(palette.TIDE))
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.variables, USER_TIDE)
 
     def test_what_config_fish_prints_is_ignored(self):
         run = fake_fish(self.variables, noise="Welcome!\n\0stray\0", calls=self.calls)
