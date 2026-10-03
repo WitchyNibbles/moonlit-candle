@@ -151,7 +151,10 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
         columns = columns or shutil.get_terminal_size((80, 24)).columns
         data = load_data()
         marks.append(("data", time.perf_counter()))
-        mode = "full" if args.full else "omen" if args.omen else _auto(cache / STAMP, now, columns)
+        if args.full or args.omen:
+            mode = "full" if args.full else "omen"
+        else:
+            mode = _auto(cache / STAMP, now, columns)
         if mode == "full":
             fetched = fetch.lines(env, root)
             marks.append(("fetch", time.perf_counter()))

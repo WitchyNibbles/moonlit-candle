@@ -30,8 +30,12 @@ def disc(fraction: float) -> list[list[Cell]]:
             if distance > 1:
                 row.append((" ", None))
             elif lit and (x if waxing else -x) >= math.cos(phase) * math.sqrt(max(0.0, 1 - y * y)):
-                row.append(("█", "lit") if distance < 0.55 else ("▓", "lit_mid") if distance < 0.8
-                           else ("▒", "lit_soft"))
+                if distance < 0.55:
+                    row.append(("█", "lit"))
+                elif distance < 0.8:
+                    row.append(("▓", "lit_mid"))
+                else:
+                    row.append(("▒", "lit_soft"))
             else:
                 row.append(("░", "earthshine"))
         rows.append(row)
