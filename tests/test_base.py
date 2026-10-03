@@ -2,7 +2,6 @@ import fcntl
 import io
 import subprocess
 import tempfile
-import tempfile
 import unittest
 from pathlib import Path
 

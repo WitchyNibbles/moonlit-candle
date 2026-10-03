@@ -1,16 +1,20 @@
+import hashlib
 import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from tests.fakes import fake_fish
-from witchy import content, install, jsonio, palette, validate
+from tests.fakes import fake_fish, fake_windows, make_ttf, make_zip, reg_listing
+from witchy import content, fonts, install, jsonio, palette, runner, validate
 from witchy.components import base
+from witchy.components.font import KEPT_WARNING
+from witchy.components.windows_terminal import NO_FONT_NOTE
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
 CLAUDE_ORIGINAL = {
@@ -384,6 +388,20 @@ class InstallTest(InstallTestCase):
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
         self.assertEqual(self.snapshot(), before)
 
+    def test_claude_stays_while_its_settings_no_longer_hold_an_object(self):
+        install.install(self.ctx())
+        installed = self.settings.read_text(encoding="utf-8")
+        self.settings.write_text("[]\n", encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
+        self.assertIn(f"claude: {self.settings} no longer holds a JSON object; fix it by hand; run uninstall again.",
+                      self.out.getvalue())
+        self.assertEqual(list(self.state()["components"]), ["claude"])
+        self.assertTrue((self.claude / "witchy" / "statusline.py").is_file())
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), "[]\n")
+        self.settings.write_text(installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
+        self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+
     def test_every_local_component_round_trips_bytes_and_fish_variables(self):
         mine = self.home / ".config" / "fish" / "functions" / "ll.fish"
         mine.parent.mkdir(parents=True)
@@ -498,6 +516,61 @@ class InstallTest(InstallTestCase):
         self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
         self.assertIn("1/2 components installed · skipped: windows-terminal (settings.json not found)",
                       self.out.getvalue())
+
+
+class WindowsComponentsTest(InstallTestCase):
+    """claude, font and windows-terminal together through the runner, with a fake Windows host."""
+
+    def setUp(self):
+        super().setUp()
+        self.mnt = self.root / "mnt"
+        self.fonts = self.mnt / "c" / "Users" / "user" / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts"
+        self.fonts.mkdir(parents=True)
+        self.archive = make_zip({name: make_ttf(f"{fonts.FAMILY} {style}")
+                                 for name, style in zip(fonts.MEMBERS, fonts.STYLES)})
+        patcher = mock.patch.object(fonts, "SHA256", hashlib.sha256(self.archive).hexdigest())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.calls = []
+
+    def windows_ctx(self, stamp, fetch=None):
+        ctx = self.ctx(stamp=stamp)
+        ctx.run = fake_windows(echo={"USERPROFILE": "C:\\Users\\user\r\n"}, reg_query=reg_listing({}),
+                               calls=self.calls)
+        ctx.mount_root, ctx.fetch = self.mnt, fetch or (lambda url: self.archive)
+        ctx.only = ("claude", "font", "windows-terminal")
+        return ctx
+
+    def test_claude_font_and_windows_terminal_install_and_uninstall_together(self):
+        before = self.snapshot()
+        self.assertEqual(install.install(self.windows_ctx("20260930-120000")), 0)
+        self.assertIn("3/3 components installed", self.out.getvalue())
+        self.assertEqual(sorted(path.name for path in self.fonts.iterdir()), sorted(fonts.MEMBERS))
+        self.assertEqual(len([call for call in self.calls if call[:2] == ["reg.exe", "add"]]), len(fonts.MEMBERS))
+        self.assertEqual(self.ubuntu()["font"], palette.VARIANTS["midnight"].wt_profile["font"])
+        self.assertEqual(sorted(self.state()["components"]), ["claude", "font", "windows-terminal"])
+        self.assertEqual(install.uninstall(self.windows_ctx("20260930-130000")), 0)
+        self.assertIn(KEPT_WARNING, self.out.getvalue())
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(path.name for path in self.fonts.iterdir()), sorted(fonts.MEMBERS))
+
+    def test_offline_the_font_fails_and_the_others_still_install(self):
+        def offline(url):
+            raise urllib.error.URLError("offline")
+
+        before = self.snapshot()
+        self.assertEqual(install.install(self.windows_ctx("20260930-120000", fetch=offline)), 2)
+        output = self.out.getvalue()
+        self.assertIn("2/3 components installed · failed: font (download failed (<urlopen error offline>))", output)
+        self.assertIn(runner.PARTLY_INSTALLED, output)
+        self.assertIn(NO_FONT_NOTE, output)
+        self.assertEqual(list(self.fonts.iterdir()), [])
+        self.assertNotIn("font", self.ubuntu())
+        self.assertEqual(self.ubuntu()["colorScheme"], "Moonlit Candle")
+        self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
+        self.assertEqual(sorted(self.state()["components"]), ["claude", "windows-terminal"])
+        self.assertEqual(install.uninstall(self.windows_ctx("20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":
