@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from . import windows
 from .records import put_back, snapshot
 
 PACKAGE = "Microsoft.WindowsTerminal_8wekyb3d8bbwe"
@@ -14,27 +15,30 @@ USERS_ROOT = Path("/mnt/c/Users")
 
 
 def windows_username(run: Callable[..., Any] = subprocess.run) -> str | None:
-    """The Windows user of this WSL session. Several users can have Windows Terminal installed."""
-    try:
-        # cwd=/mnt/c keeps cmd.exe from warning about a UNC working directory. cmd.exe answers in the OEM code
-        # page, so a name like "José" is not valid UTF-8: replace instead of raising, the mangled name then
-        # fails the is_file() check in locate_settings.
-        done = run(["cmd.exe", "/c", "echo %USERNAME%"], capture_output=True, text=True, errors="replace",
-                   timeout=5, cwd="/mnt/c")
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return None
-    name = (done.stdout or "").strip()
-    return name if done.returncode == 0 and name and "%" not in name else None
+    """The Windows account name of this WSL session. Several users can have Windows Terminal installed."""
+    return windows.echo("USERNAME", run)
+
+
+def settings_path_in(user_home: Path) -> Path:
+    return user_home / "AppData" / "Local" / "Packages" / PACKAGE / "LocalState" / "settings.json"
 
 
 def settings_path_for(user: str, users_root: Path = USERS_ROOT) -> Path:
-    return users_root / user / "AppData" / "Local" / "Packages" / PACKAGE / "LocalState" / "settings.json"
+    return settings_path_in(users_root / user)
 
 
 def locate_settings(explicit: Path | None, run: Callable[..., Any] = subprocess.run,
-                    users_root: Path = USERS_ROOT) -> Path | None:
+                    users_root: Path = USERS_ROOT, recorded: str | None = None,
+                    mount_root: Path = windows.MOUNT_ROOT) -> Path | None:
+    """--wt-settings, else the path recorded at the last install, else the %USERPROFILE% folder,
+    else C:\\Users\\%USERNAME% (the account name and the folder name differ after a rename)."""
     if explicit is not None:
         return explicit if explicit.is_file() else None
+    if recorded and Path(recorded).is_file():
+        return Path(recorded)
+    home = windows.user_home(run, mount_root)
+    if home is not None and settings_path_in(home.wsl).is_file():
+        return settings_path_in(home.wsl)
     user = windows_username(run)
     if not user:
         return None
@@ -60,13 +64,21 @@ def _profile(data: Any, guid: str) -> dict | None:
     return None
 
 
+WSL_SOURCES = ("Microsoft.WSL", "Windows.Terminal.Wsl")
+
+
+def _is_wsl(profile: dict) -> bool:
+    source = str(profile.get("source", ""))
+    return source in WSL_SOURCES or source.startswith("CanonicalGroupLimited.")
+
+
 def profile(data: Any, guid: str) -> dict | None:
     """The profile with this GUID (case-insensitive), or None."""
     return _profile(data, guid)
 
 
 def find_profile(data: Any, env: Mapping[str, str]) -> tuple[str | None, str | None]:
-    """The profile to theme: WT_PROFILE_ID if it exists, else the one WSL profile named after the distro."""
+    """The profile to theme: WT_PROFILE_ID if it exists, else the one visible WSL profile named after the distro."""
     profiles = _profiles(data)
     if profiles is None:
         return None, "profiles list not found in Windows Terminal settings"
@@ -76,8 +88,8 @@ def find_profile(data: Any, env: Mapping[str, str]) -> tuple[str | None, str | N
         if profile is not None:
             return profile["guid"], None
     distro = env.get("WSL_DISTRO_NAME", "")
-    matches = [p for p in profiles if isinstance(p, dict) and distro
-               and p.get("source") == "Microsoft.WSL" and p.get("name") == distro]
+    matches = [p for p in profiles if isinstance(p, dict) and distro and p.get("hidden") is not True
+               and _is_wsl(p) and p.get("name") == distro]
     if len(matches) == 1:
         return matches[0]["guid"], None
     return None, (f"no profile matches WT_PROFILE_ID={wanted or 'unset'} and found {len(matches)} "

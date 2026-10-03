@@ -16,7 +16,8 @@ class WindowsTerminalComponent:
 
     def plan(self, ctx: Any, entry: dict | None) -> Plan:
         scheme = palette.VARIANTS[ctx.variant or palette.DEFAULT_VARIANT].wt_scheme
-        path = wt.locate_settings(ctx.wt_settings, run=ctx.run)
+        path = wt.locate_settings(ctx.wt_settings, run=ctx.run, recorded=entry["path"] if entry else None,
+                                  mount_root=ctx.mount_root)
         if path is None:
             ctx.say(f"Windows Terminal settings.json not found; {WT_SKIP}.")
             return Plan.skipped("settings.json not found")

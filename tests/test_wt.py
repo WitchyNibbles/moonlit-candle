@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.fakes import fake_windows
 from witchy import palette, wt
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
@@ -179,3 +180,53 @@ class ApplyRestoreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CANONICAL = "{51855cb2-8cce-5362-8f54-464b92b32386}"
+HIDDEN = "{2c4de342-38b7-51cf-b940-2309a097f518}"
+
+
+def store_ubuntu():
+    """The two Ubuntu profiles this machine has: a hidden duplicate and the Store distro's own."""
+    data = settings()
+    data["profiles"]["list"] = [
+        {"guid": HIDDEN, "name": "Ubuntu", "source": "Windows.Terminal.Wsl", "hidden": True},
+        {"guid": CANONICAL, "name": "Ubuntu", "source": "CanonicalGroupLimited.Ubuntu_79rhkp1fndgsc", "hidden": False},
+    ]
+    return data
+
+
+class LookupFixTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.mnt = Path(tmp.name) / "mnt"
+        self.settings = wt.settings_path_in(self.mnt / "c" / "Users" / "manue")
+        self.settings.parent.mkdir(parents=True)
+        self.settings.write_text("{}")
+
+    def test_profile_folder_wins_over_a_renamed_account(self):
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"})
+        found = wt.locate_settings(None, run=run, users_root=self.mnt / "c" / "Users", mount_root=self.mnt)
+        self.assertEqual(found, self.settings)
+
+    def test_recorded_path_is_used_without_asking_windows(self):
+        calls = []
+        found = wt.locate_settings(None, run=fake_windows(calls=calls), recorded=str(self.settings),
+                                   mount_root=self.mnt)
+        self.assertEqual((found, calls), (self.settings, []))
+
+    def test_stale_recorded_path_falls_back_to_the_profile_folder(self):
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n"})
+        found = wt.locate_settings(None, run=run, recorded=str(self.mnt / "old.json"), mount_root=self.mnt)
+        self.assertEqual(found, self.settings)
+
+
+class StoreProfileTest(unittest.TestCase):
+    def test_store_ubuntu_is_found_and_the_hidden_duplicate_ignored(self):
+        self.assertEqual(wt.find_profile(store_ubuntu(), {"WSL_DISTRO_NAME": "Ubuntu"}), (CANONICAL, None))
+
+    def test_two_visible_matches_are_ambiguous(self):
+        data = store_ubuntu()
+        data["profiles"]["list"][0]["hidden"] = False
+        self.assertIsNone(wt.find_profile(data, {"WSL_DISTRO_NAME": "Ubuntu"})[0])

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, TextIO
 
-from . import build
+from . import build, windows
 
 
 @dataclass
@@ -27,6 +27,7 @@ class Context:
     lock_path: Path | None = None
     variant: str | None = None
     outputs: dict[str, str] | None = None
+    mount_root: Path = field(default_factory=lambda: windows.MOUNT_ROOT)
 
     @property
     def claude_dir(self) -> Path:

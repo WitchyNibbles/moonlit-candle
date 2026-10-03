@@ -79,6 +79,14 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         self.assertIn("Campbell", fails[0].message)
         self.assertEqual(fails[0].fix, "python3 -m witchy install --only windows-terminal")
 
+    def test_recorded_settings_path_is_reused_without_cmd_exe(self):
+        _, entry = self.install()
+        ctx = Context(home=self.root / "home", env={"WT_PROFILE_ID": UBUNTU}, out=io.StringIO(), run=refuse_cmd,
+                      variant="midnight")
+        plan = self.component.plan(ctx, entry)
+        self.assertIsNone(plan.skip)
+        self.assertEqual(plan.data["json"].change.path, self.wt)
+
 
 if __name__ == "__main__":
     unittest.main()
