@@ -64,11 +64,16 @@ class JsonPlan:
 
 @dataclass(frozen=True)
 class Command:
-    """A program to run: list arguments (never a shell string), optional standard input, and a label for messages."""
+    """A program to run: list arguments (never a shell string), optional standard input, and a label for messages.
+
+    An ``exact`` command's input and output travel as UTF-8 bytes with surrogate escapes and no newline
+    translation, so every byte comes back as it was (a fish value can hold any byte but NUL).
+    """
 
     args: tuple[str, ...]
     label: str
     input: str | None = None
+    exact: bool = False
 
 
 @dataclass
@@ -222,15 +227,23 @@ def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.Co
     A command that cannot start or times out raises ComponentFailed (the cause is kept, so a caller can tell a
     missing program from a slow one); a non-zero exit raises it too unless ``check`` is false.
     """
+    if command.exact:
+        data = None if command.input is None else command.input.encode("utf-8", "surrogateescape")
+        text: dict[str, Any] = {}
+    else:
+        data, text = command.input, {"text": True, "errors": "replace"}
     try:
-        done = ctx.run(list(command.args), input=command.input, capture_output=True, text=True, errors="replace",
-                       timeout=COMMAND_TIMEOUT, env=dict(ctx.env))
+        done = ctx.run(list(command.args), input=data, capture_output=True, timeout=COMMAND_TIMEOUT,
+                       env=dict(ctx.env), **text)
     except subprocess.TimeoutExpired as exc:  # its text would hold the whole argument list
         raise ComponentFailed(f"could not {command.label} (timed out after {COMMAND_TIMEOUT} s)") from exc
     except OSError as exc:
         raise ComponentFailed(f"could not {command.label} ({exc.strerror or type(exc).__name__})") from exc
     except (ValueError, subprocess.SubprocessError) as exc:
         raise ComponentFailed(f"could not {command.label} ({str(exc)[:100]})") from exc
+    if command.exact:
+        done.stdout = done.stdout.decode("utf-8", "surrogateescape")
+        done.stderr = done.stderr.decode("utf-8", "surrogateescape")
     if check and done.returncode != 0:
         raise ComponentFailed(f"could not {command.label} (exit {done.returncode})")
     return done

@@ -1,6 +1,9 @@
 import io
 import json
+import os
+import shutil
 import subprocess
+import sys
 from datetime import datetime
 import tempfile
 import unittest
@@ -8,9 +11,12 @@ from pathlib import Path
 from unittest import mock
 
 from tests.fakes import fake_fish
-from witchy import build, components, palette, runner
+from witchy import build, components, jsonio, palette, runner
 from witchy.components import fish
+from witchy.components.base import ComponentFailed, sha
 from witchy.context import Context
+
+FISH = shutil.which("fish")
 
 # The prompt as Tide's own "lean" setup and the user left it: a pink pwd, an exported variable, no moon.
 USER_TIDE = {
@@ -57,6 +63,26 @@ class FishTestCase(unittest.TestCase):
     def value(self, name):
         return self.variables.get(name, {}).get("value")
 
+    def write_fails(self, target):
+        """``target`` cannot be written; everything else writes."""
+        real = jsonio.write_atomic_bytes
+
+        def write(path, data):
+            if Path(path) == target:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, data)
+
+        return mock.patch.object(jsonio, "write_atomic_bytes", side_effect=write)
+
+    def fish_files_change(self):
+        """A later witchy version that ships different fish files."""
+        real = build.fish_files
+
+        def render(*args, **kwargs):
+            return {name: data + b"\n" for name, data in real(*args, **kwargs).items()}
+
+        return mock.patch.object(build, "fish_files", side_effect=render)
+
 
 class InstallTest(FishTestCase):
     def test_installs_the_files_and_recolours_tide(self):
@@ -100,6 +126,19 @@ class InstallTest(FishTestCase):
         self.assertTrue((self.home / ".config" / "fish" / "functions" / "fish_greeting.fish").is_file())
         self.assertEqual(self.state()["last_install"]["results"], {"fish": "skipped: Tide not found"})
         self.assertIn("fish: Tide not found; prompt not recoloured.", self.out.getvalue())
+
+    def test_the_new_tab_note_promises_only_what_this_install_changes(self):
+        def slow(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, 5)
+
+        cases = ((fake_fish(self.variables), [fish.NEW_TAB_NOTE]),
+                 (fake_fish(self.variables, tide=False), [fish.GREETING_NOTE]),
+                 (slow, [fish.GREETING_NOTE]),
+                 (fake_fish(missing=True), []))
+        for run, notes in cases:
+            with self.subTest(notes=notes):
+                plan = fish.FishComponent().plan(self.ctx(run=run), None)
+                self.assertEqual(plan.notes, notes + [fish.NO_EZA_NOTE])
 
     def test_without_fish_the_files_still_install(self):
         self.assertEqual(runner.install(self.ctx(run=fake_fish(missing=True))), 2)
@@ -149,17 +188,33 @@ class InstallTest(FishTestCase):
     def test_a_set_call_killed_by_a_signal_is_an_unknown_outcome(self):
         name = next(iter(palette.TIDE))
         self.unknown_outcome(lambda args: subprocess.CompletedProcess(
-            args, -9, stdout=f"{fish.SENTINEL}\0{name}\0", stderr=""))
+            args, -9, stdout=f"{fish.SENTINEL}\0{name}\0".encode(), stderr=b""))
         self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
         self.assertEqual(self.variables, USER_TIDE)
 
     def test_a_set_call_with_no_marker_is_an_unknown_outcome(self):
-        self.unknown_outcome(lambda args: subprocess.CompletedProcess(args, 0, stdout="garbage", stderr=""))
+        self.unknown_outcome(lambda args: subprocess.CompletedProcess(args, 0, stdout=b"garbage", stderr=b""))
 
     def test_what_config_fish_prints_is_ignored(self):
         run = fake_fish(self.variables, noise="Welcome!\n\0stray\0", calls=self.calls)
         self.assertEqual(runner.install(self.ctx(run=run)), 0)
         self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"]["value"], ["FFB7C5"])
+
+    def test_a_value_comes_back_byte_for_byte(self):
+        # A carriage return, a line break and a byte that is not UTF-8 (0xFF, held as the surrogate U+DCFF).
+        odd = {"value": ["FF\rB7\udcffC5", "two\r\nlines"], "exported": False}
+        self.variables["tide_pwd_bg_color"] = odd
+        self.assertEqual(runner.install(self.ctx()), 0)
+        self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"], odd)
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.variables["tide_pwd_bg_color"], odd)
+        self.assertIn("tide_pwd_bg_color\0set\0" "2\0FF\rB7\udcffC5\0two\r\nlines\0", self.set_calls()[-1])
+
+    def test_a_dry_run_shows_bytes_that_are_not_utf8_as_replacement_characters(self):
+        self.variables["tide_pwd_bg_color"] = {"value": ["FF\udcff"], "exported": False}
+        self.assertEqual(runner.install(self.ctx(dry_run=True)), 0)
+        self.assertIn("fish: set -U tide_pwd_bg_color B99AFF (now: FF\ufffd)", self.out.getvalue())
+        self.out.getvalue().encode("utf-8")  # printable on a strict UTF-8 terminal
 
     def test_reinstall_keeps_the_first_previous_value(self):
         runner.install(self.ctx())
@@ -251,6 +306,28 @@ class UninstallTest(FishTestCase):
         self.assertIn("tide_pwd_bg_color was changed after install; leaving it as it is.", self.out.getvalue())
         self.assertEqual(self.value("tide_time_color"), ["5F8787"])
 
+    def test_a_prompt_item_list_that_still_lists_moon_says_how_to_remove_it(self):
+        runner.install(self.ctx())
+        self.variables["tide_left_prompt_items"]["value"] = ["moon", "pwd", "time"]
+        self.variables["tide_right_prompt_items"]["value"] = ["status", "time"]
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.value("tide_left_prompt_items"), ["moon", "pwd", "time"])
+        self.assertIn("tide_left_prompt_items was changed after install; leaving it as it is, but it still lists "
+                      "moon. Remove it with: set -U tide_left_prompt_items "
+                      "(string match -v moon $tide_left_prompt_items)", self.out.getvalue())
+        self.assertIn("tide_right_prompt_items was changed after install; leaving it as it is.", self.out.getvalue())
+
+    def test_tide_removed_before_uninstall_gives_one_warning(self):
+        runner.install(self.ctx())
+        self.variables.clear()  # Tide's own uninstall erases every tide_ variable
+        self.calls.clear()
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        output = self.out.getvalue()
+        self.assertIn("fish: Tide's variables are gone (was Tide removed?); nothing to restore.", output)
+        self.assertNotIn("changed after install", output)
+        self.assertEqual(self.set_calls(), [])
+        self.assertFalse((self.home / ".claude" / "witchy").exists())
+
     def test_a_retry_after_a_partial_restore_is_silent(self):
         runner.install(self.ctx())
         self.variables["tide_pwd_bg_color"] = USER_TIDE["tide_pwd_bg_color"]  # already given back
@@ -281,7 +358,8 @@ class UninstallTest(FishTestCase):
     def test_without_fish_the_files_still_go(self):
         runner.install(self.ctx())
         self.assertEqual(runner.uninstall(self.ctx(run=fake_fish(missing=True), stamp="20261003-130000")), 0)
-        self.assertIn("fish not found; the Tide variables were left as they are.", self.out.getvalue())
+        self.assertIn("fish: fish not found, so Tide keeps witchy's colours and the moon item; to reset them, run "
+                      "tide configure in fish.", self.out.getvalue())
         self.assertFalse((self.home / ".claude" / "witchy" / "ritual").exists())
 
     def test_installed_without_tide_uninstalls_without_fish_calls(self):
@@ -297,6 +375,94 @@ class UninstallTest(FishTestCase):
         self.assertIn(f"fish: restore {len(palette.TIDE) - 1} Tide variables", self.out.getvalue())
         self.assertEqual(self.variables, installed)
         self.assertTrue((self.home / ".claude" / "witchy" / "ritual" / "cli.py").is_file())
+
+
+class PartialWriteTest(FishTestCase):
+    """A fish file that cannot be written: what was written stays recorded, so uninstall still undoes it."""
+
+    def setUp(self):
+        super().setUp()
+        self.functions = self.home / ".config" / "fish" / "functions"
+
+    def snapshot(self):
+        return {str(path): path.read_bytes() for path in sorted(self.home.rglob("*"))
+                if path.is_file() and ".bak-witchy-" not in path.name}
+
+    def test_a_write_that_fails_part_way_records_what_was_written(self):
+        ctx = self.ctx()
+        component = fish.FishComponent()
+        plan = component.plan(ctx, None)
+        first, second = plan.changes[0].path, plan.changes[1].path
+        with self.write_fails(second):
+            entry = component.apply(ctx, plan)
+        self.assertEqual(entry, {"files": [{"path": str(first), "backup": None,
+                                            "installed_sha256": sha(first.read_bytes())}], "variables": {}})
+        self.assertRegex(plan.outcome, r"^failed: could not write the fish files "
+                                       r"\(\[Errno 13\] Permission denied: '.*'\)$")
+        self.assertIn("fish: could not write the fish files (", self.out.getvalue())
+        self.assertEqual(self.set_calls(), [])
+        self.assertEqual(self.variables, USER_TIDE)
+        self.assertEqual(plan.notes, [fish.NO_EZA_NOTE])
+
+    def test_a_first_write_that_fails_records_nothing(self):
+        ctx = self.ctx()
+        component = fish.FishComponent()
+        plan = component.plan(ctx, None)
+        with self.write_fails(plan.changes[0].path):
+            with self.assertRaisesRegex(ComponentFailed, r"^could not write the fish files \("):
+                component.apply(ctx, plan)
+
+    def test_a_failed_reinstall_keeps_the_variables_and_the_records_it_did_not_replace(self):
+        runner.install(self.ctx())
+        first = self.entry()
+        ctx = self.ctx(stamp="20261003-130000")
+        component = fish.FishComponent()
+        with self.fish_files_change():
+            plan = component.plan(ctx, first)
+        with self.write_fails(self.functions / "lt.fish"):
+            entry = component.apply(ctx, plan)
+        self.assertEqual(entry["variables"], first["variables"])
+        earlier = {record["path"]: record for record in first["files"]}
+        records = {record["path"]: record for record in entry["files"]}
+        self.assertEqual(list(records), list(earlier))
+        for name in ("lt.fish", "ritual.fish"):
+            self.assertEqual(records[str(self.functions / name)], earlier[str(self.functions / name)])
+        ll = str(self.functions / "ll.fish")
+        self.assertEqual(records[ll]["installed_sha256"], sha(Path(ll).read_bytes()))
+        self.assertNotEqual(records[ll]["installed_sha256"], earlier[ll]["installed_sha256"])
+
+    def install_after_a_failed_write(self):
+        """lt.fish cannot be written (ll.fish just was); then a later version reinstalls, then uninstall."""
+        with self.write_fails(self.functions / "lt.fish"):
+            self.assertEqual(runner.install(self.ctx()), 2)
+        self.assertIn("fish: could not write the fish files (", self.out.getvalue())
+        self.assertRegex(self.state()["last_install"]["results"]["fish"],
+                         r"^failed: could not write the fish files \(.*lt\.fish'\)$")
+        self.assertEqual(self.variables, USER_TIDE)
+        with self.fish_files_change():
+            self.assertEqual(runner.install(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-140000")), 0)
+
+    def test_a_retry_after_a_failed_write_still_removes_what_witchy_wrote(self):
+        before = self.snapshot()
+        self.install_after_a_failed_write()
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.variables, USER_TIDE)
+
+    def test_a_retry_after_a_failed_write_gives_back_the_users_function(self):
+        mine = self.functions / "ll.fish"
+        mine.parent.mkdir(parents=True)
+        mine.write_text("function ll; ls -lh $argv; end\n", encoding="utf-8")
+        before = self.snapshot()
+        self.install_after_a_failed_write()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_uninstall_after_a_failed_write_removes_what_witchy_wrote(self):
+        before = self.snapshot()
+        with self.write_fails(self.functions / "lt.fish"):
+            self.assertEqual(runner.install(self.ctx()), 2)
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
 
 
 class DoctorTest(FishTestCase):
@@ -399,6 +565,40 @@ class DoctorTest(FishTestCase):
         ctx.now = lambda: self.NOW.astimezone()
         runner.doctor(ctx, [fish.FishComponent()])
         self.assertIn("greeting: last run failed today at 09:14", self.out.getvalue())
+
+
+@unittest.skipUnless(FISH, "fish is not installed")
+class RealFishBytesTest(unittest.TestCase):
+    """Real fish with a temporary HOME and config folder, never the user's own."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        config = self.root / "config"
+        (config / "fish" / "functions").mkdir(parents=True)
+        (config / "fish" / "functions" / "tide.fish").write_text("function tide\nend\n", encoding="utf-8")
+        tools = dict.fromkeys([str(Path(FISH).parent), "/usr/bin", "/bin"])
+        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(config), "PATH": os.pathsep.join(tools)}
+
+    def fish(self, script):
+        return subprocess.run([FISH, "-c", script], capture_output=True, env=self.env, timeout=20, check=True).stdout
+
+    def ctx(self, stamp):
+        return Context(home=self.home, env=self.env, out=io.StringIO(), python=sys.executable, stamp=stamp,
+                       dist=self.root / "dist", lock_path=self.root / "witchy.lock", only=("fish",))
+
+    def test_a_value_with_carriage_returns_comes_back_byte_for_byte(self):
+        self.fish("set -U tide_pwd_bg_color (printf 'FF\\rB7C5\\r\\0two\\r ❯\\0' | string split0)")
+        read = "printf '%s\\0' $tide_pwd_bg_color"
+        before = self.fish(read)
+        self.assertEqual(before, "FF\rB7C5\r\0two\r ❯\0".encode())
+        self.assertEqual(runner.install(self.ctx("20261003-120000")), 0)
+        self.assertEqual(self.fish(read), b"B99AFF\0")
+        self.assertEqual(runner.uninstall(self.ctx("20261003-130000")), 0)
+        self.assertEqual(self.fish(read), before)
 
 
 if __name__ == "__main__":

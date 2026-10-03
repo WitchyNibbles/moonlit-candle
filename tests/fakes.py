@@ -55,26 +55,20 @@ def make_zip(members):
 
 
 def fake_fish(variables=None, tide=True, fail_at=None, missing=False, noise="", calls=None):
-    """A ``run`` that answers witchy's two fish scripts the way fish would.
+    """A ``run`` that answers witchy's fish scripts the way fish would, byte for byte.
 
     ``variables`` maps names to ``{"value": [...], "exported": bool}`` and is changed in place by the set
-    script. ``fail_at`` names a variable whose set fails (the script stops there, exit 1); ``missing`` makes
-    fish absent; ``noise`` is what config.fish prints first. Every call is appended to ``calls``.
+    script. A value stands for its UTF-8 bytes with surrogate escapes, so it can hold any byte but NUL.
+    Standard input and output are handled as ``subprocess.run`` handles them: bytes, or text that is decoded
+    with ``errors`` and has its newlines translated. ``fail_at`` names a variable whose set fails (the script
+    stops there, exit 1); ``missing`` makes fish absent; ``noise`` is what config.fish prints first. Every
+    call is appended to ``calls``, with its input as a string.
     """
     from witchy.components import fish
 
     store = {} if variables is None else variables
 
-    def answer(args, fields, code=0):
-        stdout = noise + "".join(f"{field}\0" for field in [fish.SENTINEL, *fields])
-        return subprocess.CompletedProcess(args, code, stdout=stdout, stderr="")
-
-    def run(args, input=None, **kwargs):
-        args = list(args)
-        if calls is not None:
-            calls.append((args, input))
-        if missing:
-            raise FileNotFoundError(2, "No such file or directory", "fish")
+    def answer(args, received):
         if args[:3] == ["fish", "-c", fish.SNAPSHOT_SCRIPT] and args[3] == "--":
             fields = ["tide" if tide else "no-tide"]
             for name in args[4:]:
@@ -84,22 +78,39 @@ def fake_fish(variables=None, tide=True, fail_at=None, missing=False, noise="", 
                                *value["value"]]
                 else:
                     fields += [name, "absent"]
-            return answer(args, fields)
+            return 0, fields
         if args == ["fish", "-c", fish.SET_SCRIPT]:
-            items, done = input.split("\0")[:-1], []
+            items, done = received.split("\0")[:-1], []
             while items:
                 name, mode, count = items[:3]
                 values, items = items[3:3 + int(count)], items[3 + int(count):]
                 if name == fail_at:
-                    return answer(args, done, code=1)
+                    return 1, done
                 if mode == "erase":
                     store.pop(name, None)
                 else:
                     exported = mode == "exported" or store.get(name, {}).get("exported", False)
                     store[name] = {"value": values, "exported": exported}
                 done.append(name)
-            return answer(args, done)
+            return 0, done
         if args == ["fish", "-c", fish.REFRESH_SCRIPT]:
-            return subprocess.CompletedProcess(args, 0, stdout=noise, stderr="")
+            return 0, None
         raise AssertionError(f"unexpected command in a test: {args}")
+
+    def run(args, input=None, text=False, errors="strict", **kwargs):
+        args = list(args)
+        if text and input is not None:
+            input = input.encode("utf-8", errors)
+        received = None if input is None else input.decode("utf-8", "surrogateescape")
+        if calls is not None:
+            calls.append((args, received))
+        if missing:
+            raise FileNotFoundError(2, "No such file or directory", "fish")
+        code, fields = answer(args, received)
+        printed = noise + ("" if fields is None else "".join(f"{field}\0" for field in [fish.SENTINEL, *fields]))
+        stdout = printed.encode("utf-8", "surrogateescape")
+        if text:
+            stdout = stdout.decode("utf-8", errors).replace("\r\n", "\n").replace("\r", "\n")
+            return subprocess.CompletedProcess(args, code, stdout=stdout, stderr="")
+        return subprocess.CompletedProcess(args, code, stdout=stdout, stderr=b"")
     return run

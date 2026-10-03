@@ -126,6 +126,18 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual((seen["args"], seen["input"], seen["timeout"], seen["env"]),
                          (["fish", "-c", "x"], "in", 5, {"HOME": "/tmp/h"}))
 
+    def test_an_exact_command_sends_and_reads_every_byte_unchanged(self):
+        seen = {}
+
+        def run(args, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(args, 0, stdout=b"a\r\nb\xff\0", stderr=b"")
+
+        done = run_command(self.ctx(run), Command(("fish", "-c", "x"), "do x", "c\r\udcff", exact=True))
+        self.assertEqual(seen["input"], b"c\r\xff")
+        self.assertNotIn("text", seen)
+        self.assertEqual(done.stdout, "a\r\nb\udcff\0")
+
     def test_a_non_zero_exit_fails_unless_unchecked(self):
         def run(args, **kwargs):
             return subprocess.CompletedProcess(args, 3, stdout="partial", stderr="")

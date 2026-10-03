@@ -214,15 +214,15 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 ### 5.3 Rules
 
 - Tide check: `fish -c 'functions -q tide'`. Missing fish or Tide: skip the variables with a warning; the fish files and greeting still install either way. Missing fish gives `skipped: fish not found`, missing Tide `skipped: Tide not found`.
-- Snapshot each variable before the first install: its values (read NUL-separated), its export flag, or `{"absent": true}`.
+- Snapshot each variable before the first install: its values (read NUL-separated, byte for byte: a carriage return or a byte that is not UTF-8 is written back as it was), its export flag, or `{"absent": true}`.
 - Set with `set -U` (`-Ux` when the snapshot was exported) after the fish files exist.
 - If a `set -U` exits non-zero, stop; state records only the variables already set.
-- Uninstall restores a variable (or erases it with `set -e -U`) only if it still holds the installed value; otherwise it warns and leaves it.
+- Uninstall restores a variable (or erases it with `set -e -U`) only if it still holds the installed value; otherwise it warns and leaves it. When a changed `tide_left_prompt_items` or `tide_right_prompt_items` still lists `moon`, the warning gives the command that removes it (`set -U <name> (string match -v moon $<name>)`), because the moon item's function goes with the files.
 - Every `fish` call uses list arguments and a 5 s timeout through the injectable `ctx.run`.
-- Running shells keep their old prompt; the summary says to open a new tab.
+- Running shells keep their old prompt; the summary says to open a new tab for the new prompt and greeting. Without Tide (or when fish does not answer) it names only the greeting; without fish it says nothing about a new tab.
 - `fish -c` runs the user's `config.fish` (0.4 s on this machine) and `--no-config` also turns off universal variables, so the calls are batched: one call reads Tide's presence and every variable, one call sets them all. Values travel on standard input as NUL-terminated fields, never in the script; the scripts print a `witchy-fish` marker first, so whatever `config.fish` prints is ignored. A global that `config.fish` sets is erased inside the reading call so the universal value shows.
-- When fish or Tide is missing, the files still install and the result is `skipped: fish not found` or `skipped: Tide not found`. A failed set records the files and the variables already set, and the result is `failed: could not set <name>`. When fish does not finish (for example a timeout), every planned variable is recorded, because restore skips one that still holds its previous value, and the result is `failed: fish did not finish setting the Tide variables`.
-- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left with a warning and the files still go; when fish exists but does not answer, the component stays installed.
+- When fish or Tide is missing, the files still install and the result is `skipped: fish not found` or `skipped: Tide not found`. When a file write fails part-way, the files already written stay recorded (with the variables recorded earlier), the Tide variables are not set, and the result is `failed: could not write the fish files (…)`; nothing is recorded when nothing was written. A failed set records the files and the variables already set, and the result is `failed: could not set <name>`. When fish does not finish (for example a timeout), every planned variable is recorded, because restore skips one that still holds its previous value, and the result is `failed: fish did not finish setting the Tide variables`.
+- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left and the files still go, with the warning `fish: fish not found, so Tide keeps witchy's colours and the moon item; to reset them, run tide configure in fish.`; when fish exists but does not answer, the component stays installed. When every recorded variable is gone (Tide was removed), uninstall gives one warning, `fish: Tide's variables are gone (was Tide removed?); nothing to restore.`, instead of one per variable.
 
 ## 6. Greeting (the ritual)
 
@@ -368,6 +368,7 @@ python3 -m witchy mood [VARIANT]
 | windows-terminal | `settings.json` write `OSError` | `failed: could not write <path>`, exit 2; the sky images this run wrote are put back (best effort); state keeps the earlier entry | `Windows Terminal: could not write <path> (…); skipping the terminal colour scheme.` |
 | fish | no fish, no Tide, `TimeoutExpired` | skip the variables; files still install | `fish: fish not found; prompt not recoloured.`, `fish: Tide not found; prompt not recoloured.`, `fish: could not read the Tide variables (timed out after 5 s); prompt not recoloured.` |
 | fish | `set -U` non-zero (`CalledProcessError`) | stop; record the variables already set | warning naming the variable |
+| fish | a file write `OSError` | `failed: could not write the fish files (…)`, exit 2; the Tide variables are not set; the files already written stay recorded (nothing is recorded when none was) | `fish: could not write the fish files (…); run install again.` |
 | greeting | any exception | exit 0, no output, log | doctor `⚠ greeting: last run failed …` |
 | sky job | hash changed, not plain JSON, profile gone, value changed by user | skip, log, fail marker for today | doctor `⚠ sky: …` |
 | eza | missing | `ll`/`lt` fall back to `ls` | doctor `⚠ eza missing …` |

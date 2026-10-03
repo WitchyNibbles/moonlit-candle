@@ -38,6 +38,15 @@ class LoadSaveTest(unittest.TestCase):
         state.save(self.path, data)
         self.assertEqual(state.load(self.path), data)
 
+    def test_a_fish_value_that_is_not_utf8_round_trips(self):
+        # A byte that is not UTF-8 is held as a lone surrogate; the file stays valid UTF-8 JSON.
+        value = {"value": ["FF\udcff", "é\r"], "exported": False}
+        data = dict(state.empty("midnight"), components={"fish": {"files": [], "variables": {"v": value}}})
+        state.save(self.path, data)
+        self.path.read_bytes().decode("utf-8")
+        self.assertEqual(state.load(self.path), data)
+        self.assertIn('"é\\r"', self.path.read_text(encoding="utf-8"))
+
     def test_v1_file_loads_as_v2(self):
         self.path.parent.mkdir(parents=True)
         self.path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
