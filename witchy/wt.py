@@ -60,6 +60,11 @@ def _profile(data: Any, guid: str) -> dict | None:
     return None
 
 
+def profile(data: Any, guid: str) -> dict | None:
+    """The profile with this GUID (case-insensitive), or None."""
+    return _profile(data, guid)
+
+
 def find_profile(data: Any, env: Mapping[str, str]) -> tuple[str | None, str | None]:
     """The profile to theme: WT_PROFILE_ID if it exists, else the one WSL profile named after the distro."""
     profiles = _profiles(data)
