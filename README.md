@@ -28,7 +28,7 @@ Components, in install order: `claude`, `font`, `windows-terminal`, `fish`. The 
 
 `install` backs up every file it changes as `*.bak-witchy-<date>` and records the previous values in `~/.claude/witchy/state.json`; `uninstall` restores them. A `settings.json` that is not strict JSON (comments, trailing commas) is never rewritten: for Windows Terminal you get a snippet to paste by hand and the rest continues; for `~/.claude/settings.json` the install stops without changing anything.
 
-Exit codes for `install` and `uninstall`: `0` everything done, `1` nothing changed, `2` done with warnings (a component was skipped or failed; the last line says which).
+Exit codes for `install` and `uninstall`: `0` everything done, `1` nothing changed, `2` done with warnings (a component was skipped or failed: install names it in its summary line, `3/4 components installed · skipped: …`, and uninstall in its last line, `… still installed: …`).
 
 Restart Claude Code and Windows Terminal after installing, and open a new tab for the new prompt and greeting.
 
@@ -64,9 +64,9 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by the comm
 | `✗ fish  changed or missing: …` | a fish function, `conf.d/witchy.fish` or a greeting file was edited or deleted | `python3 -m witchy install --only fish` |
 | `✗ fish  Tide variables changed: …` | a Tide colour no longer holds the witchy value (for example after `tide configure`) | `python3 -m witchy install --only fish`, or keep your change |
 | `⚠ fish  cannot check the Tide variables: …` | `fish` is not on PATH, or did not answer within 5 s | put `fish` on PATH, or run doctor again |
-| `⚠ fish  sky: the sky job failed today (it retries tomorrow)` | the sky job failed today and logged nothing readable | see `~/.cache/witchy/ritual.log` |
+| `⚠ fish  sky: the sky job failed today (it retries tomorrow)` | the sky job failed today and logged no error from today | `tail -n 20 ~/.cache/witchy/ritual.log` |
 | `⚠ fish  eza missing — sudo apt install eza` | `ll` and `lt` fall back to `ls` | `sudo apt install eza` |
-| `⚠ fish  greeting: last run failed …` | the greeting hit an error in the last 7 days and printed nothing | see `~/.cache/witchy/ritual.log`; `ritual` shows the greeting |
+| `⚠ fish  greeting: last run failed …` | the greeting hit an error in the last 7 days and printed nothing | `tail -n 20 ~/.cache/witchy/ritual.log`; `ritual` shows the greeting |
 | `⚠ fish  sky: last run failed …` | the sky job could not move the moon (for example, you set your own `backgroundImage`); it retries once a day | `python3 -m witchy install --only windows-terminal` puts the moon sky back |
 | `⚠ …  last install (…): skipped: …` | a component was skipped or failed at the last install | read the reason, then install `--only` that component |
 | `✗ state  … damaged` | `state.json` is not readable | fix or remove the file by hand |

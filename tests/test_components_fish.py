@@ -4,7 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import tempfile
 import unittest
 from pathlib import Path
@@ -534,8 +534,9 @@ class DoctorTest(FishTestCase):
         runner.install(self.ctx())
         self.log("2026-10-03T09:14:00 greeting: UnicodeEncodeError(" + "x" * 300 + ")")
         line = next(line for line in self.doctor()[1].splitlines() if "greeting:" in line)
-        self.assertTrue(line.endswith("…"))
-        self.assertLess(len(line), 170)
+        message = line.split("today at 09:14: ", 1)[1]
+        self.assertEqual(len(message), fish.MESSAGE_MAX)
+        self.assertTrue(message.endswith("…"))
 
     def test_the_sky_fail_marker(self):
         runner.install(self.ctx())
@@ -547,6 +548,36 @@ class DoctorTest(FishTestCase):
         self.assertIn("fix: python3 -m witchy install --only windows-terminal", output)
         (self.home / ".cache" / "witchy" / "ritual.log").unlink()
         self.assertIn("⚠ fish              sky: the sky job failed today (it retries tomorrow)", self.doctor()[1])
+
+    def test_a_sky_fail_marker_from_yesterday_adds_nothing(self):
+        runner.install(self.ctx())
+        self.log("2026-10-02T08:00:00 sky: boom")
+        (self.home / ".cache" / "witchy" / "sky-fail").write_text("2026-10-02\n", encoding="utf-8")
+        output = self.doctor()[1]
+        self.assertIn("⚠ fish              sky: last run failed yesterday: boom\n", output)
+        self.assertNotIn("retries tomorrow", output)
+        (self.home / ".cache" / "witchy" / "ritual.log").unlink()
+        output = self.doctor()[1]
+        self.assertNotIn("sky:", output)
+        self.assertIn("✓ fish              no greeting or sky errors in the last 7 days", output)
+
+    def test_only_a_sky_error_from_today_retries_tomorrow(self):
+        runner.install(self.ctx())
+        self.log("2026-10-01T08:00:00 sky: boom")
+        (self.home / ".cache" / "witchy" / "sky-fail").write_text("2026-10-03\n", encoding="utf-8")
+        output = self.doctor()[1]
+        self.assertIn("⚠ fish              sky: last run failed 2 days ago: boom\n", output)
+        self.assertIn("⚠ fish              sky: the sky job failed today (it retries tomorrow)\n", output)
+
+    def test_the_fix_for_a_log_line_shows_the_log(self):
+        self.home = self.root / "my home"
+        self.home.mkdir()
+        runner.install(self.ctx())
+        self.log("2026-10-03T09:14:00 greeting: KeyError('name')")
+        (self.home / ".cache" / "witchy" / "sky-fail").write_text("2026-10-03\n", encoding="utf-8")
+        output = self.doctor()[1]
+        fix = f"    fix: tail -n 20 '{self.home}/.cache/witchy/ritual.log'\n"
+        self.assertEqual(output.count(fix), 2, output)  # the greeting line and the fail-marker line
 
     def test_damaged_log_lines_are_skipped(self):
         runner.install(self.ctx())
@@ -561,8 +592,10 @@ class DoctorTest(FishTestCase):
     def test_an_aware_now_compares_with_the_local_log(self):
         runner.install(self.ctx())
         self.log("2026-10-03T09:14:00 greeting: KeyError('name')")
+        local = self.NOW.astimezone()  # 21:00 in this machine's zone, whatever it is
+        ahead = local.astimezone(timezone(local.utcoffset() + timedelta(hours=9)))  # 06:00 the next day there
         ctx = self.ctx()
-        ctx.now = lambda: self.NOW.astimezone()
+        ctx.now = lambda: ahead
         runner.doctor(ctx, [fish.FishComponent()])
         self.assertIn("greeting: last run failed today at 09:14", self.out.getvalue())
 

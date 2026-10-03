@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -170,22 +171,25 @@ def log_checks(ctx: Any) -> list[Check]:
     if now.tzinfo is not None:
         now = now.astimezone().replace(tzinfo=None)  # the log holds local wall-clock times
     errors = {kind: found for kind, found in _last_errors(path).items() if now - found[0] < RECENT}
+    show_log = f"tail -n {log.MAX_LINES} {shlex.quote(str(path))}"  # the whole log
     checks = []
     if "greeting" in errors:
         stamp, message = errors["greeting"]
         checks.append(Check("warn", "fish", f"greeting: last run failed {_when(stamp, now)}: {_short(message)}",
-                            f"see {path}"))
+                            show_log))
     try:
         failed_today = (ctx.cache_dir / sky.FAIL).read_text(encoding="utf-8").strip() == now.date().isoformat()
     except (OSError, ValueError):
         failed_today = False
-    retry = " (it retries tomorrow)" if failed_today else ""
+    sky_today = "sky" in errors and errors["sky"][0].date() == now.date()
     if "sky" in errors:
         stamp, message = errors["sky"]
+        retry = " (it retries tomorrow)" if failed_today and sky_today else ""
         checks.append(Check("warn", "fish", f"sky: last run failed {_when(stamp, now)}: {_short(message)}{retry}",
                             fix_command("windows-terminal")))
-    elif failed_today:
-        checks.append(Check("warn", "fish", f"sky: the sky job failed today{retry}", f"see {path}"))
+    if failed_today and not sky_today:
+        # Today's failure logged nothing readable; an older sky error says nothing about it.
+        checks.append(Check("warn", "fish", "sky: the sky job failed today (it retries tomorrow)", show_log))
     if not checks:
         checks.append(Check("ok", "fish", "no greeting or sky errors in the last 7 days"))
     return checks
