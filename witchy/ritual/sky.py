@@ -9,6 +9,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import tempfile
 import time
 from contextlib import contextmanager
@@ -57,6 +58,12 @@ def _write_atomic(path: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            shutil.copymode(path, tmp)
+        except OSError:
+            pass  # /mnt/c (drvfs) may refuse chmod; the content is what matters
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -74,7 +81,11 @@ def _profile(data: object, guid: str) -> dict | None:
 
 def update(config: dict, lock: Path, target: int) -> bool:
     """Set the profile's backgroundImage to sky image ``target``; False when it already shows it."""
-    settings, guid, sky = Path(config["settings"]), config["profile_guid"], config["sky"]
+    settings, guid, sky = config.get("settings"), config.get("profile_guid"), config.get("sky")
+    if not (isinstance(settings, str) and isinstance(guid, str) and isinstance(sky, list) and len(sky) == moon.BINS
+            and all(isinstance(image, str) for image in sky)):
+        raise SkyError(f"{CONFIG} is not usable: sky must list {moon.BINS} images")
+    settings = Path(settings)
     with _locked(lock):
         raw = settings.read_bytes()
         try:

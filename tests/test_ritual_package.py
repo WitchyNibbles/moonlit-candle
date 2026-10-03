@@ -49,6 +49,29 @@ class InstalledCopyTest(unittest.TestCase):
             self.assertIn("🕯️ Samhain", done.stdout)
             self.assertLess(elapsed, 1.0)  # a regression guard; the real budget is 200 ms (spec 6.7)
             self.assertEqual(sorted(path.name for path in target.iterdir()), sorted(build.ritual_package()))
+            started = time.monotonic()
+            done = subprocess.run([PYTHON, "-I", "-B", str(target), "--full", "--date", "2026-10-31"],
+                                  capture_output=True, text=True, env=env, cwd=tmp, timeout=10)
+            elapsed = time.monotonic() - started
+            self.assertEqual((done.returncode, done.stderr), (0, ""))
+            self.assertIn("Samhain", done.stdout)
+            self.assertLess(elapsed, 1.0)
+
+    def test_a_missing_module_is_logged_not_shown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ".claude" / "witchy" / "ritual"
+            target.mkdir(parents=True)
+            for name, data in build.ritual_package().items():
+                (target / name).write_bytes(data)
+            (target / "wheel.py").unlink()
+            env = {"HOME": tmp, "NO_COLOR": "1", "PATH": os.environ.get("PATH", "")}
+            done = subprocess.run([PYTHON, "-I", "-B", str(target), "--omen"],
+                                  capture_output=True, text=True, env=env, cwd=tmp, timeout=10)
+            self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+            lines = (Path(tmp) / ".cache" / "witchy" / "ritual.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertIn("greeting:", lines[0])
+            self.assertIn("wheel", lines[0])
 
 
 if __name__ == "__main__":

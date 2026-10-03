@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
     try:
         marks = [("start", time.perf_counter())]
         now = now or datetime.now().astimezone()
-        if args.date:
+        if args.date and not args.sky:  # the sky job always works on the real now
             now = datetime.combine(args.date, now.timetz())
         if args.sky:
             return sky.run(home, now)

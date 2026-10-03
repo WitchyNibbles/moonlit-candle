@@ -3,14 +3,32 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from witchy import build, content, palette, validate
+from witchy.ritual import palette as ritual_palette
+from witchy.ritual import wheel
 
 RITUAL_PALETTE_SOURCE = Path(build.RITUAL_SOURCE) / "palette.py"
 
 
 def items(failures):
     return {failure.item for failure in failures}
+
+
+class SabbatNamesTest(unittest.TestCase):
+    def test_every_list_of_sabbats_agrees(self):
+        self.assertEqual(validate.SABBATS, wheel.SABBATS)
+        for name in wheel.SABBATS:
+            self.assertIn(name.lower(), palette.RITUAL)
+            self.assertIn(name.lower(), ritual_palette.PALETTE)
+        self.assertEqual(set(content.load_ritual()["sabbats"]), set(wheel.SABBATS))
+
+    def test_a_variant_without_ritual_colours_fails(self):
+        bare = palette.Variant(**{**palette.VARIANTS["midnight"].__dict__, "name": "dawn", "ritual": {}})
+        with mock.patch.dict(palette.VARIANTS, {"dawn": bare}):
+            failures = validate.validate_all()
+        self.assertTrue([f for f in failures if f.rule == "missing-token" and f.item == "ritual.salutation"])
 
 
 class RitualTextTest(unittest.TestCase):

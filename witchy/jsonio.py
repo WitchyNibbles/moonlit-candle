@@ -58,6 +58,8 @@ def write_atomic_bytes(path: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
         if path.exists():
             try:
                 shutil.copymode(path, tmp)

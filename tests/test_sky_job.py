@@ -1,5 +1,6 @@
 import fcntl
 import json
+import stat
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -75,6 +76,22 @@ class SkyJobTest(unittest.TestCase):
         self.assertEqual((self.cache / sky.FAIL).read_text(encoding="utf-8"), "2026-10-26\n")
         self.assertIn(reason, log.last(self.cache / log.NAME))
         self.assertFalse((self.cache / sky.STAMP).exists())
+
+    def test_the_file_mode_survives(self):
+        self.settings.chmod(0o644)
+        self.run_job()
+        self.assertEqual(self.background(), wt.SKY_VALUES[4])
+        self.assertEqual(stat.S_IMODE(self.settings.stat().st_mode), 0o644)
+
+    def test_a_malformed_config_is_reported_as_such(self):
+        config = self.home / sky.CONFIG
+        data = json.loads(config.read_text(encoding="utf-8"))
+        data["sky"] = "abc"
+        config.write_text(json.dumps(data), encoding="utf-8")
+        self.run_job()
+        self.assertEqual((self.cache / sky.FAIL).read_text(encoding="utf-8"), "2026-10-26\n")
+        self.assertIn("is not usable", log.last(self.cache / log.NAME))
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), WT_TEXT)
 
     def test_a_value_the_user_chose_is_left_alone(self):
         text = WT_TEXT.replace("ms-appdata:///local/moonlit-candle-sky-1.png", "C:\\\\pics\\\\cat.png")

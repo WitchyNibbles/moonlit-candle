@@ -277,8 +277,7 @@ def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
                                      variant.background, variant.foreground)
         failures += [Failure("format", f"sky.{key}", str(value), "is not #RRGGBB in uppercase")
                      for key, value in variant.sky.items() if not isinstance(value, str) or not HEX.match(value)]
-        if variant.ritual:
-            failures += validate_ritual_palette(variant.ritual, variant.background)
+        failures += validate_ritual_palette(variant.ritual, variant.background)
     try:
         spinner = content.load_spinner(content_dir)
         style = content.read_output_style(content_dir)

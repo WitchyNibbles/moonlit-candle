@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from witchy.ritual import cli, layout
+from witchy.ritual import cli, layout, sky, wheel
 
 CET = timezone(timedelta(hours=1))
 CEST = timezone(timedelta(hours=2))
@@ -92,6 +92,12 @@ class FullRitualTest(CliTestCase):
         plain = self.run_cli(["--full"], env={"FISH_VERSION": "3.7.0"}, now=datetime(2026, 10, 3, 9, tzinfo=CEST))
         self.assertIn("\x1b[1;38;2;255;212;119mGood morning, eimi", plain)
 
+    def test_every_sabbat_day_shows_its_line(self):
+        for name, day in wheel.sabbat_dates(2026, CET).items():
+            now = datetime.combine(day, SAMHAIN_NIGHT.timetz())
+            text = self.run_cli(["--full"], env={"FISH_VERSION": "3.7.0"}, now=now)
+            self.assertIn(f"🕯️ {name} —", ESCAPE.sub("", text))
+
     def test_no_color(self):
         self.assertNotRegex(self.run_cli(["--full"]), ESCAPE)
         self.assertNotRegex(self.run_cli(["--omen"]), ESCAPE)
@@ -144,6 +150,13 @@ class AutoModeTest(CliTestCase):
     def test_explicit_full_ignores_the_stamp(self):
         self.run_cli()
         self.assertIn("Good evening, eimi", self.run_cli(["--full"]))
+
+
+class SkyModeTest(CliTestCase):
+    def test_the_sky_job_ignores_the_date_flag(self):
+        with mock.patch.object(sky, "run", return_value=0) as run:
+            self.run_cli(["--sky", "--date", "2026-12-24"])
+        run.assert_called_once_with(self.home, SAMHAIN_NIGHT)
 
 
 class EntryPointTest(unittest.TestCase):
