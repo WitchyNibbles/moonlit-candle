@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 STATUSLINE_SOURCE = Path(__file__).resolve().parent / "statusline.py"
 RITUAL_SOURCE = Path(__file__).resolve().parent / "ritual"
+FISH_SOURCE = content.CONTENT_DIR / "fish"
 PALETTE_BLOCK = re.compile(r"(# BEGIN PALETTE\n)(.*?)(# END PALETTE\n)", re.DOTALL)
 
 THEME = "claude/themes/moonlit-candle.json"
@@ -49,6 +50,50 @@ def ritual_package(variant: str = palette.DEFAULT_VARIANT, content_dir: Path = c
                 else module.read_text(encoding="utf-8"))
         files[module.name] = text.encode("utf-8")
     files["data.json"] = (content_dir / content.RITUAL).read_bytes()
+    return files
+
+
+# Each eza colour role and the EZA_COLORS codes it sets (eza's colour codes: di directories, ex executables,
+# ln symlinks, sn/sb size number/unit, da date, ga/gm/gv/gt/gd git new/modified/renamed/typechange/deleted).
+EZA_CODES = {
+    "directory": ("di",),
+    "executable": ("ex",),
+    "symlink": ("ln",),
+    "size": ("sn", "sb"),
+    "date": ("da",),
+    "git_new": ("ga",),
+    "git_modified": ("gm",),
+    "git_renamed": ("gv",),
+    "git_typechange": ("gt",),
+    "git_deleted": ("gd",),
+}
+
+
+def eza_colors(colours: dict[str, str]) -> str:
+    """EZA_COLORS for ``colours``, in 24-bit colour: ``di=38;2;185;154;255:ex=…``."""
+    parts = []
+    for role, codes in EZA_CODES.items():
+        red, green, blue = (int(colours[role][i:i + 2], 16) for i in (1, 3, 5))
+        parts += [f"{code}=38;2;{red};{green};{blue}" for code in codes]
+    return ":".join(parts)
+
+
+def fish_quote(text: str) -> str:
+    """``text`` as one fish word: single quotes, with backslashes and single quotes escaped."""
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def fish_files(python: str, witchy_dir: Path, variant: str = palette.DEFAULT_VARIANT,
+               source: Path = FISH_SOURCE) -> dict[str, bytes]:
+    """The fish functions and conf.d snippet as installed, keyed by their path inside the fish config folder."""
+    values = {"@PYTHON@": fish_quote(python), "@WITCHY_DIR@": fish_quote(str(witchy_dir)),
+              "@EZA_COLORS@": fish_quote(eza_colors(palette.VARIANTS[variant].eza))}
+    files = {}
+    for path in sorted(source.rglob("*.fish")):
+        text = path.read_text(encoding="utf-8")
+        for placeholder, value in values.items():
+            text = text.replace(placeholder, value)
+        files[path.relative_to(source).as_posix()] = text.encode("utf-8")
     return files
 
 
