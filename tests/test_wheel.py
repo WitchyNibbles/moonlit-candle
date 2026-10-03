@@ -45,6 +45,11 @@ class SabbatTest(unittest.TestCase):
             with self.subTest(day):
                 self.assertEqual(wheel.upcoming(date.fromisoformat(day), CET), expected)
 
+    def test_the_time_zone_can_move_a_season_to_the_day_before(self):
+        # The September equinox of 2026 is 00:05 UTC on the 23rd: still the 22nd five hours west of Greenwich.
+        self.assertEqual(wheel.sabbat_dates(2026, timezone.utc)["Mabon"], date(2026, 9, 23))
+        self.assertEqual(wheel.sabbat_dates(2026, timezone(timedelta(hours=-5)))["Mabon"], date(2026, 9, 22))
+
     def test_december_looks_ahead_to_next_year(self):
         self.assertEqual(wheel.upcoming(date(2026, 12, 31), CET), None)
         self.assertEqual(wheel.upcoming(date(2027, 1, 30), CET), ("Imbolc", 2))
