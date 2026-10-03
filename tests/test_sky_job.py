@@ -3,6 +3,7 @@ import json
 import stat
 import tempfile
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -71,6 +72,31 @@ class SkyJobTest(unittest.TestCase):
         self.assertEqual((self.settings.read_text(encoding="utf-8"), self.settings.stat().st_mtime_ns), (text, before))
         self.assertEqual((self.cache / sky.STAMP).read_text(encoding="utf-8"), "4\n")
 
+    def test_windows_line_endings_survive(self):
+        crlf = WT_TEXT.replace("\n", "\r\n")
+        self.settings.write_bytes(crlf.encode("utf-8"))
+        self.run_job()
+        self.assertEqual(self.settings.read_bytes(),
+                         crlf.replace("moonlit-candle-sky-1.png", "moonlit-candle-sky-4.png").encode("utf-8"))
+
+    def test_the_stamp_is_written_before_the_lock_is_released(self):
+        # a shell opening right after the job must see the new stamp, or it starts the job again
+        stamp, real, seen = self.cache / sky.STAMP, sky._locked, []
+
+        @contextmanager
+        def locked(path):
+            with real(path):
+                yield
+                seen.append(stamp.read_text(encoding="utf-8") if stamp.exists() else None)
+
+        for case, image in (("moved", "sky-1.png"), ("already showing tonight", "sky-4.png")):
+            with self.subTest(case):
+                stamp.unlink(missing_ok=True)
+                self.settings.write_text(WT_TEXT.replace("sky-1.png", image), encoding="utf-8")
+                with mock.patch.object(sky, "_locked", locked):
+                    self.run_job()
+                self.assertEqual(seen.pop(), "4\n")
+
     def assert_failed(self, reason, text=WT_TEXT):
         self.assertEqual(self.settings.read_text(encoding="utf-8"), text)
         self.assertEqual((self.cache / sky.FAIL).read_text(encoding="utf-8"), "2026-10-26\n")
@@ -93,6 +119,11 @@ class SkyJobTest(unittest.TestCase):
         self.assertIn("is not usable", log.last(self.cache / log.NAME))
         self.assertEqual(self.settings.read_text(encoding="utf-8"), WT_TEXT)
 
+    def test_a_config_that_is_not_an_object_is_reported_as_such(self):
+        (self.home / sky.CONFIG).write_text("[]", encoding="utf-8")
+        self.run_job()
+        self.assert_failed(f"{sky.CONFIG} is not usable: it must be a JSON object")
+
     def test_a_value_the_user_chose_is_left_alone(self):
         text = WT_TEXT.replace("ms-appdata:///local/moonlit-candle-sky-1.png", "C:\\\\pics\\\\cat.png")
         self.settings.write_text(text, encoding="utf-8")
@@ -110,6 +141,13 @@ class SkyJobTest(unittest.TestCase):
         self.settings.write_text(text, encoding="utf-8")
         self.run_job()
         self.assert_failed("not found", text)
+
+    def test_a_value_that_appears_twice_is_not_rewritten(self):
+        text = WT_TEXT.replace('"hidden": true,', '"backgroundImage": "ms-appdata:///local/moonlit-candle-sky-1.png",\n'
+                                                  '                "hidden": true,')
+        self.settings.write_text(text, encoding="utf-8")
+        self.run_job()
+        self.assert_failed("appears 2 times", text)
 
     def test_a_file_changed_during_the_job_is_not_overwritten(self):
         real, reads = Path.read_bytes, []

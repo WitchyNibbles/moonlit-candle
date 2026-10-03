@@ -4,13 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import textwrap
 import time
 from datetime import date, datetime
 from pathlib import Path
-from typing import Mapping, TextIO
+from typing import Mapping, NoReturn, TextIO
 
 from . import art, fetch, layout, log, moon, palette, sky, tarot, wheel
 
@@ -27,6 +28,7 @@ STACKED = 40
 SALUTATIONS = ((4, "Good witching hour"), (12, "Good morning"), (18, "Good afternoon"), (24, "Good evening"))
 LUNAR = {"new": ("🌑", "New moon"), "full": ("🌕", "Full moon"), "blue": ("🌕", "Blue moon")}
 SEPARATOR = (" · ", "label", False)
+ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 def load_data() -> dict:
@@ -121,14 +123,40 @@ def _stamp(path: Path, now: datetime) -> None:
         pass
 
 
-def _arguments(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="ritual", description="The Moonlit Candle greeting")
+def iso_day(text: str) -> date:
+    """``--date``: YYYY-MM-DD only (from 3.11, date.fromisoformat also takes 20261031 and 2026-W44-6)."""
+    if ISO_DAY.fullmatch(text):
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            pass
+    raise argparse.ArgumentTypeError(f"{text!r} is not a date in the form YYYY-MM-DD")
+
+
+class _Parser(argparse.ArgumentParser):
+    """Exits 2 with usage as usual, and also logs the error when stderr is not a terminal.
+
+    fish_greeting sends stderr to /dev/null, so without the log a broken call would be invisible to doctor.
+    """
+
+    def __init__(self, log_path: Path, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.log_path = log_path
+
+    def error(self, message: str) -> NoReturn:
+        if not (sys.stderr and sys.stderr.isatty()):
+            log.append(self.log_path, f"greeting: bad arguments: {message}", datetime.now())
+        super().error(message)
+
+
+def _arguments(argv: list[str] | None, log_path: Path) -> argparse.Namespace:
+    parser = _Parser(log_path, prog="ritual", description="The Moonlit Candle greeting")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--full", action="store_true", help="always show the full ritual")
     mode.add_argument("--omen", action="store_true", help="show the one-line omen")
     mode.add_argument("--sky", action="store_true", help="move the Windows Terminal sky to tonight's phase")
     parser.add_argument("--debug", action="store_true", help="print the time each stage took")
-    parser.add_argument("--date", type=date.fromisoformat, help="preview another day (YYYY-MM-DD)")
+    parser.add_argument("--date", type=iso_day, help="preview another day (YYYY-MM-DD)")
     return parser.parse_args(argv)
 
 
@@ -140,12 +168,13 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
     out = sys.stdout if out is None else out
     home = Path.home() if home is None else home
     cache = home / CACHE
-    args = _arguments(argv)
+    args = _arguments(argv, cache / log.NAME)
     try:
         marks = [("start", time.perf_counter())]
         now = now or datetime.now().astimezone()
         if args.date and not args.sky:  # the sky job always works on the real now
-            now = datetime.combine(args.date, now.timetz())
+            # the same wall time, with the local UTC offset of that day (it differs across a DST change)
+            now = datetime.combine(args.date, now.time()).astimezone()
         if args.sky:
             return sky.run(home, now)
         columns = columns or shutil.get_terminal_size((80, 24)).columns

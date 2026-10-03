@@ -85,6 +85,7 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertEqual(data["components"], {"a": {"installed": "a"}, "b": {"installed": "b"}})
         self.assertEqual(data["last_install"], {"at": "20261002-120000", "results": {"a": "ok", "b": "ok"}})
         self.assertIn("2/2 components installed", self.out.getvalue())
+        self.assertIn(runner.INSTALLED, self.out.getvalue())
         self.assertIn("a note", self.out.getvalue())
 
     def test_state_is_saved_after_each_component(self):
@@ -100,6 +101,8 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertEqual(self.state()["components"]["b"], {"old": True})
         self.assertEqual(self.state()["last_install"]["results"]["b"], "skipped: nope")
         self.assertIn("1/2 components installed · skipped: b (nope)", self.out.getvalue())
+        self.assertIn(runner.PARTLY_INSTALLED, self.out.getvalue())
+        self.assertNotIn(runner.INSTALLED, self.out.getvalue())
 
     def test_failed_component_exits_2(self):
         code = runner.install(self.ctx(), [Fake("a", self.log), Fake("b", self.log, fail=True)])
@@ -162,6 +165,17 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertEqual(runner.install(self.ctx(dry_run=True), [Acting("a", self.log)]), 0)
         self.assertIn("font: download x", self.out.getvalue())
 
+    def test_dry_run_prints_each_plans_actions_after_its_own_changes(self):
+        class Acting(Fake):
+            def plan(self, ctx, entry):
+                super().plan(ctx, entry)
+                return Plan(changes=[Change(ctx.home / f"{self.name}.txt", None, b"x\n")],
+                            actions=[f"{self.name}: act"])
+
+        self.assertEqual(runner.install(self.ctx(dry_run=True), [Acting("a", self.log), Acting("b", self.log)]), 0)
+        self.assertEqual(self.out.getvalue().splitlines(),
+                         [f"create {self.home / 'a.txt'} (1 lines)", "a: act",
+                          f"create {self.home / 'b.txt'} (1 lines)", "b: act", "Dry run: nothing was written."])
 
     def test_later_components_see_earlier_plans_and_results(self):
         seen = {}
@@ -342,6 +356,15 @@ class RestoreCommandsTest(RunnerTestCase):
         self.assertIn("a: restore 2 Tide variables", self.out.getvalue())
         self.assertTrue(self.target.exists())
 
+    def test_dry_run_lists_the_folders_it_would_remove_if_empty(self):
+        a = Restoring("a", self.log, self.plan)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(dry_run=True, run=self.runs()), [a]), 0)
+        self.assertEqual(self.out.getvalue().splitlines(),
+                         [f"remove {self.target}", "a: restore 2 Tide variables",
+                          f"a: remove {self.target.parent} if empty", "Dry run: nothing was written."])
+        self.assertTrue(self.target.parent.is_dir())
+
 
 class BlockedRestoreTest(RunnerTestCase):
     def blocked(self, ctx, entry):
@@ -378,14 +401,24 @@ class OutcomeTest(RunnerTestCase):
         self.assertEqual(self.state()["last_install"]["results"], {"fish": "skipped: Tide not found"})
         output = self.out.getvalue()
         self.assertIn("0/1 components installed · skipped: fish (Tide not found)", output)
-        self.assertIn(runner.INSTALLED, output)
+        self.assertIn(runner.PARTLY_INSTALLED, output)
+        self.assertNotIn(runner.INSTALLED, output)
         self.assertIn("Open a new tab.", output)
 
     def test_nothing_applied_does_not_claim_an_install(self):
         self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log, skip="no Windows Terminal")]), 2)
         output = self.out.getvalue()
         self.assertNotIn(runner.INSTALLED, output)
+        self.assertNotIn(runner.PARTLY_INSTALLED, output)
         self.assertIn(runner.NOTHING_INSTALLED, output)
+
+    def test_some_ok_and_some_failed_is_a_partial_install(self):
+        code = runner.install(self.ctx(), [Fake("a", self.log), Fake("b", self.log, fail=True)])
+        self.assertEqual(code, 2)
+        output = self.out.getvalue()
+        self.assertIn("1/2 components installed · failed: b (boom)", output)
+        self.assertIn(runner.PARTLY_INSTALLED, output)
+        self.assertNotIn(runner.INSTALLED, output)
 
 
 class UninstallRaceTest(RunnerTestCase):

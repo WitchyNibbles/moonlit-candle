@@ -13,6 +13,7 @@ from .errors import Abort, ComponentFailed
 
 LOCK_BUSY = "another witchy command is running"
 INSTALLED = "Moonlit Candle installed. Undo with: python3 -m witchy uninstall"
+PARTLY_INSTALLED = "Moonlit Candle partly installed. Undo with: python3 -m witchy uninstall"
 NOTHING_INSTALLED = "Nothing was installed."
 NEW_SESSION_NOTE = ("The output style applies from your next message; restart Claude Code if the theme "
                     "or status line do not update.")
@@ -99,11 +100,10 @@ def _install(ctx: Any, components: list) -> int:
         plan = component.plan(ctx, entries.get(component.name))
         ctx.planned[component.name] = plan
         plans.append((component, plan))
-    changes = [change for _, plan in plans if plan.skip is None for change in plan.changes]
     if ctx.dry_run:
-        show_changes(ctx, changes)
         for _, plan in plans:
             if plan.skip is None:
+                show_changes(ctx, plan.changes)
                 for action in plan.actions:
                     ctx.say(action)
         ctx.say("Dry run: nothing was written.")
@@ -131,14 +131,20 @@ def _install(ctx: Any, components: list) -> int:
         # Saved after every component: a later one can fail on the Windows side, and the
         # record must already describe what is really installed.
         statefile.save(ctx.state_path, new_state)
+    ok = all(result == "ok" for result in results.values())
     ctx.say(_summary(results))
-    ctx.say(INSTALLED if applied else NOTHING_INSTALLED)
+    if not applied:
+        ctx.say(NOTHING_INSTALLED)
+    elif ok:
+        ctx.say(INSTALLED)
+    else:  # exit 2 with something applied is a partial install, whichever components were selected
+        ctx.say(PARTLY_INSTALLED)
     for component, plan in plans:
         if component.name in applied:
             for note in plan.notes:
                 ctx.say(note)
     ctx.say(NEW_SESSION_NOTE)
-    return 0 if all(result == "ok" for result in results.values()) else 2
+    return 0 if ok else 2
 
 
 def uninstall(ctx: Any, components: Sequence[Component] | None = None) -> int:
@@ -186,6 +192,8 @@ def _uninstall(ctx: Any, components: list) -> int:
         for component, plan in plans:
             for command in plan.commands:
                 ctx.say(f"{component.name}: {command.label}")
+            for directory in plan.prune:
+                ctx.say(f"{component.name}: remove {directory} if empty")
         for warning in warnings:
             ctx.say(warning)
         ctx.say("Dry run: nothing was written.")

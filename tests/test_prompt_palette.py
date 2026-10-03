@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from witchy import palette, validate
+from witchy import build, palette, validate
 
 # `fish -c 'set -U | string match -r "^tide_\S+"'` on Tide 6.1.1 (2026-10-03), the version the spec targets.
 TIDE_6_1_1_VARIABLES = frozenset("""
@@ -69,13 +69,32 @@ class TideNamesTest(unittest.TestCase):
 
     def test_every_tide_colour_is_validated_for_contrast_or_exempt(self):
         checked = {name for pair in validate.TIDE_TEXT_PAIRS + validate.TIDE_SECONDARY_PAIRS for name in pair if name}
-        colours = {key for key in palette.TIDE if "color" in key}
+        colours = {key for key in palette.TIDE if validate.is_tide_colour(key)}
+        # It sits between segments that share a background, so no single background exists to test it on.
         self.assertEqual(colours - checked, {"tide_prompt_color_separator_same_color"})
+
+    def test_colour_keys_are_the_ones_with_a_colour_word(self):
+        for key in ("tide_pwd_bg_color", "tide_git_color_branch", "tide_context_color_default",
+                    "tide_left_prompt_separator_diff_color"):
+            self.assertTrue(validate.is_tide_colour(key), key)
+        for key in ("tide_left_prompt_items", "tide_cmd_duration_threshold", "tide_colorful_icon", "tide_pwd_decolor"):
+            self.assertFalse(validate.is_tide_colour(key), key)
+        self.assertEqual({key for key in palette.TIDE if validate.is_tide_colour(key)},
+                         {key for key in palette.TIDE if key not in (
+                             "tide_left_prompt_items", "tide_right_prompt_items", "tide_cmd_duration_threshold")})
 
 
 class TideValidateTest(unittest.TestCase):
     def test_real_variables_pass(self):
         self.assertEqual(validate.validate_tide(palette.TIDE), [])
+
+    def test_a_name_that_only_contains_color_is_not_a_colour(self):
+        found = pairs(validate.validate_tide(dict(palette.TIDE, tide_colorful_icon="x")))
+        self.assertEqual(found, set())
+
+    def test_the_exempt_separator_colour_is_still_format_checked(self):
+        found = pairs(validate.validate_tide(dict(palette.TIDE, tide_prompt_color_separator_same_color="grey")))
+        self.assertIn(("format", "tide.tide_prompt_color_separator_same_color"), found)
 
     def test_colours_need_six_hex_digits_without_a_hash(self):
         for bad in ("#B99AFF", "b99aff", "B99AF"):
@@ -107,6 +126,21 @@ class TideValidateTest(unittest.TestCase):
     def test_items_must_be_strings(self):
         found = pairs(validate.validate_tide(dict(palette.TIDE, tide_left_prompt_items=("moon", 3))))
         self.assertIn(("format", "tide.tide_left_prompt_items"), found)
+
+
+class EzaDerivedTest(unittest.TestCase):
+    def test_git_colours_are_tides_git_colours(self):
+        tide = palette.TIDE
+        self.assertEqual(palette.EZA["git_new"], "#" + tide["tide_git_bg_color"])
+        for role in ("git_modified", "git_renamed", "git_typechange"):
+            self.assertEqual(palette.EZA[role], "#" + tide["tide_git_bg_color_unstable"])
+        self.assertEqual(palette.EZA["git_deleted"], "#" + tide["tide_git_bg_color_urgent"])
+
+    def test_the_rendered_string_is_unchanged(self):
+        self.assertEqual(build.eza_colors(palette.EZA),
+                         "di=38;2;185;154;255:ex=38;2;116;232;184:ln=38;2;119;217;255:sn=38;2;169;154;185"
+                         ":sb=38;2;169;154;185:da=38;2;169;154;185:ga=38;2;255;212;119:gm=38;2;255;184;107"
+                         ":gv=38;2;255;184;107:gt=38;2;255;184;107:gd=38;2;255;107;159")
 
 
 class EzaValidateTest(unittest.TestCase):

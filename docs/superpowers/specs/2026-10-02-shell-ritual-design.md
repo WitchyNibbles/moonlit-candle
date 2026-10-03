@@ -61,7 +61,7 @@ class Component(Protocol):
     def check(self, ctx, entry: dict | None) -> list[Check]  # doctor lines: ok | warn | fail, message, fix
 ```
 
-`Plan` holds file `Change`s (the existing dataclass), commands to run (fish, `reg.exe`), notes and warnings. `--dry-run` prints every plan and runs nothing. A restore plan's `commands` run before its file changes, and its `prune` folders are removed afterwards when empty. A plan that applies only in part sets `outcome` (for example `skipped: Tide not found`), which the runner records instead of `ok`. A `restore` that cannot be planned (its `settings.json` is no longer plain JSON) raises `ComponentFailed`: nothing of that component is touched and it stays in state.
+`Plan` holds file `Change`s (the existing dataclass), commands to run (fish, `reg.exe`), notes and warnings. `--dry-run` prints every plan (each plan's file changes, then its actions) and runs nothing. A restore plan's `commands` run before its file changes, and its `prune` folders are removed afterwards when empty (an uninstall dry run lists them as `<name>: remove <folder> if empty`). A plan that applies only in part sets `outcome` (for example `skipped: Tide not found`), which the runner records instead of `ok`. A `restore` that cannot be planned (its `settings.json` is no longer plain JSON) raises `ComponentFailed`: nothing of that component is touched and it stays in state.
 
 ### 3.2 Runner (`witchy/runner.py`)
 
@@ -71,7 +71,7 @@ class Component(Protocol):
 4. Plan every selected component in order: `claude`, `font`, `windows-terminal`, `fish`. `claude` aborting (its `settings.json` is not plain JSON) stops everything with exit 1, as today.
 5. Apply each component in order. After each one, save state. A failing `font`, `windows-terminal` or `fish` step records `skipped: <reason>` (its plan skipped) or `failed: <reason>` (applying it failed) and the runner continues.
 6. Uninstall runs `restore` in reverse order.
-7. Print an end summary, e.g. `3/4 components installed · failed: font (download failed (…))`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings).
+7. Print an end summary, e.g. `3/4 components installed · failed: font (download failed (…))`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings). The line after it is `Moonlit Candle installed.` (exit 0), `Moonlit Candle partly installed.` (exit 2, something applied) or `Nothing was installed.` (exit 2, nothing applied).
 
 Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.py`. `jsonio.py` and `records.py` are reused unchanged. `install.py` shrinks to the CLI glue around the runner.
 
@@ -89,6 +89,8 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 - v1 migrates on load: `files` and `claude_settings` go to `components.claude`; `windows_terminal` goes to `components["windows-terminal"]`. Every recorded previous value is kept. The next write saves v2.
 - A component's entry is absent until it is installed. Reinstall keeps the first recorded previous values, as today.
 - A copied file that someone edited after witchy wrote it is backed up again at the next install, and that backup becomes what uninstall gives back; while the file still holds witchy's bytes, the first backup stays.
+- An apply that stops part-way (a file write fails) still records the files witchy already wrote and reports `failed: <reason>`, so the next install does not mistake witchy's bytes for the user's and uninstall still removes them or gives back the original. A file the run did not write keeps its earlier record. A `claude` entry has no `settings` record until witchy has written `settings.json`; doctor then reports `settings keys not installed`.
+- `windows-terminal` cannot keep an entry without its `settings.json` record, so when that write fails it puts back the sky images it wrote (removing the ones it created) and the state keeps the earlier entry, if any. An image someone else changed in the meantime is left alone.
 - `~/.claude/witchy/` is durable. `~/.cache/witchy/` (stamps, fail marker, log, font zip, sky render cache) is disposable at any time.
 - `last_install.at` is the run stamp used for backups.
 
@@ -165,7 +167,7 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 - 8 PNGs, `moonlit-candle-sky-0.png` (new) to `-7.png` (waning crescent), 2560×1440 RGB on `#0D0916`, rendered by `witchy/sky_render.py` with a stdlib PNG writer into a pre-filled `bytearray`, touching only star and moon pixels.
 - Shared starfield: a fixed seed places about 220 stars (single pixels and 2×2 dots in `#F3EAF7`, `#FFD477`, `#B99AFF`) and 6–8 four-point sparkles; identical in all 8 images.
 - The moon: radius 150 px, centred about 260 px from the right and bottom edges. The lit part is drawn for the bin's phase in `#FFD477`; the dark part is a faint `#1D1230` disc with a `#38234D` rim; a soft glow scales with illumination.
-- Output is deterministic. Renders are cached in `~/.cache/witchy/sky/<hash of renderer source + palette>/`, so only the first build pays (about 1 s per image).
+- Output is deterministic. Renders are cached in `~/.cache/witchy/sky/<hash of renderer source + palette>/`, so only the first build pays (about 1 s per image). A cached file that cannot be read or is not a whole PNG is rendered again, and after a write the directories of older keys (16 lowercase hex characters) are removed.
 - **Spike gate:** before building the sky job, a manual check confirms that Windows Terminal applies a changed `backgroundImage` path without a restart. If it does not, ship a single image for the install-day phase (`moonlit-candle-sky.png`) and no sky job; everything else in this spec is unchanged.
 - **Spike result (2026-10-03): passed.** An atomic replace of `settings.json` that only changed `backgroundImage` was applied to an open tab without a restart, so the eight images and the sky job stay in scope.
 
@@ -173,8 +175,8 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 
 - `conf.d/witchy.fish`, on interactive shells with `WT_SESSION` set and `~/.claude/witchy/ritual-config.json` present, computes the phase bin with `_witchy_moon_bin` and compares it with `~/.cache/witchy/sky-bin`.
 - Equal, or a fail marker for today exists: do nothing. Different: start `@PYTHON@ -I -B @WITCHY_DIR@/ritual --sky` in the background (`&; disown`), silently.
-- The job takes the lock, reads `settings.json` strictly, and finds the profile from `ritual-config.json`. If the profile's `backgroundImage` is not one of the 8 sky values (the user changed it), it does nothing and logs once. Otherwise it sets the new value, re-checks the file hash, writes atomically and updates `sky-bin`.
-- The job edits only that value in the file's text (it must appear exactly once), re-parses the result and requires it to match; Windows Terminal's own layout survives. When the profile already shows tonight's image it only writes `sky-bin`.
+- The job takes the lock, reads `settings.json` strictly, and finds the profile from `ritual-config.json`. If the profile's `backgroundImage` is not one of the 8 sky values (the user changed it), it does nothing and logs once. Otherwise it sets the new value, re-checks the file hash, writes atomically and updates `sky-bin` before it releases the lock.
+- The job edits only that value in the file's text (it must appear exactly once), re-parses the result and requires it to match; Windows Terminal's own layout survives. When the profile already shows tonight's image it only writes `sky-bin`, also under the lock.
 - Any failure writes `~/.cache/witchy/sky-fail` with today's date and logs the error. Retries happen at most once a day. Two windows opening at once are serialised by the lock; the second sees the updated stamp and exits.
 
 ## 5. Prompt (Tide)
@@ -212,15 +214,15 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 ### 5.3 Rules
 
 - Tide check: `fish -c 'functions -q tide'`. Missing fish or Tide: skip the variables with a warning; the fish files and greeting still install either way. Missing fish gives `skipped: fish not found`, missing Tide `skipped: Tide not found`.
-- Snapshot each variable before the first install: its values (read NUL-separated), its export flag, or `{"absent": true}`.
+- Snapshot each variable before the first install: its values (read NUL-separated, byte for byte: a carriage return or a byte that is not UTF-8 is written back as it was), its export flag, or `{"absent": true}`.
 - Set with `set -U` (`-Ux` when the snapshot was exported) after the fish files exist.
 - If a `set -U` exits non-zero, stop; state records only the variables already set.
-- Uninstall restores a variable (or erases it with `set -e -U`) only if it still holds the installed value; otherwise it warns and leaves it.
+- Uninstall restores a variable (or erases it with `set -e -U`) only if it still holds the installed value; otherwise it warns and leaves it. When a changed `tide_left_prompt_items` or `tide_right_prompt_items` still lists `moon`, the warning gives the command that removes it (`set -U <name> (string match -v moon $<name>)`), because the moon item's function goes with the files.
 - Every `fish` call uses list arguments and a 5 s timeout through the injectable `ctx.run`.
-- Running shells keep their old prompt; the summary says to open a new tab.
+- Running shells keep their old prompt; the summary says to open a new tab for the new prompt and greeting. Without Tide (or when fish does not answer) it names only the greeting; without fish it says nothing about a new tab.
 - `fish -c` runs the user's `config.fish` (0.4 s on this machine) and `--no-config` also turns off universal variables, so the calls are batched: one call reads Tide's presence and every variable, one call sets them all. Values travel on standard input as NUL-terminated fields, never in the script; the scripts print a `witchy-fish` marker first, so whatever `config.fish` prints is ignored. A global that `config.fish` sets is erased inside the reading call so the universal value shows.
-- When fish or Tide is missing, the files still install and the result is `skipped: fish not found` or `skipped: Tide not found`. A failed set records the files and the variables already set, and the result is `failed: could not set <name>`. When fish does not finish (for example a timeout), every planned variable is recorded, because restore skips one that still holds its previous value, and the result is `failed: fish did not finish setting the Tide variables`.
-- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left with a warning and the files still go; when fish exists but does not answer, the component stays installed.
+- When fish or Tide is missing, the files still install and the result is `skipped: fish not found` or `skipped: Tide not found`. When a file write fails part-way, the files already written stay recorded (with the variables recorded earlier), the Tide variables are not set, and the result is `failed: could not write the fish files (…)`; nothing is recorded when nothing was written. A failed set records the files and the variables already set, and the result is `failed: could not set <name>`. When fish does not finish (for example a timeout), every planned variable is recorded, because restore skips one that still holds its previous value, and the result is `failed: fish did not finish setting the Tide variables`.
+- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left and the files still go, with the warning `fish: fish not found, so Tide keeps witchy's colours and the moon item; to reset them, run tide configure in fish.`; when fish exists but does not answer, the component stays installed. When every recorded variable is gone (Tide was removed), uninstall gives one warning, `fish: Tide's variables are gone (was Tide removed?); nothing to restore.`, instead of one per variable.
 
 ## 6. Greeting (the ritual)
 
@@ -230,7 +232,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 
 | Module | Purpose |
 | :- | :- |
-| `__main__.py` | arguments: default (auto), `--full`, `--omen`, `--sky`, `--debug` (timing per stage), `--date YYYY-MM-DD` (preview another day) |
+| `__main__.py` | arguments: default (auto), `--full`, `--omen`, `--sky`, `--debug` (timing per stage), `--date YYYY-MM-DD` (preview another day: the same wall time, with that day's UTC offset; any other date form is an argument error) |
 | `moon.py` | mean-synodic phase, bin, illumination; Meeus ch. 49 exact new and full moon instants |
 | `wheel.py` | the 8 sabbats; Meeus ch. 27 solstices and equinoxes |
 | `art.py` | the ASCII moon disc and stars |
@@ -238,7 +240,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 | `fetch.py` | system lines |
 | `layout.py` | side-by-side, stacked and omen layouts; glyph width table; `NO_COLOR` |
 | `sky.py` | the sky job (4.5) |
-| `log.py` | `~/.cache/witchy/ritual.log`, trimmed to the last 20 lines |
+| `log.py` | `~/.cache/witchy/ritual.log`, trimmed to the last 20 lines, each message cut to 300 characters; writers take `ritual.log.lock` in turn and replace the file atomically |
 | `palette.py` | colours; `build` rewrites its `# BEGIN PALETTE` block from the active variant |
 | `data.json` | copied from `content/ritual.json` |
 | `cli.py` | the greeting itself; `__main__.py` only finds it, in the repository or the installed copy |
@@ -318,6 +320,7 @@ shell   fish 3.7.0
 - A fixed width table covers every glyph we print (emoji are 2 cells), so columns line up.
 - `NO_COLOR` set: plain text, no escape sequences.
 - Any exception: print nothing, exit 0, and append the error to `ritual.log`. Doctor shows the last logged error.
+- Bad arguments: usage on stderr, exit 2. When stderr is not a terminal (`fish_greeting` sends it to `/dev/null`), the error is also logged as `greeting: bad arguments: …`.
 - Budget: median under 200 ms over 10 runs. A test fails above 1 s, as a regression guard that never flakes.
 
 ## 7. eza
@@ -343,10 +346,10 @@ python3 -m witchy mood [VARIANT]
 - `--only` accepts `claude`, `font`, `windows-terminal`, `fish` (repeatable). Components not named keep their state untouched.
 - Install and uninstall exit 0 (all ok), 1 (nothing changed: validation, lock, abort), 2 (done with warnings).
 - An uninstall whose restore cannot be written, or cannot be planned, keeps that component in state and exits 2; running uninstall again retries it. A Claude or Windows Terminal `settings.json` that is no longer plain JSON keeps the whole component, files included, because the settings still point at them.
-- The end summary says `Nothing was installed.` instead of the install line when no component applied.
+- The line after the end summary says `Moonlit Candle installed.` only when every selected component ended `ok`. When at least one applied but not all ended `ok` (skipped, failed, or applied only in part, such as fish without Tide) it says `Moonlit Candle partly installed.`, and when no component applied it says `Nothing was installed.`
 - `doctor` prints one line per check, `✓`, `⚠` or `✗`, each `✗`/`⚠` with its fix (often `python3 -m witchy install --only <name>`). It uses the paths recorded in state (no `cmd.exe` lookup) and finishes under 2 s. Exit 1 on any `✗`, else 0. A `check()` that raises is reported as `✗` with the exception text.
 - Doctor checks: installed files match their recorded hashes; settings keys and profile keys hold installed values; the theme is active; the font is registered; the sky images and `ritual-config.json` exist; Tide variables match; eza is present; the backups state relies on still exist; the last `ritual.log` error; the sky fail marker; components skipped at the last install.
-- The newest `greeting` and `sky` errors are shown only when they are less than 7 days old, with their age (`today at 09:14`, `yesterday`, `3 days ago`) and cut to 100 characters. A sky fail marker for today adds `(it retries tomorrow)`. The log holds errors only, so an old error would otherwise warn for ever.
+- The newest `greeting` and `sky` errors are shown only when they are less than 7 days old, with their age (`today at 09:14`, `yesterday`, `3 days ago`) and cut to 100 characters. A sky fail marker for today adds `(it retries tomorrow)` to a sky error from today; without a sky error from today it shows as `sky: the sky job failed today (it retries tomorrow)`. The fix for the greeting line and that marker line is `tail -n 20 <ritual.log>` (the path quoted for the shell). The log holds errors only, so an old error would otherwise warn for ever.
 - `mood` without an argument prints the active and available variants. With a variant it records it in state and re-runs install; an unknown variant exits 1 with `available: midnight`.
 
 ## 9. Error and rescue map
@@ -355,15 +358,18 @@ python3 -m witchy mood [VARIANT]
 | :- | :- | :- | :- |
 | runner | lock held | exit 1 | `another witchy command is running` |
 | claude | `settings.json` not plain JSON | abort everything, exit 1 | existing message |
+| claude | a file write `OSError` | `failed: could not write (…)`, exit 2; the files already written stay recorded (nothing is recorded when none was) | `claude: could not write (…); run install again.` |
 | font | Windows user folder not found; `reg.exe query` cannot run (while planning) | `skipped: <reason>`; `font` key untouched | `font: …; keeping the current font` |
 | font | `URLError` / `TimeoutError` | `failed: download failed (…)`, exit 2; nothing recorded for `font`; `font` key untouched | `font: download failed (…); keeping the current font` |
 | font | digest mismatch | delete the cached zip; `failed: checksum mismatch`, exit 2; nothing recorded for `font` | `font: checksum mismatch, nothing installed` |
 | font | bad archive (`FontArchiveError`); `OSError` on copy | `failed: <reason>`, exit 2; nothing recorded for `font`; files already copied stay | `font: …; keeping the current font` |
 | font | `reg.exe add` `OSError` / `TimeoutExpired` / non-zero exit | `failed: could not register <name>`, exit 2; nothing recorded for `font`; files already copied stay | warning naming the registry value |
-| windows-terminal | sky image copy `OSError` | set no background keys; the rest applies | `windows-terminal: sky images not copied (…)` |
-| windows-terminal | `StrictJsonError`, profile not found, write `OSError` | existing handling | existing messages |
+| windows-terminal | sky image copy `OSError` | set no background keys; the rest applies; the images already copied stay recorded | `windows-terminal: sky images not copied (…)` |
+| windows-terminal | `StrictJsonError`, profile not found | existing handling | existing messages |
+| windows-terminal | `settings.json` write `OSError` | `failed: could not write <path>`, exit 2; the sky images this run wrote are put back (best effort); state keeps the earlier entry | `Windows Terminal: could not write <path> (…); skipping the terminal colour scheme.` |
 | fish | no fish, no Tide, `TimeoutExpired` | skip the variables; files still install | `fish: fish not found; prompt not recoloured.`, `fish: Tide not found; prompt not recoloured.`, `fish: could not read the Tide variables (timed out after 5 s); prompt not recoloured.` |
 | fish | `set -U` non-zero (`CalledProcessError`) | stop; record the variables already set | warning naming the variable |
+| fish | a file write `OSError` | `failed: could not write the fish files (…)`, exit 2; the Tide variables are not set; the files already written stay recorded (nothing is recorded when none was) | `fish: could not write the fish files (…); run install again.` |
 | greeting | any exception | exit 0, no output, log | doctor `⚠ greeting: last run failed …` |
 | sky job | hash changed, not plain JSON, profile gone, value changed by user | skip, log, fail marker for today | doctor `⚠ sky: …` |
 | eza | missing | `ll`/`lt` fall back to `ls` | doctor `⚠ eza missing …` |
@@ -380,8 +386,8 @@ python3 -m witchy mood [VARIANT]
 ## 11. Validation additions
 
 1. `ritual.json`: exactly 22 tarot cards, `number` 0–21 each once, unique names, `upright` and `reversed` non-empty and at most 60 characters; `name` non-empty, at most 24 characters; the 8 sabbats present with a blessing; the 3 lunar lines present; blessings and lunar lines at most 48 characters.
-2. Ritual text colours and the 8 sabbat accents at least 4.5:1 on `#0D0916`; the earthshine `#38234D`, the sky images and the stars are exempt as decorative.
-3. Tide pairs at least 4.5:1: each segment's text colour on its background (moon, pwd anchors and dirs, git colours on all three git backgrounds, status, cmd_duration, time), and `character` colours on `#0D0916`. `tide_pwd_color_truncated_dirs` and the frame colour need 3:1.
+2. Ritual text colours and the 8 sabbat accents at least 4.5:1 on `#0D0916`; the earthshine `#38234D`, the sky images and the stars are exempt as decorative. Every sky colour the renderer reads must be present and `#RRGGBB`.
+3. Tide pairs at least 4.5:1: each segment's text colour on its background (moon, pwd anchors and dirs, git colours on all three git backgrounds, status, cmd_duration, time), and `character` colours on `#0D0916`. `tide_pwd_color_truncated_dirs` and the frame colour need 3:1. `tide_prompt_color_separator_same_color` has no contrast pair (it sits between segments that share a background); only its format is checked.
 4. eza colours at least 4.5:1 on `#0D0916`.
 5. Every variant passes every rule; colour format `^#?[0-9A-F]{6}$` (Tide values without `#`).
 

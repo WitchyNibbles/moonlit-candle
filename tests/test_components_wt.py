@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from witchy import jsonio, palette, runner, sky_render, wt
-from witchy.components.base import ComponentFailed, Plan, apply_changes
+from witchy.components.base import ComponentFailed, Plan, apply_changes, read, sha
 from witchy.components.windows_terminal import NO_FONT_NOTE, RITUAL_CONFIG, WindowsTerminalComponent
 from witchy.context import Context
 
@@ -54,6 +54,34 @@ class WindowsTerminalComponentTest(unittest.TestCase):
     def install(self):
         ctx = self.ctx()
         return ctx, self.component.apply(ctx, self.component.plan(ctx, None))
+
+    def write_fails(self, fails):
+        """Writing a path for which ``fails(path)`` is true raises PermissionError; everything else writes."""
+        real = jsonio.write_atomic_bytes
+
+        def write(path, data):
+            if fails(Path(path)):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, data)
+
+        return mock.patch("witchy.jsonio.write_atomic_bytes", side_effect=write)
+
+    def sky(self):
+        """The bytes of each sky image beside settings.json, or None for one that is not there."""
+        return [read(self.root / wt.sky_file(bin_)) for bin_ in range(8)]
+
+    def later_plan(self, entry):
+        """A reinstall by a later witchy version: another cursor colour and other sky images."""
+        again = self.ctx(stamp="20261002-130000")
+        again.sky_size = (128, 72)
+        with mock.patch.dict(palette.WT_SCHEME, {"cursorColor": "#FF9BD7"}):
+            return again, self.component.plan(again, entry)
+
+    def user_sky(self, bins):
+        """Sky images that are already there and are not witchy's (a copy the user made)."""
+        for bin_ in bins:
+            (self.root / wt.sky_file(bin_)).write_bytes(b"my own sky %d" % bin_)
+        return self.sky()
 
     def test_apply_sets_the_scheme_and_returns_the_record(self):
         _, entry = self.install()
@@ -282,6 +310,100 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         plan = self.component.restore(ctx, entry)
         self.assertEqual(plan.changes[0].path, self.wt)
         self.assertEqual(plan.lock, ctx.cache_dir / "wt.lock")
+
+    def test_backups_made_before_a_failed_image_copy_are_recorded(self):
+        originals = self.user_sky(range(8))
+        with self.write_fails(lambda path: path.name == wt.sky_file(2)):
+            ctx, entry = self.install()
+        self.assertIn("sky images not copied", self.out.getvalue())
+        self.assertEqual(entry["files"], [
+            {"path": str(self.root / wt.sky_file(bin_)),
+             "backup": str(self.root / f"{wt.sky_file(bin_)}.bak-witchy-20261002-120000"),
+             "installed_sha256": sha(read(self.root / wt.sky_file(bin_)))} for bin_ in (0, 1)])
+        self.assertEqual(self.sky()[2:], originals[2:])
+        apply_changes(ctx, self.component.restore(self.ctx(stamp="20261002-130000"), entry).changes)
+        self.assertEqual(self.sky(), originals)
+
+    def test_a_failed_settings_write_puts_back_the_images_it_wrote(self):
+        originals = self.user_sky(range(4))
+        ctx = self.ctx()
+        plan = self.component.plan(ctx, None)
+        with self.write_fails(lambda path: path == self.wt):
+            with self.assertRaisesRegex(ComponentFailed, "^could not write "):
+                self.component.apply(ctx, plan)
+        self.assertEqual(self.sky(), originals)
+        self.assertFalse(self.config().exists())
+
+    def test_a_failed_settings_write_on_reinstall_puts_back_the_earlier_images(self):
+        _, entry = self.install()
+        earlier = self.sky()
+        again, plan = self.later_plan(entry)
+        with self.write_fails(lambda path: path == self.wt):
+            with self.assertRaises(ComponentFailed):
+                self.component.apply(again, plan)
+        self.assertEqual(self.sky(), earlier)
+        self.assertEqual({check.level for check in self.component.check(again, entry)}, {"ok"})
+
+    def test_the_put_back_leaves_an_image_someone_else_rewrote(self):
+        image = self.root / wt.sky_file(0)
+
+        def fails(path):
+            if path == self.wt:
+                image.write_bytes(b"written meanwhile")
+                return True
+            return False
+
+        ctx = self.ctx()
+        plan = self.component.plan(ctx, None)
+        with self.write_fails(fails):
+            with self.assertRaises(ComponentFailed):
+                self.component.apply(ctx, plan)
+        self.assertEqual(self.sky(), [b"written meanwhile"] + [None] * 7)
+
+    def test_a_put_back_that_fails_still_reports_the_settings_write(self):
+        _, entry = self.install()
+        again, plan = self.later_plan(entry)
+        refused = []
+
+        def fails(path):
+            if path == self.wt:
+                refused.append(path)
+            return bool(refused)  # the settings write fails, and every write after it
+
+        with self.write_fails(fails):
+            with self.assertRaisesRegex(ComponentFailed, "^could not write "):
+                self.component.apply(again, plan)
+        self.assertEqual(self.sky(), [image.after for image in plan.data["images"]])
+
+    def test_a_failed_image_copy_keeps_the_record_of_an_image_someone_changed(self):
+        _, entry = self.install()
+        changed = self.root / wt.sky_file(3)
+        changed.write_bytes(b"edited")
+        again, plan = self.later_plan(entry)
+        with self.write_fails(lambda path: path.suffix == ".png"):
+            entry2 = self.component.apply(again, plan)
+        self.assertEqual(entry2["files"], entry["files"])
+        fails = [check.message for check in self.component.check(again, entry2) if check.level == "fail"]
+        self.assertEqual(fails, [f"changed or missing: {changed}"])
+
+    def test_check_warns_when_an_image_backup_is_gone(self):
+        self.user_sky([0])
+        ctx, entry = self.install()
+        backup = Path(entry["files"][0]["backup"])
+        backup.unlink()
+        warnings = [check.message for check in self.component.check(ctx, entry) if check.level == "warn"]
+        self.assertEqual(warnings, [f"backup {backup} is missing; uninstall cannot give back the original bytes"])
+
+    def test_restore_is_blocked_while_settings_cannot_be_read_back(self):
+        _, entry = self.install()
+        installed = self.wt.read_text(encoding="utf-8")
+        for text, reason in [("// mine\n" + installed, "is no longer plain JSON; make it plain JSON again"),
+                             ("[]\n", "no longer holds a JSON object; fix it by hand")]:
+            with self.subTest(reason=reason):
+                self.wt.write_text(text, encoding="utf-8")
+                with self.assertRaises(ComponentFailed) as caught:
+                    self.component.restore(self.ctx(stamp="20261002-130000"), entry)
+                self.assertEqual(str(caught.exception), f"{self.wt} {reason}")
 
 
 if __name__ == "__main__":

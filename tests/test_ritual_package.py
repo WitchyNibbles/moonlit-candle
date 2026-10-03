@@ -73,6 +73,21 @@ class InstalledCopyTest(unittest.TestCase):
             self.assertIn("greeting:", lines[0])
             self.assertIn("wheel", lines[0])
 
+    def test_a_stray_module_beside_the_package_does_not_shadow_the_standard_library(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ".claude" / "witchy" / "ritual"
+            target.mkdir(parents=True)
+            for name, data in build.ritual_package().items():
+                (target / name).write_bytes(data)
+            (target.parent / "json.py").write_text('raise ImportError("the stray json.py was imported")\n',
+                                                   encoding="utf-8")
+            env = {"HOME": tmp, "NO_COLOR": "1", "PATH": os.environ.get("PATH", "")}
+            done = subprocess.run([PYTHON, "-I", "-B", str(target), "--omen", "--date", "2026-10-31"],
+                                  capture_output=True, text=True, env=env, cwd=tmp, timeout=10)
+            self.assertEqual((done.returncode, done.stderr), (0, ""))
+            self.assertIn("🕯️ Samhain", done.stdout)
+            self.assertFalse((Path(tmp) / ".cache" / "witchy" / "ritual.log").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

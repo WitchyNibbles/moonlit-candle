@@ -16,7 +16,7 @@ from ..errors import Abort, ComponentFailed
 
 __all__ = ["Abort", "ComponentFailed", "Change", "Command", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
            "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes", "run_command",
-           "file_change", "file_record", "restore_copy", "restore_json", "file_lock"]
+           "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock"]
 
 COMMAND_TIMEOUT = 5  # seconds for every fish call (spec 5.3)
 
@@ -64,11 +64,16 @@ class JsonPlan:
 
 @dataclass(frozen=True)
 class Command:
-    """A program to run: list arguments (never a shell string), optional standard input, and a label for messages."""
+    """A program to run: list arguments (never a shell string), optional standard input, and a label for messages.
+
+    An ``exact`` command's input and output travel as UTF-8 bytes with surrogate escapes and no newline
+    translation, so every byte comes back as it was (a fish value can hold any byte but NUL).
+    """
 
     args: tuple[str, ...]
     label: str
     input: str | None = None
+    exact: bool = False
 
 
 @dataclass
@@ -76,7 +81,8 @@ class Plan:
     """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied.
 
     For a restore plan the runner runs ``commands`` before writing ``changes``, then removes each ``prune``
-    directory that is left empty. ``outcome`` replaces "ok" in the install results when a plan applied only
+    directory that is left empty. A skipped restore plan means the restore is blocked: nothing of the component
+    is touched and it stays installed. ``outcome`` replaces "ok" in the install results when a plan applied only
     in part (for example "skipped: Tide not found").
     """
 
@@ -192,8 +198,13 @@ def show_changes(ctx: Any, changes: list[Change]) -> None:
             ctx.say("")
 
 
-def apply_changes(ctx: Any, changes: list[Change]) -> dict[Path, Path]:
-    backups: dict[Path, Path] = {}
+def apply_changes(ctx: Any, changes: list[Change], backups: dict[Path, Path] | None = None) -> dict[Path, Path]:
+    """Write ``changes`` in order and return the backups made, by path.
+
+    Each backup goes into ``backups`` (when given) as soon as it is made, so a caller still has the ones made
+    before a write that raises.
+    """
+    backups = {} if backups is None else backups
     for change in changes:
         if change.before == change.after:
             continue
@@ -216,15 +227,23 @@ def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.Co
     A command that cannot start or times out raises ComponentFailed (the cause is kept, so a caller can tell a
     missing program from a slow one); a non-zero exit raises it too unless ``check`` is false.
     """
+    if command.exact:
+        data = None if command.input is None else command.input.encode("utf-8", "surrogateescape")
+        text: dict[str, Any] = {}
+    else:
+        data, text = command.input, {"text": True, "errors": "replace"}
     try:
-        done = ctx.run(list(command.args), input=command.input, capture_output=True, text=True, errors="replace",
-                       timeout=COMMAND_TIMEOUT, env=dict(ctx.env))
+        done = ctx.run(list(command.args), input=data, capture_output=True, timeout=COMMAND_TIMEOUT,
+                       env=dict(ctx.env), **text)
     except subprocess.TimeoutExpired as exc:  # its text would hold the whole argument list
         raise ComponentFailed(f"could not {command.label} (timed out after {COMMAND_TIMEOUT} s)") from exc
     except OSError as exc:
         raise ComponentFailed(f"could not {command.label} ({exc.strerror or type(exc).__name__})") from exc
     except (ValueError, subprocess.SubprocessError) as exc:
         raise ComponentFailed(f"could not {command.label} ({str(exc)[:100]})") from exc
+    if command.exact:
+        done.stdout = done.stdout.decode("utf-8", "surrogateescape")
+        done.stderr = done.stderr.decode("utf-8", "surrogateescape")
     if check and done.returncode != 0:
         raise ComponentFailed(f"could not {command.label} (exit {done.returncode})")
     return done
@@ -250,6 +269,21 @@ def file_record(change: Change, earlier: dict[Path, dict], backups: dict[Path, P
     else:
         backup = previous["backup"] if previous else None
     return {"path": str(change.path), "backup": backup, "installed_sha256": sha(read(change.path))}
+
+
+def applied_records(changes: list[Change], earlier: dict[Path, dict], backups: dict[Path, Path]) -> list[dict]:
+    """The file records after an apply that may have stopped part-way.
+
+    A file that holds this run's bytes gets a new record. One the run did not write keeps its earlier record,
+    so its first backup stays the restore target; one witchy never wrote is left out.
+    """
+    records = []
+    for change in changes:
+        if change.after is not None and read(change.path) == change.after:
+            records.append(file_record(change, earlier, backups))
+        elif change.path in earlier:
+            records.append(earlier[change.path])
+    return records
 
 
 def restore_copy(entry: dict) -> Change | None:

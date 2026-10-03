@@ -2,7 +2,7 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-from witchy.ritual import art
+from witchy.ritual import art, layout
 
 GOLDEN = Path(__file__).resolve().parent / "golden"
 
@@ -52,6 +52,15 @@ class PictureTest(unittest.TestCase):
         rows = art.picture(0.5, date(2026, 10, 31))
         self.assertEqual({len(row) for row in rows}, {art.WIDTH})
         self.assertEqual(text([row[art.MARGIN:art.MARGIN + art.COLS] for row in rows]), text(art.disc(0.5)))
+
+    def test_no_row_is_wider_than_the_art_column(self):
+        # layout.side_by_side pads each art row to art.WIDTH; a wider row would push the info column right
+        for phase in range(8):
+            for offset in range(31):  # the stars move daily
+                day = date(2026, 10, 1) + timedelta(days=offset)
+                for row in art.picture(phase / 8, day):
+                    row = "".join(char for char, _ in row)
+                    self.assertLessEqual(layout.cell_width(row), art.WIDTH, (phase, day, row))
 
 
 if __name__ == "__main__":

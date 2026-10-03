@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,18 +10,20 @@ from typing import Any
 
 from .. import build, palette
 from ..ritual import log, sky
-from .base import (Check, Command, ComponentFailed, Plan, apply_changes, backup_checks, file_change, file_record,
-                   fix_command, read, restore_copy, run_command, sha)
+from .base import (Check, Command, ComponentFailed, Plan, applied_records, apply_changes, backup_checks,
+                   file_change, file_record, fix_command, read, restore_copy, run_command, sha)
 from .claude import python_for
 
 FISH = "fish"
 RITUAL_DIR = Path(".claude/witchy/ritual")
 NEW_TAB_NOTE = "Open a new terminal tab to see the new prompt and greeting; open shells keep the old ones."
+GREETING_NOTE = "Open a new terminal tab to see the greeting."
 NO_EZA_NOTE = "eza is not installed, so ll and lt use ls; install it with: sudo apt install eza"
 SENTINEL = "witchy-fish"  # whatever config.fish prints comes before it
 EZA_FIX = "sudo apt install eza"
 RECENT = timedelta(days=7)  # older greeting and sky errors are history, not a warning
 MESSAGE_MAX = 100
+PROMPT_ITEMS = ("tide_left_prompt_items", "tide_right_prompt_items")
 LOG_LINE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d) (greeting|sky): (.*)$")
 
 # Prints the sentinel, whether Tide is installed, then each name's universal value: the name, "absent" or
@@ -94,7 +97,8 @@ def _fields(stdout: str) -> list[str]:
 
 def snapshot(ctx: Any, names: list[str]) -> tuple[bool, dict[str, dict]]:
     """Whether Tide is installed, and each variable as ``{"absent": True}`` or ``{"value": [...], "exported": bool}``."""
-    done = run_command(ctx, Command((FISH, "-c", SNAPSHOT_SCRIPT, "--", *names), "read the Tide variables"))
+    done = run_command(ctx, Command((FISH, "-c", SNAPSHOT_SCRIPT, "--", *names), "read the Tide variables",
+                                    exact=True))
     try:
         fields = _fields(done.stdout)
         tide, index, found = fields[0] == "tide", 1, {}
@@ -114,11 +118,24 @@ def snapshot(ctx: Any, names: list[str]) -> tuple[bool, dict[str, dict]]:
 def set_command(updates: list[tuple[str, str, list[str]]], label: str) -> Command:
     """One fish call that applies each (name, mode, values); mode is "set", "exported" or "erase"."""
     fields = [field for name, mode, values in updates for field in (name, mode, str(len(values)), *values)]
-    return Command((FISH, "-c", SET_SCRIPT), label, "".join(f"{field}\0" for field in fields))
+    return Command((FISH, "-c", SET_SCRIPT), label, "".join(f"{field}\0" for field in fields), exact=True)
 
 
 def _values(value: str | tuple[str, ...]) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
+
+
+def _shown(values: list[str]) -> str:
+    """Values as printable text: a byte that is not UTF-8 shows as U+FFFD."""
+    return " ".join(values).encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
+def _changed_warning(name: str, current: dict) -> str:
+    if name in PROMPT_ITEMS and "moon" in current.get("value", []):
+        # The moon item's function goes with the files, and Tide would report it on every prompt.
+        return (f"{name} was changed after install; leaving it as it is, but it still lists moon. "
+                f"Remove it with: set -U {name} (string match -v moon ${name})")
+    return f"{name} was changed after install; leaving it as it is."
 
 
 def _last_errors(path: Path) -> dict[str, tuple[datetime, str]]:
@@ -154,22 +171,25 @@ def log_checks(ctx: Any) -> list[Check]:
     if now.tzinfo is not None:
         now = now.astimezone().replace(tzinfo=None)  # the log holds local wall-clock times
     errors = {kind: found for kind, found in _last_errors(path).items() if now - found[0] < RECENT}
+    show_log = f"tail -n {log.MAX_LINES} {shlex.quote(str(path))}"  # the whole log
     checks = []
     if "greeting" in errors:
         stamp, message = errors["greeting"]
         checks.append(Check("warn", "fish", f"greeting: last run failed {_when(stamp, now)}: {_short(message)}",
-                            f"see {path}"))
+                            show_log))
     try:
         failed_today = (ctx.cache_dir / sky.FAIL).read_text(encoding="utf-8").strip() == now.date().isoformat()
     except (OSError, ValueError):
         failed_today = False
-    retry = " (it retries tomorrow)" if failed_today else ""
+    sky_today = "sky" in errors and errors["sky"][0].date() == now.date()
     if "sky" in errors:
         stamp, message = errors["sky"]
+        retry = " (it retries tomorrow)" if failed_today and sky_today else ""
         checks.append(Check("warn", "fish", f"sky: last run failed {_when(stamp, now)}: {_short(message)}{retry}",
                             fix_command("windows-terminal")))
-    elif failed_today:
-        checks.append(Check("warn", "fish", f"sky: the sky job failed today{retry}", f"see {path}"))
+    if failed_today and not sky_today:
+        # Today's failure logged nothing readable; an older sky error says nothing about it.
+        checks.append(Check("warn", "fish", "sky: the sky job failed today (it retries tomorrow)", show_log))
     if not checks:
         checks.append(Check("ok", "fish", "no greeting or sky errors in the last 7 days"))
     return checks
@@ -187,7 +207,7 @@ class FishComponent:
                                                                                variant).items()})
         earlier = {Path(record["path"]): record for record in (entry or {}).get("files", [])}
         changes = [file_change(path, data, earlier) for path, data in targets.items()]
-        notes = [NEW_TAB_NOTE] + ([] if shutil.which("eza", path=ctx.env.get("PATH")) else [NO_EZA_NOTE])
+        notes = [] if shutil.which("eza", path=ctx.env.get("PATH")) else [NO_EZA_NOTE]
         # What earlier installs recorded stays recorded even when fish cannot be asked this time.
         recorded = (entry or {}).get("variables", {})
         plan = Plan(changes=changes, notes=notes, data={"earlier": earlier, "recorded": recorded, "records": {},
@@ -197,10 +217,13 @@ class FishComponent:
             tide, current = snapshot(ctx, list(desired))
         except ComponentFailed as exc:
             missing = isinstance(exc.__cause__, FileNotFoundError)
+            if not missing:  # fish is there but did not answer: its greeting still shows
+                plan.notes.insert(0, GREETING_NOTE)
             plan.outcome = "skipped: fish not found" if missing else f"skipped: {exc}"
             ctx.say(f"fish: {'fish not found' if missing else exc}; prompt not recoloured.")
             return plan
         if not tide:
+            plan.notes.insert(0, GREETING_NOTE)
             plan.outcome = "skipped: Tide not found"
             ctx.say("fish: Tide not found; prompt not recoloured.")
             return plan
@@ -212,21 +235,23 @@ class FishComponent:
             if current[name].get("value") != values:
                 updates.append((name, "exported" if previous.get("exported") else "set", values))
         plan.data.update(records=records, updates=updates)
+        plan.notes.insert(0, NEW_TAB_NOTE)
         plan.actions = [f"fish: set -U{'x' if mode == 'exported' else ''} {name} {' '.join(values)} "
-                        f"(now: {' '.join(current[name]['value']) if 'value' in current[name] else 'unset'})"
+                        f"(now: {_shown(current[name]['value']) if 'value' in current[name] else 'unset'})"
                         for name, mode, values in updates]
         return plan
 
     def apply(self, ctx: Any, plan: Plan) -> dict:
-        try:
-            backups = apply_changes(ctx, plan.changes)
-        except OSError as exc:
-            raise ComponentFailed(f"could not write the fish files ({exc})") from exc
         earlier = plan.data["earlier"]
-        files = [file_record(change, earlier, backups) for change in plan.changes]
         shipped = {change.path for change in plan.changes}
         # A file an earlier version shipped stays recorded, so uninstall still removes it.
-        files += [record for path, record in earlier.items() if path not in shipped]
+        unshipped = [record for path, record in earlier.items() if path not in shipped]
+        backups: dict[Path, Path] = {}
+        try:
+            apply_changes(ctx, plan.changes, backups)
+        except OSError as exc:
+            return self._partial(ctx, plan, backups, unshipped, exc)
+        files = [file_record(change, earlier, backups) for change in plan.changes] + unshipped
         variables = dict(plan.data["recorded"])
         updates = plan.data["updates"]
         done: set[str] = set()
@@ -255,6 +280,20 @@ class FishComponent:
         variables.update({name: record for name, record in plan.data["records"].items() if name not in pending})
         return {"files": files, "variables": variables}
 
+    def _partial(self, ctx: Any, plan: Plan, backups: dict[Path, Path], unshipped: list[dict], exc: OSError) -> dict:
+        """Record what a write that failed part-way left in place; the Tide variables are not set.
+
+        Without a record, the next install would back up witchy's own bytes and uninstall would give those back.
+        """
+        ctx.say(f"fish: could not write the fish files ({exc}); run install again.")
+        entry = {"files": applied_records(plan.changes, plan.data["earlier"], backups) + unshipped,
+                 "variables": dict(plan.data["recorded"])}
+        if not entry["files"] and not entry["variables"]:
+            raise ComponentFailed(f"could not write the fish files ({exc})") from exc
+        plan.outcome = f"failed: could not write the fish files ({exc})"
+        plan.notes = [note for note in plan.notes if note not in (NEW_TAB_NOTE, GREETING_NOTE)]
+        return entry
+
     def restore(self, ctx: Any, entry: dict) -> Plan:
         warnings: list[str] = []
         commands: list[Command] = []
@@ -265,14 +304,18 @@ class FishComponent:
             except ComponentFailed as exc:
                 if not isinstance(exc.__cause__, FileNotFoundError):
                     raise  # fish is there but did not answer: keep the component and retry later
-                warnings.append("fish: fish not found; the Tide variables were left as they are.")
+                warnings.append("fish: fish not found, so Tide keeps witchy's colours and the moon item; to reset "
+                                "them, run tide configure in fish.")
+                current = {}
+            if current and all(found.get("absent") for found in current.values()):
+                warnings.append("fish: Tide's variables are gone (was Tide removed?); nothing to restore.")
                 current = {}
             undo = []
             for name, record in variables.items():
                 if name not in current or current[name] == record["previous"]:
-                    continue  # fish is gone, or this one was already given back by an earlier attempt
+                    continue  # fish or Tide is gone, or this one was already given back by an earlier attempt
                 if current[name].get("value") != record["installed"]:
-                    warnings.append(f"{name} was changed after install; leaving it as it is.")
+                    warnings.append(_changed_warning(name, current[name]))
                     continue
                 previous = record["previous"]
                 if previous.get("absent"):

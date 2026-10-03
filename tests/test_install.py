@@ -1,16 +1,20 @@
+import hashlib
 import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from tests.fakes import fake_fish
-from witchy import content, install, jsonio, palette, validate
+from tests.fakes import fake_fish, fake_windows, make_ttf, make_zip, reg_listing
+from witchy import content, fonts, install, jsonio, palette, runner, validate
 from witchy.components import base
+from witchy.components.font import KEPT_WARNING
+from witchy.components.windows_terminal import NO_FONT_NOTE
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
 CLAUDE_ORIGINAL = {
@@ -83,14 +87,28 @@ class InstallTestCase(unittest.TestCase):
 
     def wt_write_fails(self):
         """Windows Terminal's settings.json cannot be replaced (it holds the file open); everything else writes."""
+        return self.write_fails(self.wt)
+
+    def write_fails(self, target):
+        """``target`` cannot be written; everything else writes."""
         real = jsonio.write_atomic_bytes
 
         def write(path, data):
-            if Path(path) == self.wt:
+            if Path(path) == target:
                 raise PermissionError(13, "Permission denied", str(path))
             return real(path, data)
 
         return mock.patch("witchy.install.jsonio.write_atomic_bytes", side_effect=write)
+
+    def theme_changes(self):
+        """A later witchy version that ships a different theme file."""
+        real = install.build.render_outputs
+
+        def render(**kwargs):
+            outputs = real(**kwargs)
+            return {**outputs, install.build.THEME: outputs[install.build.THEME] + "\n"}
+
+        return mock.patch("witchy.install.build.render_outputs", side_effect=render)
 
 
 class InstallTest(InstallTestCase):
@@ -292,6 +310,28 @@ class InstallTest(InstallTestCase):
         self.assertEqual(self.snapshot(), before)
 
 
+    def test_a_failed_windows_terminal_write_gives_back_the_sky_images_it_replaced(self):
+        for bin_ in range(4):
+            (self.wt.parent / install.wt.sky_file(bin_)).write_bytes(b"my own sky %d" % bin_)
+        before = self.snapshot()
+        with self.wt_write_fails():
+            self.assertEqual(install.install(self.ctx()), 2)
+        self.assertNotIn("windows-terminal", self.state()["components"])
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_a_failed_windows_terminal_rewrite_keeps_the_sky_images_state_records(self):
+        before = self.snapshot()
+        install.install(self.ctx())
+        later = self.ctx(stamp="20260930-120500")
+        later.sky_size = (128, 72)
+        with self.wt_write_fails(), mock.patch.dict(install.palette.WT_SCHEME, {"cursorColor": "#FF9BD7"}):
+            self.assertEqual(install.install(later), 2)
+        self.assertEqual(runner.doctor(self.ctx()), 0)
+        self.assertEqual(install.install(self.ctx(stamp="20260930-120600")), 0)
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
     def test_uninstall_restores_bytes_after_a_reinstall_that_changes_the_output(self):
         # Hand-written spacing that json.dumps would not reproduce, so only a byte restore can bring it back.
         self.settings.write_text(json.dumps(CLAUDE_ORIGINAL, indent=2).replace('"theme": ', '"theme":') + "\n",
@@ -370,6 +410,37 @@ class InstallTest(InstallTestCase):
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
         self.assertEqual(self.snapshot(), before)
 
+    def test_claude_stays_while_its_settings_no_longer_hold_an_object(self):
+        install.install(self.ctx())
+        installed = self.settings.read_text(encoding="utf-8")
+        self.settings.write_text("[]\n", encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
+        self.assertIn(f"claude: {self.settings} no longer holds a JSON object; fix it by hand; run uninstall again.",
+                      self.out.getvalue())
+        self.assertEqual(list(self.state()["components"]), ["claude"])
+        self.assertTrue((self.claude / "witchy" / "statusline.py").is_file())
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), "[]\n")
+        self.settings.write_text(installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
+        self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+
+    def test_windows_terminal_stays_while_its_settings_have_comments(self):
+        before = self.snapshot()
+        install.install(self.ctx())
+        installed = self.wt.read_text(encoding="utf-8")
+        self.wt.write_text("// a comment\n" + installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
+        self.assertIn(f"windows-terminal: {self.wt} is no longer plain JSON; make it plain JSON again; "
+                      "run uninstall again.", self.out.getvalue())
+        self.assertEqual(list(self.state()["components"]), ["windows-terminal"])
+        self.assertEqual(sorted(path.name for path in self.wt.parent.glob("moonlit-candle-sky-*.png")),
+                         [install.wt.sky_file(bin_) for bin_ in range(8)])
+        self.assertTrue((self.claude / "witchy" / "ritual-config.json").is_file())
+        self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+        self.wt.write_text(installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
     def test_every_local_component_round_trips_bytes_and_fish_variables(self):
         mine = self.home / ".config" / "fish" / "functions" / "ll.fish"
         mine.parent.mkdir(parents=True)
@@ -443,6 +514,40 @@ class InstallTest(InstallTestCase):
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
         self.assertEqual(self.snapshot(), before)
 
+    def install_after_a_failed_copy(self):
+        """The output style cannot be written (after the theme was); then a later version reinstalls."""
+        theme = self.claude / "themes" / "moonlit-candle.json"
+        with self.write_fails(self.claude / "output-styles" / "witchynibbles.md"):
+            self.assertEqual(install.install(self.ctx()), 2)
+        self.assertIn("claude: could not write (", self.out.getvalue())
+        self.assertIn("1/2 components installed · failed: claude (could not write (", self.out.getvalue())
+        self.assertEqual([record["path"] for record in self.state()["components"]["claude"]["files"]], [str(theme)])
+        self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+        with self.theme_changes():
+            self.assertEqual(install.install(self.ctx(stamp="20260930-120500")), 0)
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+
+    def test_a_retry_after_a_failed_copy_still_removes_what_witchy_wrote(self):
+        before = self.snapshot()
+        self.install_after_a_failed_copy()
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.claude / "themes" / "moonlit-candle.json").exists())
+
+    def test_a_retry_after_a_failed_copy_gives_back_the_users_original(self):
+        theme = self.claude / "themes" / "moonlit-candle.json"
+        theme.parent.mkdir()
+        theme.write_bytes(b'{"name": "my own theme"}\n')
+        before = self.snapshot()
+        self.install_after_a_failed_copy()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_uninstall_after_a_failed_copy_removes_what_witchy_wrote(self):
+        before = self.snapshot()
+        with self.write_fails(self.claude / "output-styles" / "witchynibbles.md"):
+            self.assertEqual(install.install(self.ctx()), 2)
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
     def test_no_windows_terminal_is_skipped_with_exit_2(self):
         ctx = self.ctx()
         ctx.wt_settings = self.root / "missing.json"
@@ -450,6 +555,61 @@ class InstallTest(InstallTestCase):
         self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
         self.assertIn("1/2 components installed · skipped: windows-terminal (settings.json not found)",
                       self.out.getvalue())
+
+
+class WindowsComponentsTest(InstallTestCase):
+    """claude, font and windows-terminal together through the runner, with a fake Windows host."""
+
+    def setUp(self):
+        super().setUp()
+        self.mnt = self.root / "mnt"
+        self.fonts = self.mnt / "c" / "Users" / "user" / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts"
+        self.fonts.mkdir(parents=True)
+        self.archive = make_zip({name: make_ttf(f"{fonts.FAMILY} {style}")
+                                 for name, style in zip(fonts.MEMBERS, fonts.STYLES)})
+        patcher = mock.patch.object(fonts, "SHA256", hashlib.sha256(self.archive).hexdigest())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.calls = []
+
+    def windows_ctx(self, stamp, fetch=None):
+        ctx = self.ctx(stamp=stamp)
+        ctx.run = fake_windows(echo={"USERPROFILE": "C:\\Users\\user\r\n"}, reg_query=reg_listing({}),
+                               calls=self.calls)
+        ctx.mount_root, ctx.fetch = self.mnt, fetch or (lambda url: self.archive)
+        ctx.only = ("claude", "font", "windows-terminal")
+        return ctx
+
+    def test_claude_font_and_windows_terminal_install_and_uninstall_together(self):
+        before = self.snapshot()
+        self.assertEqual(install.install(self.windows_ctx("20260930-120000")), 0)
+        self.assertIn("3/3 components installed", self.out.getvalue())
+        self.assertEqual(sorted(path.name for path in self.fonts.iterdir()), sorted(fonts.MEMBERS))
+        self.assertEqual(len([call for call in self.calls if call[:2] == ["reg.exe", "add"]]), len(fonts.MEMBERS))
+        self.assertEqual(self.ubuntu()["font"], palette.VARIANTS["midnight"].wt_profile["font"])
+        self.assertEqual(sorted(self.state()["components"]), ["claude", "font", "windows-terminal"])
+        self.assertEqual(install.uninstall(self.windows_ctx("20260930-130000")), 0)
+        self.assertIn(KEPT_WARNING, self.out.getvalue())
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(path.name for path in self.fonts.iterdir()), sorted(fonts.MEMBERS))
+
+    def test_offline_the_font_fails_and_the_others_still_install(self):
+        def offline(url):
+            raise urllib.error.URLError("offline")
+
+        before = self.snapshot()
+        self.assertEqual(install.install(self.windows_ctx("20260930-120000", fetch=offline)), 2)
+        output = self.out.getvalue()
+        self.assertIn("2/3 components installed · failed: font (download failed (<urlopen error offline>))", output)
+        self.assertIn(runner.PARTLY_INSTALLED, output)
+        self.assertIn(NO_FONT_NOTE, output)
+        self.assertEqual(list(self.fonts.iterdir()), [])
+        self.assertNotIn("font", self.ubuntu())
+        self.assertEqual(self.ubuntu()["colorScheme"], "Moonlit Candle")
+        self.assertEqual(self.claude_settings()["theme"], "custom:moonlit-candle")
+        self.assertEqual(sorted(self.state()["components"]), ["claude", "windows-terminal"])
+        self.assertEqual(install.uninstall(self.windows_ctx("20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":

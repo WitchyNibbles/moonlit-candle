@@ -38,4 +38,7 @@ def load(path: Path) -> dict | None:
 
 
 def save(path: Path, data: dict) -> None:
-    jsonio.write_atomic_bytes(path, (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+    # A fish value byte that is not UTF-8 is held as a lone surrogate; it is written as a \udcXX escape,
+    # which json reads back as the same surrogate.
+    text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    jsonio.write_atomic_bytes(path, text.encode("utf-8", "backslashreplace"))
