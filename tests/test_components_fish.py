@@ -1,6 +1,7 @@
 import io
 import json
 import subprocess
+from datetime import datetime
 import tempfile
 import unittest
 from pathlib import Path
@@ -264,6 +265,108 @@ class UninstallTest(FishTestCase):
         self.assertIn(f"fish: restore {len(palette.TIDE) - 1} Tide variables", self.out.getvalue())
         self.assertEqual(self.variables, installed)
         self.assertTrue((self.home / ".claude" / "witchy" / "ritual" / "cli.py").is_file())
+
+
+class DoctorTest(FishTestCase):
+    NOW = datetime(2026, 10, 3, 21, 0)
+
+    def doctor(self, run=None, env=None):
+        ctx = self.ctx(run=run, env=env)
+        ctx.now = lambda: self.NOW
+        code = runner.doctor(ctx, [fish.FishComponent()])
+        return code, self.out.getvalue()
+
+    def log(self, *lines):
+        path = self.home / ".cache" / "witchy" / "ritual.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+
+    def test_a_healthy_install(self):
+        runner.install(self.ctx())
+        code, output = self.doctor()
+        self.assertEqual(code, 0)
+        self.assertIn(f"✓ fish              {len(self.files())} files match", output)
+        self.assertIn(f"✓ fish              {len(palette.TIDE)} Tide variables match", output)
+        self.assertIn("✓ fish              no greeting or sky errors in the last 7 days", output)
+
+    def test_a_changed_file_and_a_changed_variable_fail(self):
+        runner.install(self.ctx())
+        (self.home / ".config" / "fish" / "functions" / "ll.fish").write_text("function ll; end\n", encoding="utf-8")
+        self.variables["tide_pwd_bg_color"]["value"] = ["123456"]
+        code, output = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ fish              changed or missing: ", output)
+        self.assertIn("ll.fish", output)
+        self.assertIn("✗ fish              Tide variables changed: tide_pwd_bg_color", output)
+        self.assertIn("fix: python3 -m witchy install --only fish", output)
+
+    def test_fish_that_does_not_answer_is_a_warning(self):
+        runner.install(self.ctx())
+        code, output = self.doctor(run=fake_fish(missing=True))
+        self.assertEqual(code, 0)
+        self.assertIn("⚠ fish              cannot check the Tide variables: could not read the Tide variables", output)
+
+    def test_eza(self):
+        runner.install(self.ctx())
+        self.assertIn("⚠ fish              eza missing — sudo apt install eza", self.doctor()[1])
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "eza").write_text("#!/bin/sh\n", encoding="utf-8")
+        (bin_dir / "eza").chmod(0o755)
+        self.assertIn("✓ fish              eza found", self.doctor(env={"PATH": str(bin_dir)})[1])
+
+    def test_the_newest_greeting_error_of_the_week(self):
+        runner.install(self.ctx())
+        self.log("2026-10-01T08:00:00 greeting: OldError()",
+                 "2026-10-03T09:14:00 greeting: KeyError('name')",
+                 "2026-10-02T23:59:00 sky: older than the greeting line but still recent")
+        output = self.doctor()[1]
+        self.assertIn("⚠ fish              greeting: last run failed today at 09:14: KeyError('name')", output)
+        self.assertIn("⚠ fish              sky: last run failed yesterday: older than the greeting line", output)
+        self.assertNotIn("OldError", output)
+
+    def test_errors_older_than_a_week_are_history(self):
+        runner.install(self.ctx())
+        self.log("2026-09-20T09:14:00 greeting: KeyError('name')", "2026-09-26T21:00:00 sky: boom")
+        output = self.doctor()[1]
+        self.assertNotIn("KeyError", output)
+        self.assertIn("no greeting or sky errors in the last 7 days", output)
+
+    def test_long_messages_are_cut(self):
+        runner.install(self.ctx())
+        self.log("2026-10-03T09:14:00 greeting: UnicodeEncodeError(" + "x" * 300 + ")")
+        line = next(line for line in self.doctor()[1].splitlines() if "greeting:" in line)
+        self.assertTrue(line.endswith("…"))
+        self.assertLess(len(line), 170)
+
+    def test_the_sky_fail_marker(self):
+        runner.install(self.ctx())
+        self.log("2026-10-03T08:00:00 sky: backgroundImage was changed by hand ('C:/me.png'); leaving it")
+        (self.home / ".cache" / "witchy" / "sky-fail").write_text("2026-10-03\n", encoding="utf-8")
+        output = self.doctor()[1]
+        self.assertIn("sky: last run failed today at 08:00: backgroundImage was changed by hand ('C:/me.png'); "
+                      "leaving it (it retries tomorrow)", output)
+        self.assertIn("fix: python3 -m witchy install --only windows-terminal", output)
+        (self.home / ".cache" / "witchy" / "ritual.log").unlink()
+        self.assertIn("⚠ fish              sky: the sky job failed today (it retries tomorrow)", self.doctor()[1])
+
+    def test_damaged_log_lines_are_skipped(self):
+        runner.install(self.ctx())
+        self.log("2026-10-03T09:14:00 greeting: KeyError('name')", "2026-13-03T09:15:00 greeting: bad month",
+                 "not a log line")
+        path = self.home / ".cache" / "witchy" / "ritual.log"
+        path.write_bytes(path.read_bytes() + b"\xff\xfe broken bytes\n")
+        output = self.doctor()[1]
+        self.assertNotIn("check crashed", output)
+        self.assertIn("greeting: last run failed today at 09:14: KeyError('name')", output)
+
+    def test_an_aware_now_compares_with_the_local_log(self):
+        runner.install(self.ctx())
+        self.log("2026-10-03T09:14:00 greeting: KeyError('name')")
+        ctx = self.ctx()
+        ctx.now = lambda: self.NOW.astimezone()
+        runner.doctor(ctx, [fish.FishComponent()])
+        self.assertIn("greeting: last run failed today at 09:14", self.out.getvalue())
 
 
 if __name__ == "__main__":

@@ -1,13 +1,16 @@
 """fish: the greeting package, the fish functions and conf.d snippet, and the Tide prompt colours (spec 5, 6, 7)."""
 from __future__ import annotations
 
+import re
 import shutil
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .. import build, palette
-from .base import (Check, Command, ComponentFailed, Plan, apply_changes, file_change, file_record, restore_copy,
-                   run_command)
+from ..ritual import log, sky
+from .base import (Check, Command, ComponentFailed, Plan, apply_changes, backup_checks, file_change, file_record,
+                   fix_command, read, restore_copy, run_command, sha)
 from .claude import python_for
 
 FISH = "fish"
@@ -15,6 +18,10 @@ RITUAL_DIR = Path(".claude/witchy/ritual")
 NEW_TAB_NOTE = "Open a new terminal tab to see the new prompt and greeting; open shells keep the old ones."
 NO_EZA_NOTE = "eza is not installed, so ll and lt use ls; install it with: sudo apt install eza"
 SENTINEL = "witchy-fish"  # whatever config.fish prints comes before it
+EZA_FIX = "sudo apt install eza"
+RECENT = timedelta(days=7)  # older greeting and sky errors are history, not a warning
+MESSAGE_MAX = 100
+LOG_LINE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d) (greeting|sky): (.*)$")
 
 # Prints the sentinel, whether Tide is installed, then each name's universal value: the name, "absent" or
 # "exported"/"unexported", the element count and the elements. Every field ends in NUL, which no fish
@@ -112,6 +119,60 @@ def set_command(updates: list[tuple[str, str, list[str]]], label: str) -> Comman
 
 def _values(value: str | tuple[str, ...]) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
+
+
+def _last_errors(path: Path) -> dict[str, tuple[datetime, str]]:
+    """The newest "greeting" and "sky" lines of ritual.log: when, and what."""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    found = {}
+    for line in lines:
+        match = LOG_LINE.match(line)
+        try:
+            if match:
+                found[match.group(2)] = (datetime.fromisoformat(match.group(1)), match.group(3))
+        except ValueError:
+            continue  # a damaged line (say, month 13) is skipped, not a doctor crash
+    return found
+
+
+def _when(stamp: datetime, now: datetime) -> str:
+    days = (now.date() - stamp.date()).days
+    return f"today at {stamp:%H:%M}" if days <= 0 else "yesterday" if days == 1 else f"{days} days ago"
+
+
+def _short(message: str) -> str:
+    return message if len(message) <= MESSAGE_MAX else message[:MESSAGE_MAX - 1] + "…"
+
+
+def log_checks(ctx: Any) -> list[Check]:
+    """Doctor lines for the greeting and the sky job: their newest error from the last week, and the fail marker."""
+    path = ctx.cache_dir / log.NAME
+    now = ctx.now()
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)  # the log holds local wall-clock times
+    errors = {kind: found for kind, found in _last_errors(path).items() if now - found[0] < RECENT}
+    checks = []
+    if "greeting" in errors:
+        stamp, message = errors["greeting"]
+        checks.append(Check("warn", "fish", f"greeting: last run failed {_when(stamp, now)}: {_short(message)}",
+                            f"see {path}"))
+    try:
+        failed_today = (ctx.cache_dir / sky.FAIL).read_text(encoding="utf-8").strip() == now.date().isoformat()
+    except (OSError, ValueError):
+        failed_today = False
+    retry = " (it retries tomorrow)" if failed_today else ""
+    if "sky" in errors:
+        stamp, message = errors["sky"]
+        checks.append(Check("warn", "fish", f"sky: last run failed {_when(stamp, now)}: {_short(message)}{retry}",
+                            fix_command("windows-terminal")))
+    elif failed_today:
+        checks.append(Check("warn", "fish", f"sky: the sky job failed today{retry}", f"see {path}"))
+    if not checks:
+        checks.append(Check("ok", "fish", "no greeting or sky errors in the last 7 days"))
+    return checks
 
 
 class FishComponent:
@@ -224,4 +285,24 @@ class FishComponent:
         return Plan(changes=changes, commands=commands, warnings=warnings, prune=[ctx.home / RITUAL_DIR])
 
     def check(self, ctx: Any, entry: dict) -> list[Check]:
-        return []  # the doctor lines come with Task 5
+        fix = fix_command(self.name)
+        changed = [record["path"] for record in entry["files"]
+                   if sha(read(Path(record["path"]))) != record["installed_sha256"]]
+        checks = [Check("fail", self.name, "changed or missing: " + ", ".join(changed), fix) if changed
+                  else Check("ok", self.name, f"{len(entry['files'])} files match")]
+        variables = entry.get("variables") or {}
+        if variables:
+            try:
+                _, current = snapshot(ctx, list(variables))
+            except ComponentFailed as exc:
+                checks.append(Check("warn", self.name, f"cannot check the Tide variables: {exc}"))
+            else:
+                drift = [name for name, record in variables.items() if current[name].get("value") != record["installed"]]
+                checks.append(Check("fail", self.name, "Tide variables changed: " + ", ".join(drift), fix) if drift
+                              else Check("ok", self.name, f"{len(variables)} Tide variables match"))
+        if shutil.which("eza", path=ctx.env.get("PATH")):
+            checks.append(Check("ok", self.name, "eza found"))
+        else:
+            checks.append(Check("warn", self.name, f"eza missing — {EZA_FIX}", EZA_FIX))
+        checks += log_checks(ctx)
+        return checks + backup_checks(self.name, [record.get("backup") for record in entry["files"]])
