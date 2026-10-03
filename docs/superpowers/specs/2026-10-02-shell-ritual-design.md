@@ -175,8 +175,8 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 
 - `conf.d/witchy.fish`, on interactive shells with `WT_SESSION` set and `~/.claude/witchy/ritual-config.json` present, computes the phase bin with `_witchy_moon_bin` and compares it with `~/.cache/witchy/sky-bin`.
 - Equal, or a fail marker for today exists: do nothing. Different: start `@PYTHON@ -I -B @WITCHY_DIR@/ritual --sky` in the background (`&; disown`), silently.
-- The job takes the lock, reads `settings.json` strictly, and finds the profile from `ritual-config.json`. If the profile's `backgroundImage` is not one of the 8 sky values (the user changed it), it does nothing and logs once. Otherwise it sets the new value, re-checks the file hash, writes atomically and updates `sky-bin`.
-- The job edits only that value in the file's text (it must appear exactly once), re-parses the result and requires it to match; Windows Terminal's own layout survives. When the profile already shows tonight's image it only writes `sky-bin`.
+- The job takes the lock, reads `settings.json` strictly, and finds the profile from `ritual-config.json`. If the profile's `backgroundImage` is not one of the 8 sky values (the user changed it), it does nothing and logs once. Otherwise it sets the new value, re-checks the file hash, writes atomically and updates `sky-bin` before it releases the lock.
+- The job edits only that value in the file's text (it must appear exactly once), re-parses the result and requires it to match; Windows Terminal's own layout survives. When the profile already shows tonight's image it only writes `sky-bin`, also under the lock.
 - Any failure writes `~/.cache/witchy/sky-fail` with today's date and logs the error. Retries happen at most once a day. Two windows opening at once are serialised by the lock; the second sees the updated stamp and exits.
 
 ## 5. Prompt (Tide)

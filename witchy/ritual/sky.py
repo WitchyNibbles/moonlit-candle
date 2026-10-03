@@ -79,8 +79,13 @@ def _profile(data: object, guid: str) -> dict | None:
     return None
 
 
-def update(config: dict, lock: Path, target: int) -> bool:
-    """Set the profile's backgroundImage to sky image ``target``; False when it already shows it."""
+def update(config: object, lock: Path, stamp: Path, target: int) -> bool:
+    """Set the profile's backgroundImage to sky image ``target``; False when it already shows it.
+
+    Either way ``stamp`` gets ``target`` before the lock is released, so the next shell sees the new bin.
+    """
+    if not isinstance(config, dict):
+        raise SkyError(f"{CONFIG} is not usable: it must be a JSON object")
     settings, guid, sky = config.get("settings"), config.get("profile_guid"), config.get("sky")
     if not (isinstance(settings, str) and isinstance(guid, str) and isinstance(sky, list) and len(sky) == moon.BINS
             and all(isinstance(image, str) for image in sky)):
@@ -100,20 +105,20 @@ def update(config: dict, lock: Path, target: int) -> bool:
         if current not in sky:
             raise SkyError(f"{KEY} was changed by hand ({current!r}); leaving it")
         wanted = sky[target]
-        if current == wanted:
-            return False
-        matches = list(re.finditer(rf'("{KEY}"\s*:\s*){re.escape(json.dumps(current))}', text))
-        if len(matches) != 1:
-            raise SkyError(f"{KEY} {current!r} appears {len(matches)} times in {settings}")
-        match = matches[0]
-        new_text = text[:match.start()] + match.group(1) + json.dumps(wanted) + text[match.end():]
-        profile[KEY] = wanted
-        if json.loads(new_text) != data:
-            raise SkyError(f"rewriting {KEY} would change more than that value")
-        if settings.read_bytes() != raw:
-            raise SkyError(f"{settings} changed while the sky job ran")
-        _write_atomic(settings, new_text.encode("utf-8"))
-        return True
+        if current != wanted:
+            matches = list(re.finditer(rf'("{KEY}"\s*:\s*){re.escape(json.dumps(current))}', text))
+            if len(matches) != 1:
+                raise SkyError(f"{KEY} {current!r} appears {len(matches)} times in {settings}")
+            match = matches[0]
+            new_text = text[:match.start()] + match.group(1) + json.dumps(wanted) + text[match.end():]
+            profile[KEY] = wanted
+            if json.loads(new_text) != data:
+                raise SkyError(f"rewriting {KEY} would change more than that value")
+            if settings.read_bytes() != raw:
+                raise SkyError(f"{settings} changed while the sky job ran")
+            _write_atomic(settings, new_text.encode("utf-8"))
+        stamp.write_text(f"{target}\n", encoding="utf-8")
+    return current != wanted
 
 
 def run(home: Path, now: datetime) -> int:
@@ -128,9 +133,7 @@ def run(home: Path, now: datetime) -> int:
         pass
     try:
         config = json.loads((home / CONFIG).read_text(encoding="utf-8"))
-        target = moon.phase_bin(now)
-        update(config, cache / LOCK, target)
-        (cache / STAMP).write_text(f"{target}\n", encoding="utf-8")
+        update(config, cache / LOCK, cache / STAMP, moon.phase_bin(now))
     except Exception as exc:  # the job runs in the background: it must never surface a traceback
         try:
             cache.mkdir(parents=True, exist_ok=True)
