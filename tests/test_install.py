@@ -83,14 +83,28 @@ class InstallTestCase(unittest.TestCase):
 
     def wt_write_fails(self):
         """Windows Terminal's settings.json cannot be replaced (it holds the file open); everything else writes."""
+        return self.write_fails(self.wt)
+
+    def write_fails(self, target):
+        """``target`` cannot be written; everything else writes."""
         real = jsonio.write_atomic_bytes
 
         def write(path, data):
-            if Path(path) == self.wt:
+            if Path(path) == target:
                 raise PermissionError(13, "Permission denied", str(path))
             return real(path, data)
 
         return mock.patch("witchy.install.jsonio.write_atomic_bytes", side_effect=write)
+
+    def theme_changes(self):
+        """A later witchy version that ships a different theme file."""
+        real = install.build.render_outputs
+
+        def render(**kwargs):
+            outputs = real(**kwargs)
+            return {**outputs, install.build.THEME: outputs[install.build.THEME] + "\n"}
+
+        return mock.patch("witchy.install.build.render_outputs", side_effect=render)
 
 
 class InstallTest(InstallTestCase):
@@ -440,6 +454,40 @@ class InstallTest(InstallTestCase):
               "claude_settings": v2["components"]["claude"]["settings"],
               "windows_terminal": v2["components"].get("windows-terminal")}
         (self.claude / "witchy" / "state.json").write_text(json.dumps(v1, indent=2) + "\n", encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
+    def install_after_a_failed_copy(self):
+        """The output style cannot be written (after the theme was); then a later version reinstalls."""
+        theme = self.claude / "themes" / "moonlit-candle.json"
+        with self.write_fails(self.claude / "output-styles" / "witchynibbles.md"):
+            self.assertEqual(install.install(self.ctx()), 2)
+        self.assertIn("claude: could not write (", self.out.getvalue())
+        self.assertIn("1/2 components installed · failed: claude (could not write (", self.out.getvalue())
+        self.assertEqual([record["path"] for record in self.state()["components"]["claude"]["files"]], [str(theme)])
+        self.assertEqual(self.claude_settings(), CLAUDE_ORIGINAL)
+        with self.theme_changes():
+            self.assertEqual(install.install(self.ctx(stamp="20260930-120500")), 0)
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+
+    def test_a_retry_after_a_failed_copy_still_removes_what_witchy_wrote(self):
+        before = self.snapshot()
+        self.install_after_a_failed_copy()
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.claude / "themes" / "moonlit-candle.json").exists())
+
+    def test_a_retry_after_a_failed_copy_gives_back_the_users_original(self):
+        theme = self.claude / "themes" / "moonlit-candle.json"
+        theme.parent.mkdir()
+        theme.write_bytes(b'{"name": "my own theme"}\n')
+        before = self.snapshot()
+        self.install_after_a_failed_copy()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_uninstall_after_a_failed_copy_removes_what_witchy_wrote(self):
+        before = self.snapshot()
+        with self.write_fails(self.claude / "output-styles" / "witchynibbles.md"):
+            self.assertEqual(install.install(self.ctx()), 2)
         self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
         self.assertEqual(self.snapshot(), before)
 

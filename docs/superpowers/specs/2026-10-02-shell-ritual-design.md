@@ -89,6 +89,7 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 - v1 migrates on load: `files` and `claude_settings` go to `components.claude`; `windows_terminal` goes to `components["windows-terminal"]`. Every recorded previous value is kept. The next write saves v2.
 - A component's entry is absent until it is installed. Reinstall keeps the first recorded previous values, as today.
 - A copied file that someone edited after witchy wrote it is backed up again at the next install, and that backup becomes what uninstall gives back; while the file still holds witchy's bytes, the first backup stays.
+- An apply that stops part-way (a file write fails) still records the files witchy already wrote and reports `failed: <reason>`, so the next install does not mistake witchy's bytes for the user's and uninstall still removes them or gives back the original. A file the run did not write keeps its earlier record. A `claude` entry has no `settings` record until witchy has written `settings.json`; doctor then reports `settings keys not installed`.
 - `~/.claude/witchy/` is durable. `~/.cache/witchy/` (stamps, fail marker, log, font zip, sky render cache) is disposable at any time.
 - `last_install.at` is the run stamp used for backups.
 
@@ -355,6 +356,7 @@ python3 -m witchy mood [VARIANT]
 | :- | :- | :- | :- |
 | runner | lock held | exit 1 | `another witchy command is running` |
 | claude | `settings.json` not plain JSON | abort everything, exit 1 | existing message |
+| claude | a file write `OSError` | `failed: could not write (…)`, exit 2; the files already written stay recorded (nothing is recorded when none was) | `claude: could not write (…); run install again.` |
 | font | Windows user folder not found; `reg.exe query` cannot run (while planning) | `skipped: <reason>`; `font` key untouched | `font: …; keeping the current font` |
 | font | `URLError` / `TimeoutError` | `failed: download failed (…)`, exit 2; nothing recorded for `font`; `font` key untouched | `font: download failed (…); keeping the current font` |
 | font | digest mismatch | delete the cached zip; `failed: checksum mismatch`, exit 2; nothing recorded for `font` | `font: checksum mismatch, nothing installed` |

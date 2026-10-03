@@ -16,7 +16,7 @@ from ..errors import Abort, ComponentFailed
 
 __all__ = ["Abort", "ComponentFailed", "Change", "Command", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
            "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes", "run_command",
-           "file_change", "file_record", "restore_copy", "restore_json", "file_lock"]
+           "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock"]
 
 COMMAND_TIMEOUT = 5  # seconds for every fish call (spec 5.3)
 
@@ -193,8 +193,13 @@ def show_changes(ctx: Any, changes: list[Change]) -> None:
             ctx.say("")
 
 
-def apply_changes(ctx: Any, changes: list[Change]) -> dict[Path, Path]:
-    backups: dict[Path, Path] = {}
+def apply_changes(ctx: Any, changes: list[Change], backups: dict[Path, Path] | None = None) -> dict[Path, Path]:
+    """Write ``changes`` in order and return the backups made, by path.
+
+    Each backup goes into ``backups`` (when given) as soon as it is made, so a caller still has the ones made
+    before a write that raises.
+    """
+    backups = {} if backups is None else backups
     for change in changes:
         if change.before == change.after:
             continue
@@ -251,6 +256,21 @@ def file_record(change: Change, earlier: dict[Path, dict], backups: dict[Path, P
     else:
         backup = previous["backup"] if previous else None
     return {"path": str(change.path), "backup": backup, "installed_sha256": sha(read(change.path))}
+
+
+def applied_records(changes: list[Change], earlier: dict[Path, dict], backups: dict[Path, Path]) -> list[dict]:
+    """The file records after an apply that may have stopped part-way.
+
+    A file that holds this run's bytes gets a new record. One the run did not write keeps its earlier record,
+    so its first backup stays the restore target; one witchy never wrote is left out.
+    """
+    records = []
+    for change in changes:
+        if change.after is not None and read(change.path) == change.after:
+            records.append(file_record(change, earlier, backups))
+        elif change.path in earlier:
+            records.append(earlier[change.path])
+    return records
 
 
 def restore_copy(entry: dict) -> Change | None:

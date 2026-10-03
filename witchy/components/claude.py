@@ -7,8 +7,8 @@ from typing import Any
 
 from .. import build, claude_settings, content, jsonio
 from ..records import snapshot
-from .base import (Abort, Change, Check, JsonPlan, Plan, apply_changes, backup_checks, file_change, file_record,
-                   fix_command, read, restore_copy, restore_json, sha)
+from .base import (Abort, Change, Check, ComponentFailed, JsonPlan, Plan, applied_records, apply_changes,
+                   backup_checks, file_change, file_record, fix_command, read, restore_copy, restore_json, sha)
 
 DEFAULT_PYTHON = "/usr/bin/python3"
 RESTART_NOTE = "Restart Claude Code once so it starts watching ~/.claude/themes/"
@@ -57,17 +57,42 @@ class ClaudeComponent:
         return JsonPlan(Change(path, before, after), previous, {"keys": keys})
 
     def apply(self, ctx: Any, plan: Plan) -> dict:
-        backups = apply_changes(ctx, plan.changes)
         settings: JsonPlan = plan.data["settings"]
+        copies = [change for change in plan.changes if change is not settings.change]
+        backups: dict[Path, Path] = {}
+        try:
+            apply_changes(ctx, plan.changes, backups)
+        except OSError as exc:
+            return self._partial(ctx, plan, copies, backups, exc)
         return {
-            "files": [file_record(change, plan.data["earlier"], backups) for change in plan.changes[:-1]],
+            "files": [file_record(change, plan.data["earlier"], backups) for change in copies],
             "settings": settings.entry(backups.get(settings.change.path)),
         }
 
+    def _partial(self, ctx: Any, plan: Plan, copies: list[Change], backups: dict[Path, Path], exc: OSError) -> dict:
+        """Record what a write that failed part-way left in place.
+
+        Without a record, the next install would back up witchy's own bytes and uninstall would give those back.
+        The entry has no "settings" until witchy has written settings.json.
+        """
+        settings: JsonPlan = plan.data["settings"]
+        ctx.say(f"claude: could not write ({exc}); run install again.")
+        entry: dict[str, Any] = {"files": applied_records(copies, plan.data["earlier"], backups)}
+        if read(settings.change.path) == settings.change.after:
+            entry["settings"] = settings.entry(backups.get(settings.change.path))
+        elif settings.previous:
+            entry["settings"] = settings.previous
+        if not entry["files"] and "settings" not in entry:
+            raise ComponentFailed(f"could not write ({exc})") from exc
+        plan.outcome = f"failed: could not write ({exc})"
+        return entry
+
     def restore(self, ctx: Any, entry: dict) -> Plan:
         warnings: list[str] = []
-        record = entry["settings"]
-        settings = restore_json(record, lambda data: claude_settings.restore_keys(data, record["keys"]), warnings)
+        record = entry.get("settings")
+        settings = None
+        if record is not None:
+            settings = restore_json(record, lambda data: claude_settings.restore_keys(data, record["keys"]), warnings)
         copies = [restore_copy(file_record) for file_record in entry["files"]]
         # Settings first, so they never point at files that are already gone.
         return Plan(changes=[change for change in [settings, *copies] if change is not None], warnings=warnings)
@@ -81,19 +106,25 @@ class ClaudeComponent:
             checks.append(Check("fail", self.name, "changed or missing: " + ", ".join(changed), fix))
         else:
             checks.append(Check("ok", self.name, f"{len(entry['files'])} files match"))
-        record = entry["settings"]
+        record = entry.get("settings")
+        if record is None:
+            missing = ctx.claude_dir / "settings.json"
+            checks.append(Check("fail", self.name, f"settings keys not installed in {missing}", fix))
+        else:
+            checks.append(self._check_settings(record, fix))
+        backups = [(record or {}).get("backup"), *(f.get("backup") for f in entry["files"])]
+        checks.extend(backup_checks(self.name, backups))
+        return checks
+
+    def _check_settings(self, record: dict, fix: str) -> Check:
         try:
             data, _ = jsonio.read_json(Path(record["path"]))
         except (OSError, jsonio.StrictJsonError) as exc:
-            checks.append(Check("fail", self.name, f"cannot read {record['path']}: {exc}", fix))
-        else:
-            data = data if isinstance(data, dict) else {}
-            drift = [key for key, key_record in record["keys"].items()
-                     if snapshot(data, key) != {"value": key_record["installed"]}]
-            if drift:
-                checks.append(Check("fail", self.name, "settings changed: " + ", ".join(drift), fix))
-            else:
-                checks.append(Check("ok", self.name, f"theme {claude_settings.THEME} active, "
-                                                     f"{len(record['keys'])} settings keys match"))
-        checks.extend(backup_checks(self.name, [record.get("backup"), *(f.get("backup") for f in entry["files"])]))
-        return checks
+            return Check("fail", self.name, f"cannot read {record['path']}: {exc}", fix)
+        data = data if isinstance(data, dict) else {}
+        drift = [key for key, key_record in record["keys"].items()
+                 if snapshot(data, key) != {"value": key_record["installed"]}]
+        if drift:
+            return Check("fail", self.name, "settings changed: " + ", ".join(drift), fix)
+        return Check("ok", self.name, f"theme {claude_settings.THEME} active, "
+                                      f"{len(record['keys'])} settings keys match")
