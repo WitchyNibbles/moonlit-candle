@@ -125,6 +125,13 @@ class SkyJobTest(unittest.TestCase):
         self.run_job(FULL_MOON + timedelta(days=1))
         self.assertEqual(self.background(), wt.SKY_VALUES[moon.phase_bin(FULL_MOON + timedelta(days=1))])
 
+    def test_a_corrupt_fail_marker_does_not_stop_the_job(self):
+        self.cache.mkdir(parents=True)
+        (self.cache / sky.FAIL).write_bytes(b"\xff\xfe2026")
+        self.run_job()
+        self.assertEqual(self.background(), wt.SKY_VALUES[4])
+        self.assertEqual((self.cache / sky.STAMP).read_text(encoding="utf-8"), "4\n")
+
     def test_no_config_fails_quietly(self):
         (self.home / sky.CONFIG).unlink()
         self.run_job()

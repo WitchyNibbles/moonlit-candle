@@ -113,7 +113,7 @@ def run(home: Path, now: datetime) -> int:
     try:
         if fail.read_text(encoding="utf-8").strip() == today:
             return 0
-    except OSError:
+    except (OSError, ValueError):
         pass
     try:
         config = json.loads((home / CONFIG).read_text(encoding="utf-8"))
