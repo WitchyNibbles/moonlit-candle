@@ -71,7 +71,7 @@ class Component(Protocol):
 4. Plan every selected component in order: `claude`, `font`, `windows-terminal`, `fish`. `claude` aborting (its `settings.json` is not plain JSON) stops everything with exit 1, as today.
 5. Apply each component in order. After each one, save state. A failing `font`, `windows-terminal` or `fish` step records `skipped: <reason>` (its plan skipped) or `failed: <reason>` (applying it failed) and the runner continues.
 6. Uninstall runs `restore` in reverse order.
-7. Print an end summary, e.g. `3/4 components installed · skipped: font (offline)`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings).
+7. Print an end summary, e.g. `3/4 components installed · failed: font (download failed (…))`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings).
 
 Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.py`. `jsonio.py` and `records.py` are reused unchanged. `install.py` shrinks to the CLI glue around the runner.
 
@@ -81,7 +81,7 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 {
   "version": 2,
   "variant": "midnight",
-  "last_install": { "at": "20261002-211403", "results": { "claude": "ok", "font": "skipped: offline" } },
+  "last_install": { "at": "20261002-211403", "results": { "claude": "ok", "font": "failed: download failed (…)" } },
   "components": { "claude": {}, "font": {}, "windows-terminal": {}, "fish": {} }
 }
 ```
@@ -345,10 +345,11 @@ python3 -m witchy mood [VARIANT]
 | :- | :- | :- | :- |
 | runner | lock held | exit 1 | `another witchy command is running` |
 | claude | `settings.json` not plain JSON | abort everything, exit 1 | existing message |
-| font | `URLError` / `TimeoutError` | skip; `font` key untouched | `font: download failed (…); keeping the current font` |
-| font | digest mismatch (`FontDigestError`) | delete the cached zip, skip | `font: checksum mismatch, nothing installed` |
-| font | `BadZipFile`; `PermissionError` on copy | skip | one warning line |
-| font | `reg.exe` `FileNotFoundError` / `TimeoutExpired` / non-zero exit | skip; copied files recorded | warning naming the registry value |
+| font | Windows user folder not found; `reg.exe query` cannot run (while planning) | `skipped: <reason>`; `font` key untouched | `font: …; keeping the current font` |
+| font | `URLError` / `TimeoutError` | `failed: download failed (…)`, exit 2; nothing recorded for `font`; `font` key untouched | `font: download failed (…); keeping the current font` |
+| font | digest mismatch | delete the cached zip; `failed: checksum mismatch`, exit 2; nothing recorded for `font` | `font: checksum mismatch, nothing installed` |
+| font | bad archive (`FontArchiveError`); `OSError` on copy | `failed: <reason>`, exit 2; nothing recorded for `font`; files already copied stay | `font: …; keeping the current font` |
+| font | `reg.exe add` `OSError` / `TimeoutExpired` / non-zero exit | `failed: could not register <name>`, exit 2; nothing recorded for `font`; files already copied stay | warning naming the registry value |
 | windows-terminal | sky image copy `OSError` | set no background keys; the rest applies | `windows-terminal: sky images not copied (…)` |
 | windows-terminal | `StrictJsonError`, profile not found, write `OSError` | existing handling | existing messages |
 | fish | no fish, no Tide, `TimeoutExpired` | skip the variables; files still install | `fish: Tide not found; prompt not recoloured` |

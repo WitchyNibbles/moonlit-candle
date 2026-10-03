@@ -40,6 +40,20 @@ class FileLockTest(unittest.TestCase):
                     with file_lock(path, timeout=0.2):
                         pass
 
+    def test_a_lock_that_cannot_be_opened_is_a_component_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = Path(tmp) / "cache"
+            blocker.write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(ComponentFailed, "cannot open .*wt.lock"):
+                with file_lock(blocker / "wt.lock"):
+                    pass
+
+    def test_an_os_error_inside_the_lock_is_not_relabelled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(PermissionError):
+                with file_lock(Path(tmp) / "wt.lock"):
+                    raise PermissionError(13, "denied")
+
     def test_no_path_is_a_no_op(self):
         with file_lock(None):
             pass

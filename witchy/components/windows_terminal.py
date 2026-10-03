@@ -110,7 +110,8 @@ class WindowsTerminalComponent:
         # ms-appdata:///local/ is Windows Terminal's LocalState folder, the one that holds settings.json.
         images = [_file_change(path.parent / wt.sky_file(bin_), image, earlier) for bin_, image in enumerate(renders)]
         config = _file_change(ctx.home / RITUAL_CONFIG, ritual_config(path, guid), earlier)
-        settings = Change(path, path.read_bytes(), after)
+        # The bytes planning read: a save made during the render must fail the re-check, not be overwritten.
+        settings = Change(path, text.encode("utf-8"), after)
         return Plan(changes=[*images, settings, config], notes=[] if font else [NO_FONT_NOTE],
                     lock=ctx.cache_dir / WT_LOCK,
                     data={"json": JsonPlan(settings, entry, record), "build": build, "font": font,
@@ -127,8 +128,8 @@ class WindowsTerminalComponent:
             ctx.say(f"windows-terminal: sky images not copied ({exc})")
             background = False
         font = plan.data["font"] == "installed" or (plan.data["font"] == "planned" and ctx.results.get("font") == "ok")
-        if plan.data["font"] == "planned" and not font:
-            ctx.say(NO_FONT_NOTE)
+        if plan.data["font"] == "planned" and not font and NO_FONT_NOTE not in plan.notes:
+            plan.notes.append(NO_FONT_NOTE)
         if (font, background) != (plan.data["font"] is not None, True):
             settings.after, json_plan.extra = plan.data["build"](font, background)
         try:

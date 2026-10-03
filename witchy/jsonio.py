@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any
 
 _INDENT = re.compile(r"^([ \t]+)\S", re.MULTILINE)
+# Windows Terminal puts an object or array value on its own line: `"actions": ` then `[` below it.
+_OWN_LINE = re.compile(r'": \r?\n[ \t]*[\[{]')
+_OPENS_LINE_END = re.compile(r'^([ \t]*)("(?:[^"\\]|\\.)*"): ([\[{])$', re.MULTILINE)
 
 
 class StrictJsonError(ValueError):
@@ -41,6 +44,8 @@ def dumps_like(data: Any, like: str | None) -> str:
         return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     # Windows Terminal stores non-ASCII names as \uXXXX escapes; an ASCII-only file stays ASCII-only.
     text = json.dumps(data, indent=detect_indent(like), ensure_ascii=like.isascii())
+    if _OWN_LINE.search(like):
+        text = _OPENS_LINE_END.sub(r"\1\2: \n\1\3", text)
     newline = "\r\n" if "\r\n" in like else "\n"
     text = text.replace("\n", newline)
     return text + newline if like.endswith("\n") else text

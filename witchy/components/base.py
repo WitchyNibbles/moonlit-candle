@@ -82,8 +82,12 @@ def file_lock(path: Path | None, timeout: float = 10.0) -> Iterator[None]:
     if path is None:
         yield
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as handle:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a")
+    except OSError as exc:
+        raise ComponentFailed(f"cannot open {path} ({exc})") from exc
+    with handle:
         deadline = time.monotonic() + timeout
         while True:
             try:

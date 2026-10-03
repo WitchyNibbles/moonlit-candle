@@ -171,15 +171,18 @@ class ApplyRestoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             wt.apply_scheme(data, palette.WT_SCHEME, UBUNTU, None)
 
+    def test_an_equal_scheme_keeps_its_key_order(self):
+        data = settings()
+        data["schemes"] = [dict(sorted(palette.WT_SCHEME.items()))]  # what Windows Terminal saves
+        result, _ = wt.apply_scheme(data, palette.WT_SCHEME, UBUNTU, None)
+        self.assertEqual(list(result["schemes"][0]), sorted(palette.WT_SCHEME))
+
     def test_manual_snippet(self):
         snippet = wt.manual_snippet(palette.WT_SCHEME, UBUNTU)
         self.assertIn('"name": "Moonlit Candle"', snippet)
         self.assertIn(UBUNTU, snippet)
         self.assertIn('"colorScheme": "Moonlit Candle"', snippet)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 CANONICAL = "{51855cb2-8cce-5362-8f54-464b92b32386}"
@@ -250,3 +253,7 @@ class ProfileKeysTest(unittest.TestCase):
     def test_missing_profile(self):
         with self.assertRaises(ValueError):
             wt.apply_profile_keys(settings(), "{00000000-0000-0000-0000-000000000000}", {"icon": "x"}, None)
+
+
+if __name__ == "__main__":
+    unittest.main()

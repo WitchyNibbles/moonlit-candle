@@ -53,6 +53,17 @@ class DumpsLikeTest(unittest.TestCase):
         self.assertEqual(jsonio.dumps_like({"a": 1}, '{\r\n  "a": 0\r\n}\r\n'), '{\r\n  "a": 1\r\n}\r\n')
         self.assertEqual(jsonio.dumps_like({"a": 1}, '{\n  "a": 0\n}'), '{\n  "a": 1\n}')
 
+    def test_round_trips_windows_terminal_layout(self):
+        # Windows Terminal puts a container on its own line, after "key": and a trailing space.
+        lines = ['{', '    "actions": ', '    [', '        {', '            "command": ', '            {',
+                 '                "action": "copy"', '            },', '            "id": "User.copy"', '        }',
+                 '    ],', '    "profiles": ', '    {', '        "list": ', '        [', '            {',
+                 '                "name": "Ubuntu"', '            }', '        ]', '    },', '    "themes": []', '}']
+        for newline in ("\n", "\r\n"):
+            text = newline.join(lines)
+            self.assertEqual(jsonio.dumps_like(json.loads(text), text), text, repr(newline))
+            self.assertEqual(jsonio.dumps_like(json.loads(text), text + newline), text + newline, repr(newline))
+
     def test_fresh_file_style(self):
         self.assertEqual(jsonio.dumps_like({"a": "í"}, None), '{\n  "a": "í"\n}\n')
 

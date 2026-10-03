@@ -90,7 +90,8 @@ def _install(ctx: Any, components: list) -> int:
                     f"run: python3 -m witchy mood {palette.DEFAULT_VARIANT}")
     ctx.outputs = build.render_outputs(variant=ctx.variant)
     entries = (state or {}).get("components", {})
-    ctx.entries, ctx.planned = entries, {}
+    # A copy: state["components"] changes as components apply, ctx.entries says what state held before.
+    ctx.entries, ctx.planned = dict(entries), {}
     plans = []
     for component in _selected(ctx, components):
         plan = component.plan(ctx, entries.get(component.name))
@@ -128,9 +129,10 @@ def _install(ctx: Any, components: list) -> int:
         statefile.save(ctx.state_path, new_state)
     ctx.say(_summary(results))
     ctx.say(INSTALLED)
-    for _, plan in plans:
-        for note in plan.notes:
-            ctx.say(note)
+    for component, plan in plans:
+        if results[component.name] == "ok":
+            for note in plan.notes:
+                ctx.say(note)
     ctx.say(NEW_SESSION_NOTE)
     return 0 if all(result == "ok" for result in results.values()) else 2
 

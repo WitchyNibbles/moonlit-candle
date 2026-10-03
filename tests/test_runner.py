@@ -106,6 +106,18 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertEqual(self.state()["last_install"]["results"]["b"], "failed: boom")
         self.assertNotIn("b", self.state()["components"])
 
+    def test_notes_of_a_failed_component_are_not_printed(self):
+        runner.install(self.ctx(), [Fake("a", self.log), Fake("b", self.log, fail=True)])
+        self.assertIn("a note", self.out.getvalue())
+        self.assertNotIn("b note", self.out.getvalue())
+
+    def test_entries_are_what_state_held_before_this_run(self):
+        self.write_state({"old": {"installed": "old"}})
+        seen = []
+        b = Fake("b", self.log, on_apply=lambda ctx: seen.append(sorted(ctx.entries)))
+        runner.install(self.ctx(), [Fake("a", self.log), b])
+        self.assertEqual(seen, [["old"]])
+
     def test_abort_while_planning_exits_1_and_applies_nothing(self):
         code = runner.install(self.ctx(), [Fake("a", self.log), Fake("b", self.log, abort=True)])
         self.assertEqual(code, 1)

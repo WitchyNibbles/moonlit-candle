@@ -1,3 +1,4 @@
+import difflib
 import io
 import json
 import tempfile
@@ -6,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from witchy import jsonio, palette, wt
+from witchy import jsonio, palette, runner, sky_render, wt
 from witchy.components.base import ComponentFailed, Plan, apply_changes
 from witchy.components.windows_terminal import NO_FONT_NOTE, RITUAL_CONFIG, WindowsTerminalComponent
 from witchy.context import Context
@@ -14,6 +15,18 @@ from witchy.context import Context
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
 WT = {"profiles": {"defaults": {}, "list": [
     {"guid": UBUNTU, "name": "Ubuntu", "source": "Microsoft.WSL", "colorScheme": "One Half Dark"}]}, "schemes": []}
+
+
+def wt_layout(scheme):
+    """settings.json as Windows Terminal saves it: containers on their own line, scheme members sorted."""
+    members = ",\n".join(f'            "{key}": {json.dumps(value)}' for key, value in sorted(scheme.items()))
+    return ('{\n    "actions": \n    [\n        {\n            "command": \n            {\n'
+            '                "action": "copy"\n            },\n            "id": "User.copy"\n        }\n    ],\n'
+            '    "profiles": \n    {\n        "defaults": {},\n        "list": \n        [\n            {\n'
+            '                "colorScheme": "Moonlit Candle",\n'
+            f'                "guid": "{UBUNTU}",\n'
+            '                "name": "Ubuntu",\n                "source": "Microsoft.WSL"\n            }\n        ]\n'
+            f'    }},\n    "schemes": \n    [\n        {{\n{members}\n        }}\n    ],\n    "themes": []\n}}')
 
 
 def refuse_cmd(*args, **kwargs):
@@ -124,7 +137,8 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         entry = self.component.apply(ctx, plan)
         self.assertEqual(self.ubuntu()["font"], {"face": "FiraCode Nerd Font"})
         self.assertNotIn("font", entry["profile_keys"])
-        self.assertIn(NO_FONT_NOTE, self.out.getvalue())
+        self.assertIn(NO_FONT_NOTE, plan.notes)
+        self.assertNotIn(NO_FONT_NOTE, self.out.getvalue())  # the runner prints notes after the summary
 
     def test_font_recorded_in_state_counts(self):
         ctx = self.ctx()
@@ -136,13 +150,19 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         original = self.ubuntu()
         with mock.patch.dict(palette.WT_PROFILE, {}, clear=True):
             _, entry = self.install()
-        entry.pop("profile_keys")  # what a Plan A install recorded
+        # What a Plan A install recorded and left: no profile_keys, no files, no sky files on disk.
+        entry.pop("profile_keys")
+        for record in entry.pop("files"):
+            Path(record["path"]).unlink()
         ctx = self.ctx(stamp="20261002-120500")
         entry = self.component.apply(ctx, self.component.plan(ctx, entry))
         self.assertEqual(entry["previous_color_scheme"], {"value": "One Half Dark"})
         self.assertEqual(entry["profile_keys"]["cursorShape"]["previous"], {"absent": True})
+        self.assertEqual(len(entry["files"]), 9)
         apply_changes(ctx, self.component.restore(self.ctx(stamp="20261002-130000"), entry).changes)
         self.assertEqual(self.ubuntu(), original)
+        self.assertEqual(sorted(p.name for p in self.root.glob("moonlit-candle-sky-*")), [])
+        self.assertFalse(self.config().exists())
 
     def test_a_key_the_user_changed_is_kept_on_restore(self):
         ctx, entry = self.install()
@@ -225,6 +245,37 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         for bin_ in range(8):
             self.assertFalse((self.root / wt.sky_file(bin_)).exists(), bin_)
         self.assertFalse(self.config().exists())
+
+    def test_a_rewrite_during_the_sky_render_is_not_overwritten(self):
+        real = sky_render.cached
+        theirs = json.dumps(dict(WT, theirs=True), indent=4) + "\n"
+
+        def render(*args, **kwargs):
+            self.wt.write_text(theirs, encoding="utf-8")  # Windows Terminal's settings UI saves meanwhile
+            return real(*args, **kwargs)
+
+        ctx = self.ctx()
+        ctx.dist, ctx.lock_path = self.root / "dist", self.root / "witchy.lock"
+        with mock.patch("witchy.components.windows_terminal.sky_render.cached", side_effect=render):
+            code = runner.install(ctx, [self.component])
+        self.assertEqual(code, 2)
+        self.assertEqual(self.wt.read_text(encoding="utf-8"), theirs)
+        self.assertIn("failed: windows-terminal", self.out.getvalue())
+
+    def test_windows_terminal_layout_changes_only_the_profile_keys(self):
+        variant = palette.VARIANTS["midnight"]
+        before = wt_layout(variant.wt_scheme)
+        self.wt.write_text(before, encoding="utf-8")
+        _, entry = self.install()
+        after = self.wt.read_text(encoding="utf-8")
+        self.assertEqual(self.wt.read_bytes(), after.encode("utf-8"))
+        diff = [line for line in difflib.ndiff(before.splitlines(), after.splitlines()) if line[:1] in "+-"]
+        removed = [line[2:] for line in diff if line.startswith("- ")]
+        added = [line[2:] for line in diff if line.startswith("+ ")]
+        self.assertEqual(removed, ['                "source": "Microsoft.WSL"'])
+        self.assertEqual(added[0], removed[0] + ",")
+        self.assertEqual([json.loads("{" + line.rstrip(",") + "}").popitem()[0] for line in added[1:]],
+                         list(entry["profile_keys"]))
 
     def test_restore_writes_settings_first_under_the_lock(self):
         ctx, entry = self.install()

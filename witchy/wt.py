@@ -134,7 +134,7 @@ def apply_scheme(data: dict, scheme: dict, guid: str, recorded: dict | None) -> 
     record["installed_color_scheme"] = scheme["name"]
     if index is None:
         schemes.append(copy.deepcopy(scheme))
-    else:
+    elif schemes[index] != scheme:  # an equal scheme is left alone: no member-reorder rewrite
         schemes[index] = copy.deepcopy(scheme)
     profile["colorScheme"] = scheme["name"]
     return result, record

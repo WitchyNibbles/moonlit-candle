@@ -43,6 +43,8 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by the comm
 | `⚠ windows-terminal  not installed` | `settings.json` was not found (install prints "Windows Terminal settings.json not found") or the profile did not match | pass `--wt-settings PATH` or set `WT_PROFILE_ID`, then install |
 | `⚠ font  not installed` | Maple Mono NF was not downloaded or registered | `python3 -m witchy install --only font`, then restart Windows Terminal |
 | `✗ font  not registered: …` | a font registry value is gone | same as above |
+| `✗ font  changed or missing: …` | a Maple Mono NF file witchy installed was edited or deleted | `python3 -m witchy install --only font`, then restart Windows Terminal |
+| `⚠ font  cannot read the font registry (reg.exe)` | `reg.exe` could not be run from WSL | check that Windows interop is enabled, then run doctor again |
 | `✗ windows-terminal  profile keys changed: …` | a profile setting no longer holds the witchy value | `python3 -m witchy install --only windows-terminal`, or keep your change |
 | `✗ windows-terminal  changed or missing: …` | a sky image or `ritual-config.json` was edited or deleted | `python3 -m witchy install --only windows-terminal` |
 | `⚠ …  backup … is missing` | a backup was deleted | uninstall still works, key by key |
