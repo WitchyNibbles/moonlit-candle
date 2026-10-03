@@ -309,11 +309,12 @@ def validate_tide(tide: Mapping[str, Any], background: str = palette.BACKGROUND)
             failures.append(Failure("missing-token", f"tide.{key}", "-", "is missing from the Tide variables"))
     bad = set()
     for key, value in tide.items():
-        if is_tide_colour(key) and not (isinstance(value, str) and TIDE_HEX.match(value)):
+        colour = is_tide_colour(key)
+        if colour and not (isinstance(value, str) and TIDE_HEX.match(value)):
             failures.append(Failure("format", f"tide.{key}", str(value), "is not RRGGBB in uppercase, without #"))
             bad.add(key)
-        elif not is_tide_colour(key) and not (isinstance(value, str) or
-                                         (isinstance(value, tuple) and all(isinstance(v, str) for v in value))):
+        elif not colour and not (isinstance(value, str) or
+                                 (isinstance(value, tuple) and all(isinstance(v, str) for v in value))):
             failures.append(Failure("format", f"tide.{key}", str(value), "must be a string or a tuple of strings"))
     for pairs, rule, minimum in ((TIDE_TEXT_PAIRS, "text-contrast", TEXT_MIN),
                                  (TIDE_SECONDARY_PAIRS, "secondary-contrast", SECONDARY_MIN)):

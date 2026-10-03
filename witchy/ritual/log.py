@@ -7,11 +7,25 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
 
 NAME = "ritual.log"
 MAX_LINES = 20
 MAX_CHARS = 300  # per message; an exception's repr can hold the whole greeting
 LOCK_TIMEOUT = 1.0  # seconds; past it the line is dropped, so a stuck writer never holds up a shell
+
+
+def _lock(handle: TextIO) -> bool:
+    """Take an exclusive lock on ``handle`` within LOCK_TIMEOUT; False when another writer still holds it."""
+    deadline = time.monotonic() + LOCK_TIMEOUT
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
 
 
 def append(path: Path, message: str, now: datetime) -> None:
@@ -24,15 +38,8 @@ def append(path: Path, message: str, now: datetime) -> None:
         line = f"{now:%Y-%m-%dT%H:%M:%S} " + " ".join(message.split())[:MAX_CHARS]
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path.with_name(path.name + ".lock"), "a") as lock:
-            deadline = time.monotonic() + LOCK_TIMEOUT
-            while True:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        return
-                    time.sleep(0.01)
+            if not _lock(lock):
+                return
             old = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
             fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
             try:

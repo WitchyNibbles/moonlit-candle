@@ -133,8 +133,12 @@ def _install(ctx: Any, components: list) -> int:
         statefile.save(ctx.state_path, new_state)
     ok = all(result == "ok" for result in results.values())
     ctx.say(_summary(results))
-    # Exit 2 with something applied is a partial install, whichever components were selected.
-    ctx.say(NOTHING_INSTALLED if not applied else INSTALLED if ok else PARTLY_INSTALLED)
+    if not applied:
+        ctx.say(NOTHING_INSTALLED)
+    elif ok:
+        ctx.say(INSTALLED)
+    else:  # exit 2 with something applied is a partial install, whichever components were selected
+        ctx.say(PARTLY_INSTALLED)
     for component, plan in plans:
         if component.name in applied:
             for note in plan.notes:
