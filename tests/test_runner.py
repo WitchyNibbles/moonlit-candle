@@ -150,6 +150,22 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertIn("font: download x", self.out.getvalue())
 
 
+    def test_later_components_see_earlier_plans_and_results(self):
+        seen = {}
+
+        class Watching(Fake):
+            def plan(self, ctx, entry):
+                seen["planned"] = list(ctx.planned)
+                return super().plan(ctx, entry)
+
+            def apply(self, ctx, plan):
+                seen["results"] = dict(ctx.results)
+                return super().apply(ctx, plan)
+
+        runner.install(self.ctx(), [Fake("a", self.log), Watching("b", self.log)])
+        self.assertEqual(seen, {"planned": ["a"], "results": {"a": "ok"}})
+
+
 class UninstallRunnerTest(RunnerTestCase):
     def test_uninstall_runs_in_reverse_order_and_removes_state(self):
         a, b = Fake("a", self.log), Fake("b", self.log)

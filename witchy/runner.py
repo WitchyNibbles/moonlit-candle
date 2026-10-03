@@ -77,7 +77,12 @@ def _install(ctx: Any, components: list) -> int:
                     f"run: python3 -m witchy mood {palette.DEFAULT_VARIANT}")
     ctx.outputs = build.render_outputs(variant=ctx.variant)
     entries = (state or {}).get("components", {})
-    plans = [(component, component.plan(ctx, entries.get(component.name))) for component in _selected(ctx, components)]
+    ctx.entries, ctx.planned = entries, {}
+    plans = []
+    for component in _selected(ctx, components):
+        plan = component.plan(ctx, entries.get(component.name))
+        ctx.planned[component.name] = plan
+        plans.append((component, plan))
     changes = [change for _, plan in plans if plan.skip is None for change in plan.changes]
     if ctx.dry_run:
         show_changes(ctx, changes)
@@ -92,6 +97,7 @@ def _install(ctx: Any, components: list) -> int:
     new_state = state or statefile.empty(ctx.variant)
     new_state["variant"] = ctx.variant
     results: dict[str, str] = {}
+    ctx.results = results
     for component, plan in plans:
         if plan.skip is not None:
             results[component.name] = f"skipped: {plan.skip}"

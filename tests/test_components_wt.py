@@ -5,8 +5,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from witchy.components.base import ComponentFailed, apply_changes
-from witchy.components.windows_terminal import WindowsTerminalComponent
+from witchy import palette
+from witchy.components.base import ComponentFailed, Plan, apply_changes
+from witchy.components.windows_terminal import NO_FONT_NOTE, WindowsTerminalComponent
 from witchy.context import Context
 
 UBUNTU = "{05f3f843-450a-55ad-a264-cacf368dafe5}"
@@ -86,6 +87,78 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         plan = self.component.plan(ctx, entry)
         self.assertIsNone(plan.skip)
         self.assertEqual(plan.data["json"].change.path, self.wt)
+
+    def with_font(self, face):
+        data = json.loads(self.wt.read_text(encoding="utf-8"))
+        data["profiles"]["list"][0]["font"] = {"face": face}
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+
+    def test_profile_keys_are_set_and_recorded(self):
+        ctx = self.ctx()
+        plan = self.component.plan(ctx, None)
+        entry = self.component.apply(ctx, plan)
+        ubuntu = self.ubuntu()
+        self.assertEqual((ubuntu["cursorShape"], ubuntu["tabTitle"], ubuntu["opacity"]), ("filledBox", "witchyterm", 93))
+        self.assertNotIn("font", ubuntu)
+        self.assertNotIn("backgroundImageOpacity", ubuntu)
+        self.assertEqual(entry["profile_keys"]["cursorShape"], {"previous": {"absent": True}, "installed": "filledBox"})
+        self.assertIn(NO_FONT_NOTE, plan.notes)
+
+    def test_font_is_set_when_the_font_component_installs_it(self):
+        ctx = self.ctx()
+        ctx.planned["font"] = Plan()
+        plan = self.component.plan(ctx, None)
+        ctx.results["font"] = "ok"
+        self.component.apply(ctx, plan)
+        self.assertEqual(self.ubuntu()["font"], palette.WT_PROFILE["font"])
+
+    def test_failed_font_install_leaves_the_font_alone(self):
+        self.with_font("FiraCode Nerd Font")
+        ctx = self.ctx()
+        ctx.planned["font"] = Plan()
+        plan = self.component.plan(ctx, None)
+        ctx.results["font"] = "failed: download failed (offline)"
+        entry = self.component.apply(ctx, plan)
+        self.assertEqual(self.ubuntu()["font"], {"face": "FiraCode Nerd Font"})
+        self.assertNotIn("font", entry["profile_keys"])
+        self.assertIn(NO_FONT_NOTE, self.out.getvalue())
+
+    def test_font_recorded_in_state_counts(self):
+        ctx = self.ctx()
+        ctx.entries = {"font": {"preexisting": True, "registered": {}, "files": []}}
+        self.component.apply(ctx, self.component.plan(ctx, None))
+        self.assertEqual(self.ubuntu()["font"], palette.WT_PROFILE["font"])
+
+    def test_reinstall_over_a_plan_a_entry_adds_keys_and_keeps_the_first_scheme(self):
+        original = self.ubuntu()
+        with mock.patch.dict(palette.WT_PROFILE, {}, clear=True):
+            _, entry = self.install()
+        entry.pop("profile_keys")  # what a Plan A install recorded
+        ctx = self.ctx(stamp="20261002-120500")
+        entry = self.component.apply(ctx, self.component.plan(ctx, entry))
+        self.assertEqual(entry["previous_color_scheme"], {"value": "One Half Dark"})
+        self.assertEqual(entry["profile_keys"]["cursorShape"]["previous"], {"absent": True})
+        apply_changes(ctx, self.component.restore(self.ctx(stamp="20261002-130000"), entry).changes)
+        self.assertEqual(self.ubuntu(), original)
+
+    def test_a_key_the_user_changed_is_kept_on_restore(self):
+        ctx, entry = self.install()
+        data = json.loads(self.wt.read_text(encoding="utf-8"))
+        data["profiles"]["list"][0]["cursorShape"] = "bar"
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        plan = self.component.restore(self.ctx(stamp="20261002-130000"), entry)
+        apply_changes(ctx, plan.changes)
+        self.assertEqual(self.ubuntu()["cursorShape"], "bar")
+        self.assertNotIn("tabTitle", self.ubuntu())
+        self.assertIn("Windows Terminal: cursorShape was changed after install; leaving it as it is.", plan.warnings)
+
+    def test_check_reports_a_drifted_profile_key(self):
+        ctx, entry = self.install()
+        data = json.loads(self.wt.read_text(encoding="utf-8"))
+        data["profiles"]["list"][0]["tabTitle"] = "mine"
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        fails = [c for c in self.component.check(ctx, entry) if c.level == "fail"]
+        self.assertEqual([c.message for c in fails], ["profile keys changed: tabTitle"])
 
 
 if __name__ == "__main__":

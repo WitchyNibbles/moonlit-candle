@@ -230,3 +230,23 @@ class StoreProfileTest(unittest.TestCase):
         data = store_ubuntu()
         data["profiles"]["list"][0]["hidden"] = False
         self.assertIsNone(wt.find_profile(data, {"WSL_DISTRO_NAME": "Ubuntu"})[0])
+
+
+class ProfileKeysTest(unittest.TestCase):
+    def test_apply_and_restore_round_trip(self):
+        data = settings()
+        installed, recs = wt.apply_profile_keys(data, UBUNTU, {"cursorShape": "filledBox"}, None)
+        self.assertEqual(wt.profile(installed, UBUNTU)["cursorShape"], "filledBox")
+        restored, warnings = wt.restore_profile_keys(installed, UBUNTU, recs)
+        self.assertEqual((restored, warnings), (data, []))
+
+    def test_any_sky_value_counts_as_installed(self):
+        installed, recs = wt.apply_profile_keys(settings(), UBUNTU, {"backgroundImage": wt.SKY_VALUES[1]}, None)
+        wt.profile(installed, UBUNTU)["backgroundImage"] = wt.SKY_VALUES[6]
+        self.assertTrue(wt.holds_installed(wt.profile(installed, UBUNTU), "backgroundImage", recs["backgroundImage"]))
+        restored, warnings = wt.restore_profile_keys(installed, UBUNTU, recs)
+        self.assertEqual((restored, warnings), (settings(), []))
+
+    def test_missing_profile(self):
+        with self.assertRaises(ValueError):
+            wt.apply_profile_keys(settings(), "{00000000-0000-0000-0000-000000000000}", {"icon": "x"}, None)

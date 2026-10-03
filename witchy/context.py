@@ -28,6 +28,10 @@ class Context:
     variant: str | None = None
     outputs: dict[str, str] | None = None
     mount_root: Path = field(default_factory=lambda: windows.MOUNT_ROOT)
+    # Filled by the runner: what earlier components planned and how they ended, and what state records.
+    planned: dict[str, Any] = field(default_factory=dict)
+    entries: dict[str, dict] = field(default_factory=dict)
+    results: dict[str, str] = field(default_factory=dict)
     fetch: Callable[[str], bytes] = fonts.fetch_url
 
     @property

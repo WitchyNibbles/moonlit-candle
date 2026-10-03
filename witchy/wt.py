@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import windows
-from .records import put_back, snapshot
+from .records import apply_keys, is_installed, put_back, restore_keys, snapshot
+from .ritual.moon import BINS
 
 PACKAGE = "Microsoft.WindowsTerminal_8wekyb3d8bbwe"
 USERS_ROOT = Path("/mnt/c/Users")
@@ -176,3 +177,40 @@ def manual_snippet(scheme: dict, guid: str) -> str:
         f'Then, in the profile with "guid": "{guid}", set:\n'
         f'    "colorScheme": "{scheme["name"]}"'
     )
+
+
+def sky_file(bin_: int) -> str:
+    return f"moonlit-candle-sky-{bin_}.png"
+
+
+SKY_VALUES = tuple(f"ms-appdata:///local/{sky_file(bin_)}" for bin_ in range(BINS))
+# Values that still count as witchy's own: the sky job (Plan C) moves backgroundImage between the eight images.
+ALSO_INSTALLED = {"backgroundImage": SKY_VALUES}
+
+
+def holds_installed(profile: dict, key: str, record: dict) -> bool:
+    return is_installed(profile, key, record, ALSO_INSTALLED.get(key, ()))
+
+
+def apply_profile_keys(data: dict, guid: str, desired: dict, recorded: dict | None) -> tuple[dict, dict]:
+    """Set ``desired`` on one profile, recording what each key held before (the first install's value wins)."""
+    result = copy.deepcopy(data)
+    profile = _profile(result, guid)
+    if profile is None:
+        raise ValueError(f"profile {guid} not found")
+    updated, records = apply_keys(profile, desired, recorded)
+    profile.clear()
+    profile.update(updated)
+    return result, records
+
+
+def restore_profile_keys(data: dict, guid: str, recorded: dict) -> tuple[dict, list[str]]:
+    """Undo apply_profile_keys, leaving alone whatever the user changed since."""
+    result = copy.deepcopy(data)
+    profile = _profile(result, guid)
+    if profile is None or not recorded:
+        return result, []  # restore_scheme already says when the profile is gone
+    restored, warnings = restore_keys(profile, recorded, ALSO_INSTALLED)
+    profile.clear()
+    profile.update(restored)
+    return result, [f"Windows Terminal: {warning}" for warning in warnings]

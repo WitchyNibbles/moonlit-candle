@@ -7,6 +7,7 @@ and the status line palette; validate.py holds all of it to the contrast rules.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 THEME_NAME = "Moonlit Candle"
 THEME_SLUG = "moonlit-candle"
@@ -138,6 +139,22 @@ SKY: dict[str, str] = {
 }
 
 
+# Windows Terminal profile settings (spec 4.2). backgroundImage is chosen at install time from the moon phase.
+WT_PROFILE: dict[str, Any] = {
+    "font": {"face": "Maple Mono NF", "size": 12, "cellHeight": "1.1"},
+    "cursorShape": "filledBox",
+    "padding": "14",
+    "opacity": 93,
+    "useAcrylic": True,
+    "backgroundImageOpacity": 0.12,
+    "backgroundImageAlignment": "bottomRight",
+    "backgroundImageStretchMode": "uniformToFill",
+    "icon": "\U0001F319",
+    "tabTitle": "witchyterm",
+    "suppressApplicationTitle": True,
+}
+
+
 @dataclass(frozen=True)
 class Variant:
     """One complete colour set. Variants change colours only: theme name, scheme name and
@@ -151,10 +168,11 @@ class Variant:
     wt_scheme: dict[str, str]
     statusline: dict[str, str]
     sky: dict[str, str] = field(default_factory=dict)
+    wt_profile: dict[str, Any] = field(default_factory=dict)
 
 
 DEFAULT_VARIANT = "midnight"
 VARIANTS: dict[str, Variant] = {
     "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE,
-                        sky=SKY),
+                        sky=SKY, wt_profile=WT_PROFILE),
 }
