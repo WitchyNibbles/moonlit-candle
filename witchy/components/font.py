@@ -29,7 +29,9 @@ class FontComponent:
             ctx.say(f"font: cannot read the font registry (reg.exe); {KEEP}.")
             return Plan.skipped("cannot read the font registry")
         present = self._present(ctx, values)
-        if present:
+        if all(f"{fonts.FAMILY} {style} (TrueType)" in present for style in fonts.STYLES):
+            if entry and entry.get("preexisting") is False:
+                return Plan(data={"keep": entry})
             return Plan(data={"present": present})
         folder = home.wsl.joinpath(*FONTS_SUBDIR)
         archive = ctx.cache_dir / f"MapleMono-NF-{fonts.RELEASE}.zip"
@@ -68,6 +70,8 @@ class FontComponent:
         return data
 
     def apply(self, ctx: Any, plan: Plan) -> dict:
+        if "keep" in plan.data:
+            return plan.data["keep"]
         if "present" in plan.data:
             return {"preexisting": True, "registered": plan.data["present"], "files": []}
         home, folder = plan.data["home"], plan.data["folder"]

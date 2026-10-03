@@ -77,8 +77,10 @@ class FontComponentTest(unittest.TestCase):
         self.assertEqual(self.fetched, [fonts.URL])
 
     def test_a_font_already_installed_by_hand_is_left_alone(self):
-        (self.folder / "MapleMono-NF-Regular.ttf").write_bytes(b"font")
-        present = {"Maple Mono NF Regular (TrueType)": f"{FONTS_WIN}\\MapleMono-NF-Regular.ttf"}
+        for member in fonts.MEMBERS:
+            (self.folder / member).write_bytes(b"font")
+        present = {f"Maple Mono NF {style} (TrueType)": f"{FONTS_WIN}\\{member}"
+                   for style, member in zip(STYLES, fonts.MEMBERS)}
         _, plan, entry = self.install(reg={**OTHER_FONT, **present})
         self.assertEqual(plan.actions, [])
         self.assertEqual(entry, {"preexisting": True, "registered": present, "files": []})
@@ -120,6 +122,27 @@ class FontComponentTest(unittest.TestCase):
         self.assertEqual(len(fails), 1)
         self.assertIn("not registered", fails[0].message)
         self.assertEqual(fails[0].fix, "python3 -m witchy install --only font")
+
+    def test_a_partial_registration_is_completed_on_retry(self):
+        (self.folder / "MapleMono-NF-Regular.ttf").write_bytes(b"font")
+        partial = {"Maple Mono NF Regular (TrueType)": f"{FONTS_WIN}\\MapleMono-NF-Regular.ttf"}
+        _, plan, entry = self.install(reg={**OTHER_FONT, **partial})
+        self.assertTrue(any(action.startswith("font: download") for action in plan.actions))
+        self.assertEqual(len([c for c in self.calls if c[:2] == ["reg.exe", "add"]]), 4)
+        self.assertFalse(entry["preexisting"])
+        self.assertEqual(len(entry["registered"]), 4)
+
+    def test_reinstall_keeps_our_own_entry(self):
+        _, _, entry = self.install()
+        self.calls.clear()
+        ctx = self.ctx(reg={**OTHER_FONT, **entry["registered"]})
+        plan = self.component.plan(ctx, entry)
+        again = self.component.apply(ctx, plan)
+        self.assertEqual(again, entry)
+        self.assertFalse(again["preexisting"])
+        self.assertEqual(self.fetched, [fonts.URL])
+        self.assertEqual(plan.actions, [])
+        self.assertFalse(any(call[:2] == ["reg.exe", "add"] for call in self.calls))
 
 
 if __name__ == "__main__":

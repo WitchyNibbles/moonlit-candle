@@ -17,6 +17,7 @@ MEMBERS = ("MapleMono-NF-Regular.ttf", "MapleMono-NF-Italic.ttf", "MapleMono-NF-
 MEMBER_LIMIT = 20 * 1024 * 1024
 DOWNLOAD_LIMIT = 64 * 1024 * 1024
 FAMILY = "Maple Mono NF"
+STYLES = ("Regular", "Italic", "Bold", "Bold Italic")
 REGISTRY_KEY = r"HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts"
 _REG_VALUE = re.compile(r"^ {4}(.+?) {4}REG_[A-Z_]+ {4}(.*)$")
 
