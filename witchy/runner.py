@@ -7,11 +7,13 @@ from typing import Any, Iterator, Sequence
 
 from . import build, palette, state as statefile, validate
 from .components import all_components
-from .components.base import Check, Component, apply_changes, check_unchanged, file_lock, fix_command, show_changes
+from .components.base import (Check, Component, Plan, apply_changes, check_unchanged, file_lock, fix_command,
+                              run_command, show_changes)
 from .errors import Abort, ComponentFailed
 
 LOCK_BUSY = "another witchy command is running"
 INSTALLED = "Moonlit Candle installed. Undo with: python3 -m witchy uninstall"
+NOTHING_INSTALLED = "Nothing was installed."
 NEW_SESSION_NOTE = ("The output style applies from your next message; restart Claude Code if the theme "
                     "or status line do not update.")
 
@@ -112,6 +114,7 @@ def _install(ctx: Any, components: list) -> int:
     new_state["variant"] = ctx.variant
     results: dict[str, str] = {}
     ctx.results = results
+    applied = set()
     for component, plan in plans:
         if plan.skip is not None:
             results[component.name] = f"skipped: {plan.skip}"
@@ -120,7 +123,8 @@ def _install(ctx: Any, components: list) -> int:
                 with file_lock(plan.lock):
                     _recheck(plan.changes)
                     new_state["components"][component.name] = component.apply(ctx, plan)
-                results[component.name] = "ok"
+                applied.add(component.name)
+                results[component.name] = plan.outcome or "ok"
             except ComponentFailed as exc:
                 results[component.name] = f"failed: {exc}"
         new_state["last_install"] = {"at": ctx.stamp, "results": dict(results)}
@@ -128,9 +132,9 @@ def _install(ctx: Any, components: list) -> int:
         # record must already describe what is really installed.
         statefile.save(ctx.state_path, new_state)
     ctx.say(_summary(results))
-    ctx.say(INSTALLED)
+    ctx.say(INSTALLED if applied else NOTHING_INSTALLED)
     for component, plan in plans:
-        if results[component.name] == "ok":
+        if component.name in applied:
             for note in plan.notes:
                 ctx.say(note)
     ctx.say(NEW_SESSION_NOTE)
@@ -163,12 +167,25 @@ def _uninstall(ctx: Any, components: list) -> int:
         return 0
     entries = state["components"]
     # Reverse install order: the Windows side goes first and may refuse the write; local pieces follow.
-    plans = [(component, component.restore(ctx, entries[component.name]))
-             for component in reversed(_selected(ctx, components)) if component.name in entries]
+    plans = []
+    for component in reversed(_selected(ctx, components)):
+        if component.name not in entries:
+            continue
+        try:
+            plan = component.restore(ctx, entries[component.name])
+        except ComponentFailed as exc:
+            plan = Plan.skipped(str(exc))  # nothing of it is touched; it stays installed
+        plans.append((component, plan))
     warnings = [warning for _, plan in plans for warning in plan.warnings]
-    changes = [change for _, plan in plans for change in plan.changes]
+    changes = [change for _, plan in plans if plan.skip is None for change in plan.changes]
     if ctx.dry_run:
+        for component, plan in plans:
+            if plan.skip is not None:
+                ctx.say(f"{component.name}: {plan.skip}; it would stay installed.")
         show_changes(ctx, changes)
+        for component, plan in plans:
+            for command in plan.commands:
+                ctx.say(f"{component.name}: {command.label}")
         for warning in warnings:
             ctx.say(warning)
         ctx.say("Dry run: nothing was written.")
@@ -177,13 +194,23 @@ def _uninstall(ctx: Any, components: list) -> int:
     failed = []
     for component, plan in plans:
         try:
+            if plan.skip is not None:
+                raise ComponentFailed(plan.skip)
             with file_lock(plan.lock):
                 _recheck(plan.changes)
+                for command in plan.commands:
+                    run_command(ctx, command)
                 apply_changes(ctx, plan.changes)
         except (OSError, ComponentFailed) as exc:
-            ctx.say(f"{component.name}: could not write ({exc}); run uninstall again.")
+            reason = f"could not write ({exc})" if isinstance(exc, OSError) else str(exc)
+            ctx.say(f"{component.name}: {reason}; run uninstall again.")
             failed.append(component.name)
             continue
+        for directory in plan.prune:
+            try:
+                directory.rmdir()
+            except OSError:
+                pass  # not empty (or already gone): only empty folders witchy made are removed
         del entries[component.name]
         _save_or_remove(ctx, state)
     _save_or_remove(ctx, state)

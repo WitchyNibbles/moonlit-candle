@@ -338,6 +338,20 @@ class InstallTest(InstallTestCase):
         self.assertEqual([s for s in seen if s[0] == "settings.json"], [("settings.json", True), ("settings.json", True)])
         self.assertFalse((self.claude / "witchy" / "statusline.py").exists())
 
+    def test_claude_files_stay_while_its_settings_cannot_be_restored(self):
+        before = self.snapshot()
+        install.install(self.ctx())
+        installed = self.settings.read_text(encoding="utf-8")
+        self.settings.write_text("// a comment Claude Code does not write\n" + installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 2)
+        self.assertIn("is no longer plain JSON; make it plain JSON again; run uninstall again.", self.out.getvalue())
+        self.assertTrue((self.claude / "witchy" / "statusline.py").is_file())
+        self.assertEqual(list(self.state()["components"]), ["claude"])
+        self.assertEqual(self.ubuntu()["colorScheme"], "One Half Dark")
+        self.settings.write_text(installed, encoding="utf-8")
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-131000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
     def test_install_aborts_when_a_file_changes_while_planning(self):
         before = self.snapshot()
         real = install.wt.locate_settings

@@ -7,8 +7,8 @@ from typing import Any
 
 from .. import jsonio, palette, sky_render, wt
 from ..ritual import moon
-from .base import (Change, Check, ComponentFailed, JsonPlan, Plan, apply_changes, backup_checks, fix_command, read,
-                   restore_copy, restore_json, sha)
+from .base import (Change, Check, ComponentFailed, JsonPlan, Plan, apply_changes, backup_checks, file_change,
+                   file_record, fix_command, read, restore_copy, restore_json, sha)
 
 WT_SKIP = "skipping the terminal colour scheme"
 WT_LOCK = "wt.lock"
@@ -41,19 +41,6 @@ def _font_source(ctx: Any) -> str | None:
     if planned is not None and planned.skip is None:
         return "planned"
     return "installed" if "font" in ctx.entries else None
-
-
-def _file_change(path: Path, data: bytes, earlier: dict[Path, dict]) -> Change:
-    before = read(path)
-    previous = earlier.get(path)
-    ours = previous is not None and sha(before) == previous["installed_sha256"]
-    return Change(path, before, data, backup=not ours)
-
-
-def _file_record(change: Change, earlier: dict[Path, dict], backups: dict[Path, Path]) -> dict:
-    previous = earlier.get(change.path)
-    backup = previous["backup"] if previous else (str(backups[change.path]) if change.path in backups else None)
-    return {"path": str(change.path), "backup": backup, "installed_sha256": sha(read(change.path))}
 
 
 def _still_ours(change: Change, earlier: dict[Path, dict]) -> bool:
@@ -108,8 +95,8 @@ class WindowsTerminalComponent:
         earlier = {Path(item["path"]): item for item in (entry or {}).get("files", [])}
         renders = sky_render.cached(ctx.cache_dir / "sky", variant.sky, ctx.sky_size, write=not ctx.dry_run)
         # ms-appdata:///local/ is Windows Terminal's LocalState folder, the one that holds settings.json.
-        images = [_file_change(path.parent / wt.sky_file(bin_), image, earlier) for bin_, image in enumerate(renders)]
-        config = _file_change(ctx.home / RITUAL_CONFIG, ritual_config(path, guid), earlier)
+        images = [file_change(path.parent / wt.sky_file(bin_), image, earlier) for bin_, image in enumerate(renders)]
+        config = file_change(ctx.home / RITUAL_CONFIG, ritual_config(path, guid), earlier)
         # The bytes planning read: a save made during the render must fail the re-check, not be overwritten.
         settings = Change(path, text.encode("utf-8"), after)
         return Plan(changes=[*images, settings, config], notes=[] if font else [NO_FONT_NOTE],
@@ -141,14 +128,14 @@ class WindowsTerminalComponent:
             ctx.say(f"Windows Terminal: could not write {settings.path} ({exc}); {WT_SKIP}.")
             raise ComponentFailed(f"could not write {settings.path}") from exc
         entry = json_plan.entry(backups.get(settings.path))
-        files = [_file_record(image, earlier, backups) for image in images if _still_ours(image, earlier)]
+        files = [file_record(image, earlier, backups) for image in images if _still_ours(image, earlier)]
         if background:
             try:
                 backups.update(apply_changes(ctx, [config]))
             except OSError as exc:
                 ctx.say(f"windows-terminal: could not write {config.path} ({exc}); the sky keeps tonight's phase.")
         if _still_ours(config, earlier):
-            files.append(_file_record(config, earlier, backups))
+            files.append(file_record(config, earlier, backups))
         entry["files"] = files
         return entry
 

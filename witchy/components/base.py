@@ -4,6 +4,7 @@ from __future__ import annotations
 import difflib
 import fcntl
 import hashlib
+import subprocess
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -13,9 +14,11 @@ from typing import Any, Callable, Iterator, Protocol
 from .. import jsonio
 from ..errors import Abort, ComponentFailed
 
-__all__ = ["Abort", "ComponentFailed", "Change", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
-           "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes",
-           "restore_copy", "restore_json", "file_lock"]
+__all__ = ["Abort", "ComponentFailed", "Change", "Command", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
+           "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes", "run_command",
+           "file_change", "file_record", "restore_copy", "restore_json", "file_lock"]
+
+COMMAND_TIMEOUT = 5  # seconds for every fish call (spec 5.3)
 
 
 def sha(data: bytes | None) -> str | None:
@@ -59,9 +62,23 @@ class JsonPlan:
         return {**base, **self.extra}
 
 
+@dataclass(frozen=True)
+class Command:
+    """A program to run: list arguments (never a shell string), optional standard input, and a label for messages."""
+
+    args: tuple[str, ...]
+    label: str
+    input: str | None = None
+
+
 @dataclass
 class Plan:
-    """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied."""
+    """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied.
+
+    For a restore plan the runner runs ``commands`` before writing ``changes``, then removes each ``prune``
+    directory that is left empty. ``outcome`` replaces "ok" in the install results when a plan applied only
+    in part (for example "skipped: Tide not found").
+    """
 
     changes: list[Change] = field(default_factory=list)
     skip: str | None = None
@@ -70,6 +87,9 @@ class Plan:
     actions: list[str] = field(default_factory=list)
     lock: Path | None = None
     data: dict[str, Any] = field(default_factory=dict)
+    commands: list[Command] = field(default_factory=list)
+    prune: list[Path] = field(default_factory=list)
+    outcome: str | None = None
 
     @classmethod
     def skipped(cls, reason: str) -> Plan:
@@ -190,6 +210,37 @@ def apply_changes(ctx: Any, changes: list[Change]) -> dict[Path, Path]:
     return backups
 
 
+def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.CompletedProcess:
+    """Run ``command`` through ``ctx.run`` with ``ctx.env`` and a timeout.
+
+    A command that cannot start or times out raises ComponentFailed (the cause is kept, so a caller can tell a
+    missing program from a slow one); a non-zero exit raises it too unless ``check`` is false.
+    """
+    try:
+        done = ctx.run(list(command.args), input=command.input, capture_output=True, text=True, errors="replace",
+                       timeout=COMMAND_TIMEOUT, env=dict(ctx.env))
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        raise ComponentFailed(f"could not {command.label} ({exc})") from exc
+    if check and done.returncode != 0:
+        raise ComponentFailed(f"could not {command.label} (exit {done.returncode})")
+    return done
+
+
+def file_change(path: Path, data: bytes, earlier: dict[Path, dict]) -> Change:
+    """Copy ``data`` to ``path``; a file that still holds what witchy installed last time needs no backup."""
+    before = read(path)
+    previous = earlier.get(path)
+    ours = previous is not None and sha(before) == previous["installed_sha256"]
+    return Change(path, before, data, backup=not ours)
+
+
+def file_record(change: Change, earlier: dict[Path, dict], backups: dict[Path, Path]) -> dict:
+    """What state.json remembers about a copied file; the first backup ever made stays the restore target."""
+    previous = earlier.get(change.path)
+    backup = previous["backup"] if previous else (str(backups[change.path]) if change.path in backups else None)
+    return {"path": str(change.path), "backup": backup, "installed_sha256": sha(read(change.path))}
+
+
 def restore_copy(entry: dict) -> Change | None:
     path = Path(entry["path"])
     current = read(path)
@@ -215,14 +266,14 @@ def restore_json(entry: dict, restore: Callable[[dict], tuple[dict, list[str]]],
         original = read(Path(entry["backup"])) if entry.get("backup") else None
         if original is not None:
             return Change(path, current, original, backup=False)
+    # A settings file that cannot be given back keeps the whole component installed: its other files
+    # (the status line, the sky images) must stay while the settings still point at them.
     try:
         data, text = jsonio.read_json(path)
-    except jsonio.StrictJsonError:
-        warnings.append(f"{path} is no longer plain JSON; restore it by hand from {entry.get('backup')}.")
-        return None
+    except jsonio.StrictJsonError as exc:
+        raise ComponentFailed(f"{path} is no longer plain JSON; make it plain JSON again") from exc
     if not isinstance(data, dict):
-        warnings.append(f"{path} no longer holds a JSON object; restore it by hand from {entry.get('backup')}.")
-        return None
+        raise ComponentFailed(f"{path} no longer holds a JSON object; fix it by hand")
     restored, notes = restore(data)
     warnings.extend(notes)
     if notes and entry.get("backup"):

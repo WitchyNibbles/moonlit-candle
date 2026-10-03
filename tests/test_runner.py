@@ -1,13 +1,14 @@
 import fcntl
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from witchy import palette, runner, state
-from witchy.components.base import Abort, Change, Check, ComponentFailed, Plan
+from witchy.components.base import Abort, Change, Check, Command, ComponentFailed, Plan
 from witchy.context import Context
 
 
@@ -268,6 +269,123 @@ class UninstallRunnerTest(RunnerTestCase):
     def test_nothing_to_uninstall(self):
         self.assertEqual(runner.uninstall(self.ctx(), [Fake("a", self.log)]), 0)
         self.assertIn("Nothing to uninstall", self.out.getvalue())
+
+
+class Restoring(Fake):
+    """A component whose restore plan is ``make_plan(ctx)``."""
+
+    def __init__(self, name, log, make_plan):
+        super().__init__(name, log)
+        self.make_plan = make_plan
+
+    def restore(self, ctx, entry):
+        super().restore(ctx, entry)
+        return self.make_plan(ctx)
+
+
+class RestoreCommandsTest(RunnerTestCase):
+    def setUp(self):
+        super().setUp()
+        self.target = self.root / "ritual" / "cli.py"
+        self.target.parent.mkdir()
+        self.target.write_bytes(b"ours")
+        self.calls = []
+
+    def runs(self, code=0, error=None):
+        def run(args, **kwargs):
+            self.calls.append((args, kwargs, self.target.exists()))
+            if error:
+                raise error
+            return subprocess.CompletedProcess(args, code, stdout="", stderr="")
+        return run
+
+    def plan(self, ctx):
+        return Plan(commands=[Command(("fish", "-c", "restore"), "restore 2 Tide variables", "data")],
+                    changes=[Change(self.target, b"ours", None, backup=False)], prune=[self.target.parent])
+
+    def test_commands_run_before_the_changes_then_empty_folders_go(self):
+        a = Restoring("a", self.log, self.plan)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=self.runs()), [a]), 0)
+        (args, kwargs, existed), = self.calls
+        self.assertEqual((args, kwargs["input"], kwargs["timeout"], existed), (["fish", "-c", "restore"], "data", 5, True))
+        self.assertFalse(self.target.parent.exists())
+
+    def test_a_folder_that_is_not_empty_stays(self):
+        (self.target.parent / "__pycache__").mkdir()
+        a = Restoring("a", self.log, self.plan)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=self.runs()), [a]), 0)
+        self.assertTrue((self.target.parent / "__pycache__").is_dir())
+
+    def test_a_failing_command_keeps_the_component_and_its_files(self):
+        a = Restoring("a", self.log, self.plan)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=self.runs(code=1)), [a]), 2)
+        self.assertTrue(self.target.exists())
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertIn("a: could not restore 2 Tide variables (exit 1); run uninstall again.", self.out.getvalue())
+
+    def test_a_command_that_cannot_start_keeps_the_component(self):
+        a = Restoring("a", self.log, self.plan)
+        runner.install(self.ctx(), [a])
+        missing = FileNotFoundError(2, "No such file or directory", "fish")
+        self.assertEqual(runner.uninstall(self.ctx(run=self.runs(error=missing)), [a]), 2)
+        self.assertTrue(self.target.exists())
+        self.assertIn("could not restore 2 Tide variables", self.out.getvalue())
+
+    def test_dry_run_lists_the_commands_and_runs_nothing(self):
+        a = Restoring("a", self.log, self.plan)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(dry_run=True, run=self.runs()), [a]), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("a: restore 2 Tide variables", self.out.getvalue())
+        self.assertTrue(self.target.exists())
+
+
+class BlockedRestoreTest(RunnerTestCase):
+    def blocked(self, ctx, entry):
+        self.log.append(("restore", "a"))
+        raise ComponentFailed("settings.json is no longer plain JSON; make it plain JSON again")
+
+    def test_a_restore_that_cannot_be_planned_keeps_the_component_and_exits_2(self):
+        a, b = Fake("a", self.log), Fake("b", self.log)
+        a.restore = self.blocked
+        runner.install(self.ctx(), [a, b])
+        self.assertEqual(runner.uninstall(self.ctx(), [a, b]), 2)
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertIn("a: settings.json is no longer plain JSON; make it plain JSON again; run uninstall again.",
+                      self.out.getvalue())
+
+    def test_dry_run_says_it_would_stay(self):
+        a = Fake("a", self.log)
+        a.restore = self.blocked
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(dry_run=True), [a]), 0)
+        self.assertIn("a: settings.json is no longer plain JSON; make it plain JSON again; it would stay installed.",
+                      self.out.getvalue())
+
+
+class OutcomeTest(RunnerTestCase):
+    def test_a_partial_outcome_is_recorded_and_its_entry_kept(self):
+        class Partial(Fake):
+            def plan(self, ctx, entry):
+                super().plan(ctx, entry)
+                return Plan(outcome="skipped: Tide not found", notes=["Open a new tab."])
+
+        self.assertEqual(runner.install(self.ctx(), [Partial("fish", self.log)]), 2)
+        self.assertEqual(self.state()["components"], {"fish": {"installed": "fish"}})
+        self.assertEqual(self.state()["last_install"]["results"], {"fish": "skipped: Tide not found"})
+        output = self.out.getvalue()
+        self.assertIn("0/1 components installed · skipped: fish (Tide not found)", output)
+        self.assertIn(runner.INSTALLED, output)
+        self.assertIn("Open a new tab.", output)
+
+    def test_nothing_applied_does_not_claim_an_install(self):
+        self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log, skip="no Windows Terminal")]), 2)
+        output = self.out.getvalue()
+        self.assertNotIn(runner.INSTALLED, output)
+        self.assertIn(runner.NOTHING_INSTALLED, output)
 
 
 class UninstallRaceTest(RunnerTestCase):
