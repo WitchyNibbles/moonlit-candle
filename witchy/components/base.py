@@ -109,14 +109,30 @@ def check_unchanged(changes: list[Change]) -> None:
             raise Abort(f"{change.path} changed while planning; nothing was written. Run the command again.")
 
 
+def _binary(data: bytes | None) -> bool:
+    if data is None:
+        return False
+    if b"\0" in data:
+        return True
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return True
+    return False
+
+
 def show_changes(ctx: Any, changes: list[Change]) -> None:
     for change in changes:
         if change.before == change.after:
             continue
+        binary = _binary(change.before) or _binary(change.after)
         if change.before is None:
-            ctx.say(f"create {change.path} ({len(change.after.splitlines())} lines)")
+            detail = f"binary, {len(change.after)} bytes" if binary else f"{len(change.after.splitlines())} lines"
+            ctx.say(f"create {change.path} ({detail})")
         elif change.after is None:
             ctx.say(f"remove {change.path}")
+        elif binary:
+            ctx.say(f"update {change.path} (binary, {len(change.before)} → {len(change.after)} bytes)")
         else:
             before = change.before.decode("utf-8", "replace").splitlines(keepends=True)
             after = change.after.decode("utf-8", "replace").splitlines(keepends=True)

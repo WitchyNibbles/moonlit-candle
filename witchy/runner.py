@@ -72,6 +72,9 @@ def install(ctx: Any, components: Sequence[Component] | None = None) -> int:
 def _install(ctx: Any, components: list) -> int:
     state = statefile.load(ctx.state_path)
     ctx.variant = ctx.variant or (state or {}).get("variant") or palette.DEFAULT_VARIANT
+    if ctx.variant not in palette.VARIANTS:
+        raise Abort(f"{ctx.state_path} names the unknown variant {ctx.variant!r}; "
+                    f"run: python3 -m witchy mood {palette.DEFAULT_VARIANT}")
     ctx.outputs = build.render_outputs(variant=ctx.variant)
     entries = (state or {}).get("components", {})
     plans = [(component, component.plan(ctx, entries.get(component.name))) for component in _selected(ctx, components)]
@@ -208,7 +211,8 @@ def mood(ctx: Any, variant: str | None, components: Sequence[Component] | None =
     active = (state or {}).get("variant") or palette.DEFAULT_VARIANT
     available = ", ".join(palette.VARIANTS)
     if variant is None:
-        ctx.say(f"active: {active}")
+        known = "" if active in palette.VARIANTS else f" (unknown; run: python3 -m witchy mood {palette.DEFAULT_VARIANT})"
+        ctx.say(f"active: {active}{known}")
         ctx.say(f"available: {available}")
         return 0
     if variant not in palette.VARIANTS:
@@ -217,5 +221,8 @@ def mood(ctx: Any, variant: str | None, components: Sequence[Component] | None =
     if state is not None and variant == active:
         ctx.say(f"already {variant}")
         return 0
+    if state is not None and state["components"] and not ctx.only:
+        # A variant switch repaints what is installed; it never brings back a component the user removed.
+        ctx.only = tuple(state["components"])
     ctx.variant = variant
     return install(ctx, components)

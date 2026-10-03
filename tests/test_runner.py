@@ -234,5 +234,43 @@ class MoodTest(RunnerTestCase):
         self.assertIn(("apply", "a"), self.log)
 
 
+class HardeningTest(RunnerTestCase):
+    def save_state(self, variant, components):
+        state.save(self.home / ".claude" / "witchy" / "state.json",
+                   dict(state.empty(variant), components=components))
+
+    def test_unknown_variant_in_state_aborts_install(self):
+        self.save_state("dawn", {"a": {}})
+        self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log)]), 1)
+        self.assertIn("unknown variant 'dawn'", self.out.getvalue())
+        self.assertIn("python3 -m witchy mood midnight", self.out.getvalue())
+        self.assertEqual(self.log, [])
+
+    def test_mood_flags_an_unknown_active_variant(self):
+        self.save_state("dawn", {})
+        self.assertEqual(runner.mood(self.ctx(), None, [Fake("a", self.log)]), 0)
+        self.assertIn("active: dawn (unknown; run: python3 -m witchy mood midnight)", self.out.getvalue())
+
+    def test_mood_midnight_repairs_an_unknown_variant(self):
+        self.save_state("dawn", {"a": {"installed": "a"}})
+        self.assertEqual(runner.mood(self.ctx(), "midnight", [Fake("a", self.log)]), 0)
+        self.assertEqual(self.state()["variant"], "midnight")
+
+    def test_mood_repaints_only_installed_components(self):
+        self.write_state({"a": {"installed": "a"}})
+        with mock.patch.dict(palette.VARIANTS, {"dawn": palette.VARIANTS["midnight"]}):
+            self.assertEqual(runner.mood(self.ctx(), "dawn", [Fake("a", self.log), Fake("b", self.log)]), 0)
+        self.assertIn(("apply", "a"), self.log)
+        self.assertNotIn(("plan", "b"), self.log)
+
+    def test_missing_runtime_dir_falls_back_to_the_temp_dir(self):
+        ctx = Context(home=self.home, env={"XDG_RUNTIME_DIR": str(self.root / "gone" / "run")}, out=io.StringIO())
+        self.assertEqual(ctx.lock_file.parent, Path(tempfile.gettempdir()))
+
+    def test_existing_runtime_dir_holds_the_lock(self):
+        ctx = Context(home=self.home, env={"XDG_RUNTIME_DIR": str(self.root)}, out=io.StringIO())
+        self.assertEqual(ctx.lock_file.parent, self.root)
+
+
 if __name__ == "__main__":
     unittest.main()

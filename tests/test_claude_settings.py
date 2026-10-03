@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from witchy import claude_settings
+from witchy import claude_settings, records
 
 ORIGINAL = {
     "env": {"A": "1"},
@@ -75,6 +75,30 @@ class ApplyRestoreTest(unittest.TestCase):
         self.assertEqual(restored["outputStyle"], "Concise")
         self.assertEqual(len(warnings), 1)
         self.assertIn("outputStyle", warnings[0])
+
+
+class EqualValueTest(unittest.TestCase):
+    def setUp(self):
+        self.desired = claude_settings.desired_keys(Path("/home/u"), "/usr/bin/python3", ["Brewing"])
+
+    def test_an_equal_value_keeps_its_member_order(self):
+        tips = self.desired["spinnerTipsOverride"]
+        reordered = dict(reversed(list(tips.items())))
+        result, recs = claude_settings.apply_keys({"spinnerTipsOverride": reordered}, self.desired, None)
+        self.assertEqual(list(result["spinnerTipsOverride"]), list(reordered))
+        self.assertEqual(recs["spinnerTipsOverride"]["previous"], {"value": reordered})
+
+    def test_restore_accepts_other_values_that_count_as_installed(self):
+        recs = {"backgroundImage": {"previous": {"absent": True}, "installed": "sky-1.png"}}
+        restored, warnings = records.restore_keys({"backgroundImage": "sky-3.png"}, recs,
+                                                  also_installed={"backgroundImage": ("sky-3.png",)})
+        self.assertEqual((restored, warnings), ({}, []))
+
+    def test_is_installed(self):
+        record = {"previous": {"absent": True}, "installed": "a"}
+        self.assertTrue(records.is_installed({"k": "a"}, "k", record))
+        self.assertTrue(records.is_installed({"k": "b"}, "k", record, also=("b",)))
+        self.assertFalse(records.is_installed({}, "k", record))
 
 
 if __name__ == "__main__":

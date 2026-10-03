@@ -41,7 +41,8 @@ class Context:
         # Outside HOME on purpose: uninstall must leave nothing behind in ~/.claude.
         if self.lock_path is not None:
             return self.lock_path
-        base = self.env.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+        runtime = self.env.get("XDG_RUNTIME_DIR")
+        base = runtime if runtime and Path(runtime).is_dir() else tempfile.gettempdir()
         return Path(base) / f"witchy-{os.getuid()}.lock"
 
     def say(self, message: str) -> None:
