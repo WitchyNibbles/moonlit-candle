@@ -1,0 +1,336 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "witchy installer: component architecture (proposed)",
+    "output": ".archify/architecture-witchy-components-20261002-004258/final/witchy-components.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "external",
+      "label": "python3 -m witchy",
+      "sublabel": "install \u00b7 uninstall \u00b7 doctor \u00b7 mood",
+      "pos": [
+        40,
+        290
+      ],
+      "size": [
+        170,
+        80
+      ]
+    },
+    {
+      "id": "palette",
+      "type": "database",
+      "label": "palette + content",
+      "sublabel": "VARIANTS[midnight] \u00b7 ritual.json",
+      "pos": [
+        290,
+        40
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "Runner",
+      "sublabel": "validate \u2192 plan all \u2192 apply",
+      "pos": [
+        290,
+        160
+      ],
+      "size": [
+        170,
+        340
+      ],
+      "tag": "dry-run stops after plan"
+    },
+    {
+      "id": "state",
+      "type": "database",
+      "label": "state.json v2",
+      "sublabel": "one entry per component",
+      "pos": [
+        290,
+        560
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "tag": "v1 migrated on load"
+    },
+    {
+      "id": "c-claude",
+      "type": "backend",
+      "label": "claude",
+      "sublabel": "files + settings keys",
+      "pos": [
+        560,
+        152
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "c-font",
+      "type": "backend",
+      "label": "font",
+      "sublabel": "Maple Mono NF",
+      "pos": [
+        560,
+        252
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "c-wt",
+      "type": "backend",
+      "label": "windows-terminal",
+      "sublabel": "scheme \u00b7 profile \u00b7 skies",
+      "pos": [
+        560,
+        352
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "c-fish",
+      "type": "backend",
+      "label": "fish",
+      "sublabel": "files \u00b7 Tide vars \u00b7 eza",
+      "pos": [
+        560,
+        452
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "claude-home",
+      "type": "database",
+      "label": "~/.claude",
+      "sublabel": "theme \u00b7 statusline \u00b7 ritual.py",
+      "pos": [
+        860,
+        152
+      ],
+      "size": [
+        170,
+        56
+      ]
+    },
+    {
+      "id": "fish-home",
+      "type": "database",
+      "label": "fish config",
+      "sublabel": "functions \u00b7 conf.d \u00b7 set -U",
+      "pos": [
+        860,
+        452
+      ],
+      "size": [
+        170,
+        56
+      ]
+    },
+    {
+      "id": "fonts-reg",
+      "type": "database",
+      "label": "Windows fonts",
+      "sublabel": "user Fonts dir + HKCU",
+      "pos": [
+        1120,
+        252
+      ],
+      "size": [
+        170,
+        56
+      ]
+    },
+    {
+      "id": "wt-settings",
+      "type": "database",
+      "label": "WT settings.json",
+      "sublabel": "Ubuntu profile \u00b7 LocalState PNGs",
+      "pos": [
+        1120,
+        352
+      ],
+      "size": [
+        190,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "WSL2 \u00b7 Ubuntu 24.04",
+      "wraps": [
+        "cli",
+        "palette",
+        "runner",
+        "state",
+        "c-claude",
+        "c-font",
+        "c-wt",
+        "c-fish",
+        "claude-home",
+        "fish-home"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Windows host",
+      "wraps": [
+        "fonts-reg",
+        "wt-settings"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "cli-runner",
+      "from": "cli",
+      "to": "runner",
+      "label": "verb",
+      "variant": "emphasis"
+    },
+    {
+      "id": "palette-runner",
+      "from": "palette",
+      "to": "runner",
+      "label": "build(variant)",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "runner-state",
+      "from": "runner",
+      "to": "state",
+      "label": "save after each",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "run-claude",
+      "from": "runner",
+      "to": "c-claude",
+      "label": "1"
+    },
+    {
+      "id": "run-font",
+      "from": "runner",
+      "to": "c-font",
+      "label": "2"
+    },
+    {
+      "id": "run-wt",
+      "from": "runner",
+      "to": "c-wt",
+      "label": "3"
+    },
+    {
+      "id": "run-fish",
+      "from": "runner",
+      "to": "c-fish",
+      "label": "4"
+    },
+    {
+      "id": "claude-write",
+      "from": "c-claude",
+      "to": "claude-home",
+      "label": "copy + merge"
+    },
+    {
+      "id": "font-write",
+      "from": "c-font",
+      "to": "fonts-reg",
+      "label": "download \u00b7 reg.exe"
+    },
+    {
+      "id": "font-gates-wt",
+      "from": "c-font",
+      "to": "c-wt",
+      "label": "font key only if registered",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "wt-write",
+      "from": "c-wt",
+      "to": "wt-settings",
+      "label": "scheme \u00b7 keys \u00b7 8 skies"
+    },
+    {
+      "id": "fish-write",
+      "from": "c-fish",
+      "to": "fish-home",
+      "label": "files \u00b7 set -U"
+    },
+    {
+      "id": "sky-swap",
+      "from": "fish-home",
+      "to": "wt-settings",
+      "label": "sky job swaps backgroundImage on phase change",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "Component contract",
+      "items": [
+        "plan(ctx, entry) \u2192 changes + new entry, or skip with reason",
+        "apply / restore / check(ctx, entry)",
+        "Every component reads colours from the active variant"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Failure isolation",
+      "items": [
+        "claude settings not plain JSON \u2192 abort before any write",
+        "font, windows-terminal, fish failures \u2192 warn, skip, continue",
+        "State saved after each component, so it always matches reality"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Second writer",
+      "items": [
+        "Background sky job (conf.d) rewrites only backgroundImage, about 8 times a month",
+        "flock shared with the installer; atomic write after a hash re-check",
+        "windows-terminal treats all 8 sky names as its own value"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Uninstall and doctor",
+      "items": [
+        "uninstall runs restore in reverse order: 4 \u2192 1",
+        "doctor runs check() on each and exits 1 on any failure",
+        "--only <component> limits install or uninstall to named components"
+      ]
+    }
+  ]
+}

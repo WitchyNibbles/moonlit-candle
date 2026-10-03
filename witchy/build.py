@@ -11,6 +11,8 @@ from . import content, palette, validate
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 STATUSLINE_SOURCE = Path(__file__).resolve().parent / "statusline.py"
+RITUAL_SOURCE = Path(__file__).resolve().parent / "ritual"
+FISH_SOURCE = content.CONTENT_DIR / "fish"
 PALETTE_BLOCK = re.compile(r"(# BEGIN PALETTE\n)(.*?)(# END PALETTE\n)", re.DOTALL)
 
 THEME = "claude/themes/moonlit-candle.json"
@@ -27,6 +29,11 @@ def palette_block(colours: dict[str, str]) -> str:
 
 def statusline_source(colours: dict[str, str] = palette.STATUSLINE, source: Path = STATUSLINE_SOURCE) -> str:
     """The status line script with its PALETTE block rewritten from ``colours``."""
+    return with_palette(source, colours)
+
+
+def with_palette(source: Path, colours: dict[str, str]) -> str:
+    """``source`` with its one ``# BEGIN PALETTE`` block rewritten from ``colours``."""
     text = source.read_text(encoding="utf-8")
     rewritten, count = PALETTE_BLOCK.subn(lambda m: m.group(1) + palette_block(colours) + m.group(3), text)
     if count != 1:
@@ -34,18 +41,76 @@ def statusline_source(colours: dict[str, str] = palette.STATUSLINE, source: Path
     return rewritten
 
 
+def ritual_package(variant: str = palette.DEFAULT_VARIANT, content_dir: Path = content.CONTENT_DIR,
+                   source: Path = RITUAL_SOURCE) -> dict[str, bytes]:
+    """The greeting package as installed: its modules, palette.py from ``variant``, and data.json from content/."""
+    files = {}
+    for module in sorted(source.glob("*.py")):
+        text = (with_palette(module, palette.VARIANTS[variant].ritual) if module.name == "palette.py"
+                else module.read_text(encoding="utf-8"))
+        files[module.name] = text.encode("utf-8")
+    files["data.json"] = (content_dir / content.RITUAL).read_bytes()
+    return files
+
+
+# Each eza colour role and the EZA_COLORS codes it sets (eza's colour codes: di directories, ex executables,
+# ln symlinks, sn/sb size number/unit, da date, ga/gm/gv/gt/gd git new/modified/renamed/typechange/deleted).
+EZA_CODES = {
+    "directory": ("di",),
+    "executable": ("ex",),
+    "symlink": ("ln",),
+    "size": ("sn", "sb"),
+    "date": ("da",),
+    "git_new": ("ga",),
+    "git_modified": ("gm",),
+    "git_renamed": ("gv",),
+    "git_typechange": ("gt",),
+    "git_deleted": ("gd",),
+}
+
+
+def eza_colors(colours: dict[str, str]) -> str:
+    """EZA_COLORS for ``colours``, in 24-bit colour: ``di=38;2;185;154;255:ex=…``."""
+    parts = []
+    for role, codes in EZA_CODES.items():
+        red, green, blue = (int(colours[role][i:i + 2], 16) for i in (1, 3, 5))
+        parts += [f"{code}=38;2;{red};{green};{blue}" for code in codes]
+    return ":".join(parts)
+
+
+def fish_quote(text: str) -> str:
+    """``text`` as one fish word: single quotes, with backslashes and single quotes escaped."""
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def fish_files(python: str, witchy_dir: Path, variant: str = palette.DEFAULT_VARIANT,
+               source: Path = FISH_SOURCE) -> dict[str, bytes]:
+    """The fish functions and conf.d snippet as installed, keyed by their path inside the fish config folder."""
+    values = {"@PYTHON@": fish_quote(python), "@WITCHY_DIR@": fish_quote(str(witchy_dir)),
+              "@EZA_COLORS@": fish_quote(eza_colors(palette.VARIANTS[variant].eza))}
+    files = {}
+    for path in sorted(source.rglob("*.fish")):
+        text = path.read_text(encoding="utf-8")
+        for placeholder, value in values.items():
+            text = text.replace(placeholder, value)
+        files[path.relative_to(source).as_posix()] = text.encode("utf-8")
+    return files
+
+
 def _json(data: Any) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def render_outputs(content_dir: Path = content.CONTENT_DIR) -> dict[str, str]:
+def render_outputs(content_dir: Path = content.CONTENT_DIR,
+                   variant: str = palette.DEFAULT_VARIANT) -> dict[str, str]:
+    colours = palette.VARIANTS[variant]
     spinner = content.load_spinner(content_dir)
     return {
-        THEME: _json({"name": palette.THEME_NAME, "base": "dark", "overrides": palette.CLAUDE_OVERRIDES}),
+        THEME: _json({"name": palette.THEME_NAME, "base": colours.claude_base, "overrides": colours.claude_overrides}),
         OUTPUT_STYLE: content.read_output_style(content_dir),
-        STATUSLINE: statusline_source(),
+        STATUSLINE: statusline_source(colours.statusline),
         TIPS: _json({"tips": spinner["tips"]}),
-        WT_SCHEME: _json(palette.WT_SCHEME),
+        WT_SCHEME: _json(colours.wt_scheme),
     }
 
 

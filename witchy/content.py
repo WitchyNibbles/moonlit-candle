@@ -1,4 +1,4 @@
-"""Hand-written content: spinner verbs and tips, and the output style."""
+"""Hand-written content: spinner verbs and tips, the output style, and the greeting's texts."""
 from __future__ import annotations
 
 import json
@@ -8,12 +8,20 @@ from typing import Any
 CONTENT_DIR = Path(__file__).resolve().parent.parent / "content"
 SPINNER = "spinner.json"
 OUTPUT_STYLE = "output-style.md"
+RITUAL = "ritual.json"
 
 
 def load_spinner(content_dir: Path = CONTENT_DIR) -> dict[str, Any]:
     data = json.loads((content_dir / SPINNER).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"{SPINNER} must hold a JSON object")
+    return data
+
+
+def load_ritual(content_dir: Path = CONTENT_DIR) -> dict[str, Any]:
+    data = json.loads((content_dir / RITUAL).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{RITUAL} must hold a JSON object")
     return data
 
 

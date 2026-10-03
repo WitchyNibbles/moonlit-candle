@@ -1,0 +1,42 @@
+{
+  "name": "eimi",
+  "sabbats": {
+    "Imbolc": "the first light returns; kindle a flame",
+    "Ostara": "day and night in balance; plant a seed",
+    "Beltane": "fire and blossom; let joy run wild",
+    "Litha": "the longest day; stand in your power",
+    "Lughnasadh": "the first harvest; give thanks for bread",
+    "Mabon": "the second harvest; share what you reaped",
+    "Samhain": "the veil is thin tonight",
+    "Yule": "the sun is reborn; light a candle"
+  },
+  "lunar": {
+    "new": "set your intentions",
+    "full": "charge your crystals",
+    "blue": "a rare moon; make a bold wish"
+  },
+  "tarot": [
+    {"number": 0, "name": "The Fool", "upright": "new beginnings, a leap of faith", "reversed": "recklessness; look before you leap"},
+    {"number": 1, "name": "The Magician", "upright": "skill and will; you have the tools", "reversed": "scattered focus, tricks and half-truths"},
+    {"number": 2, "name": "The High Priestess", "upright": "intuition; listen to the quiet voice", "reversed": "secrets kept, the inner voice ignored"},
+    {"number": 3, "name": "The Empress", "upright": "abundance; tend what you are growing", "reversed": "a creative block; care for yourself first"},
+    {"number": 4, "name": "The Emperor", "upright": "structure and steady authority", "reversed": "rigid control; loosen your grip"},
+    {"number": 5, "name": "The Hierophant", "upright": "tradition and shared wisdom", "reversed": "question the rules you inherited"},
+    {"number": 6, "name": "The Lovers", "upright": "a true choice; align heart and values", "reversed": "imbalance; a choice put off too long"},
+    {"number": 7, "name": "The Chariot", "upright": "willpower; steer straight ahead", "reversed": "pulled in two directions at once"},
+    {"number": 8, "name": "Strength", "upright": "quiet courage and patience", "reversed": "self-doubt; be gentle with yourself"},
+    {"number": 9, "name": "The Hermit", "upright": "solitude and inner guidance", "reversed": "isolation; time to come back out"},
+    {"number": 10, "name": "Wheel of Fortune", "upright": "the wheel turns; ride the change", "reversed": "a bad spin; it will turn again"},
+    {"number": 11, "name": "Justice", "upright": "fairness, truth, cause and effect", "reversed": "an imbalance that needs owning"},
+    {"number": 12, "name": "The Hanged Man", "upright": "pause and see it from another side", "reversed": "stalling; stop waiting to be saved"},
+    {"number": 13, "name": "Death", "upright": "an ending that clears the way", "reversed": "clinging to what is already over"},
+    {"number": 14, "name": "Temperance", "upright": "balance, patience, the middle way", "reversed": "excess; find your measure again"},
+    {"number": 15, "name": "The Devil", "upright": "a binding habit; name the chain", "reversed": "breaking free, one link at a time"},
+    {"number": 16, "name": "The Tower", "upright": "sudden upheaval; the truth breaks through", "reversed": "a collapse delayed, not avoided"},
+    {"number": 17, "name": "The Star", "upright": "hope and renewal after the storm", "reversed": "despair, lost faith; rest and wait"},
+    {"number": 18, "name": "The Moon", "upright": "illusion and dreams; trust your gut", "reversed": "the fog lifts; fears fade"},
+    {"number": 19, "name": "The Sun", "upright": "joy, warmth, a clear success", "reversed": "a cloudy day; joy delayed, not denied"},
+    {"number": 20, "name": "Judgement", "upright": "a calling; rise and answer it", "reversed": "self-doubt drowns out the call"},
+    {"number": 21, "name": "The World", "upright": "completion; a cycle closes well", "reversed": "loose ends before the finish"}
+  ]
+}

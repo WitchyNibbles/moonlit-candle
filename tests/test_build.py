@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from witchy import build, content, palette
 
@@ -61,6 +62,22 @@ class BuildTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(build.build(dist=Path(tmp)), [])
             self.assertTrue((Path(tmp) / build.THEME).is_file())
+
+
+class VariantBuildTest(unittest.TestCase):
+    def test_default_variant_is_midnight(self):
+        self.assertEqual(build.render_outputs(variant="midnight"), build.render_outputs())
+
+    def test_render_uses_the_variant_colours(self):
+        midnight = palette.VARIANTS["midnight"]
+        dawn = palette.Variant("dawn", "light", midnight.background, midnight.foreground,
+                               dict(midnight.claude_overrides, claude="#AA5500"), midnight.wt_scheme,
+                               midnight.statusline)
+        with mock.patch.dict(palette.VARIANTS, {"dawn": dawn}):
+            theme = json.loads(build.render_outputs(variant="dawn")[build.THEME])
+        self.assertEqual(theme["base"], "light")
+        self.assertEqual(theme["overrides"]["claude"], "#AA5500")
+        self.assertEqual(theme["name"], palette.THEME_NAME)
 
 
 if __name__ == "__main__":

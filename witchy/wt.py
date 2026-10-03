@@ -7,34 +7,39 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .records import put_back, snapshot
+from . import windows
+from .records import apply_keys, is_installed, put_back, restore_keys, snapshot
+from .ritual.moon import BINS
 
 PACKAGE = "Microsoft.WindowsTerminal_8wekyb3d8bbwe"
 USERS_ROOT = Path("/mnt/c/Users")
 
 
 def windows_username(run: Callable[..., Any] = subprocess.run) -> str | None:
-    """The Windows user of this WSL session. Several users can have Windows Terminal installed."""
-    try:
-        # cwd=/mnt/c keeps cmd.exe from warning about a UNC working directory. cmd.exe answers in the OEM code
-        # page, so a name like "José" is not valid UTF-8: replace instead of raising, the mangled name then
-        # fails the is_file() check in locate_settings.
-        done = run(["cmd.exe", "/c", "echo %USERNAME%"], capture_output=True, text=True, errors="replace",
-                   timeout=5, cwd="/mnt/c")
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return None
-    name = (done.stdout or "").strip()
-    return name if done.returncode == 0 and name and "%" not in name else None
+    """The Windows account name of this WSL session. Several users can have Windows Terminal installed."""
+    return windows.echo("USERNAME", run)
+
+
+def settings_path_in(user_home: Path) -> Path:
+    return user_home / "AppData" / "Local" / "Packages" / PACKAGE / "LocalState" / "settings.json"
 
 
 def settings_path_for(user: str, users_root: Path = USERS_ROOT) -> Path:
-    return users_root / user / "AppData" / "Local" / "Packages" / PACKAGE / "LocalState" / "settings.json"
+    return settings_path_in(users_root / user)
 
 
 def locate_settings(explicit: Path | None, run: Callable[..., Any] = subprocess.run,
-                    users_root: Path = USERS_ROOT) -> Path | None:
+                    users_root: Path = USERS_ROOT, recorded: str | None = None,
+                    mount_root: Path = windows.MOUNT_ROOT) -> Path | None:
+    """--wt-settings, else the path recorded at the last install, else the %USERPROFILE% folder,
+    else C:\\Users\\%USERNAME% (the account name and the folder name differ after a rename)."""
     if explicit is not None:
         return explicit if explicit.is_file() else None
+    if recorded and Path(recorded).is_file():
+        return Path(recorded)
+    home = windows.user_home(run, mount_root)
+    if home is not None and settings_path_in(home.wsl).is_file():
+        return settings_path_in(home.wsl)
     user = windows_username(run)
     if not user:
         return None
@@ -60,8 +65,21 @@ def _profile(data: Any, guid: str) -> dict | None:
     return None
 
 
+WSL_SOURCES = ("Microsoft.WSL", "Windows.Terminal.Wsl")
+
+
+def _is_wsl(profile: dict) -> bool:
+    source = str(profile.get("source", ""))
+    return source in WSL_SOURCES or source.startswith("CanonicalGroupLimited.")
+
+
+def profile(data: Any, guid: str) -> dict | None:
+    """The profile with this GUID (case-insensitive), or None."""
+    return _profile(data, guid)
+
+
 def find_profile(data: Any, env: Mapping[str, str]) -> tuple[str | None, str | None]:
-    """The profile to theme: WT_PROFILE_ID if it exists, else the one WSL profile named after the distro."""
+    """The profile to theme: WT_PROFILE_ID if it exists, else the one visible WSL profile named after the distro."""
     profiles = _profiles(data)
     if profiles is None:
         return None, "profiles list not found in Windows Terminal settings"
@@ -71,8 +89,8 @@ def find_profile(data: Any, env: Mapping[str, str]) -> tuple[str | None, str | N
         if profile is not None:
             return profile["guid"], None
     distro = env.get("WSL_DISTRO_NAME", "")
-    matches = [p for p in profiles if isinstance(p, dict) and distro
-               and p.get("source") == "Microsoft.WSL" and p.get("name") == distro]
+    matches = [p for p in profiles if isinstance(p, dict) and distro and p.get("hidden") is not True
+               and _is_wsl(p) and p.get("name") == distro]
     if len(matches) == 1:
         return matches[0]["guid"], None
     return None, (f"no profile matches WT_PROFILE_ID={wanted or 'unset'} and found {len(matches)} "
@@ -116,7 +134,7 @@ def apply_scheme(data: dict, scheme: dict, guid: str, recorded: dict | None) -> 
     record["installed_color_scheme"] = scheme["name"]
     if index is None:
         schemes.append(copy.deepcopy(scheme))
-    else:
+    elif schemes[index] != scheme:  # an equal scheme is left alone: no member-reorder rewrite
         schemes[index] = copy.deepcopy(scheme)
     profile["colorScheme"] = scheme["name"]
     return result, record
@@ -159,3 +177,40 @@ def manual_snippet(scheme: dict, guid: str) -> str:
         f'Then, in the profile with "guid": "{guid}", set:\n'
         f'    "colorScheme": "{scheme["name"]}"'
     )
+
+
+def sky_file(bin_: int) -> str:
+    return f"moonlit-candle-sky-{bin_}.png"
+
+
+SKY_VALUES = tuple(f"ms-appdata:///local/{sky_file(bin_)}" for bin_ in range(BINS))
+# Values that still count as witchy's own: the sky job (Plan C) moves backgroundImage between the eight images.
+ALSO_INSTALLED = {"backgroundImage": SKY_VALUES}
+
+
+def holds_installed(profile: dict, key: str, record: dict) -> bool:
+    return is_installed(profile, key, record, ALSO_INSTALLED.get(key, ()))
+
+
+def apply_profile_keys(data: dict, guid: str, desired: dict, recorded: dict | None) -> tuple[dict, dict]:
+    """Set ``desired`` on one profile, recording what each key held before (the first install's value wins)."""
+    result = copy.deepcopy(data)
+    profile = _profile(result, guid)
+    if profile is None:
+        raise ValueError(f"profile {guid} not found")
+    updated, records = apply_keys(profile, desired, recorded)
+    profile.clear()
+    profile.update(updated)
+    return result, records
+
+
+def restore_profile_keys(data: dict, guid: str, recorded: dict) -> tuple[dict, list[str]]:
+    """Undo apply_profile_keys, leaving alone whatever the user changed since."""
+    result = copy.deepcopy(data)
+    profile = _profile(result, guid)
+    if profile is None or not recorded:
+        return result, []  # restore_scheme already says when the profile is gone
+    restored, warnings = restore_keys(profile, recorded, ALSO_INSTALLED)
+    profile.clear()
+    profile.update(restored)
+    return result, [f"Windows Terminal: {warning}" for warning in warnings]

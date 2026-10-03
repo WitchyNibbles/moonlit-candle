@@ -6,6 +6,9 @@ and the status line palette; validate.py holds all of it to the contrast rules.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from typing import Any
+
 THEME_NAME = "Moonlit Candle"
 THEME_SLUG = "moonlit-candle"
 BACKGROUND = "#0D0916"
@@ -122,4 +125,136 @@ STATUSLINE: dict[str, str] = {
     "left_high": "#FFD477",
     "left_mid": "#B99AFF",
     "left_low": "#FF67B7",
+}
+
+# The Windows Terminal sky (sky_render.py). Decorative, so exempt from the contrast rules (spec 11.2).
+SKY: dict[str, str] = {
+    "background": BACKGROUND,
+    "moon": "#FFD477",
+    "moon_dark": "#1D1230",
+    "moon_rim": "#38234D",
+    "star": FOREGROUND,
+    "star_gold": "#FFD477",
+    "star_violet": "#B99AFF",
+}
+
+
+# The greeting (witchy/ritual/palette.py, spec 6.4-6.6). Text and the sabbat accents must read at 4.5:1;
+# the moon art (lit, lit_mid, lit_soft, earthshine) and the stars are decorative (spec 11.2).
+# Order matters: build.py writes this dict into the ritual's PALETTE block verbatim.
+RITUAL: dict[str, str] = {
+    "salutation": "#FFD477",
+    "label": "#A99AB9",
+    "value": FOREGROUND,
+    "moon": "#B99AFF",
+    "tarot": "#FF67B7",
+    "muted": "#CFC3DB",
+    "lit": "#FFD477",
+    "lit_mid": "#FFDB8D",
+    "lit_soft": "#FFE3A3",
+    "earthshine": "#38234D",
+    "star": FOREGROUND,
+    "star_violet": "#B99AFF",
+    "imbolc": "#F3EAF7",
+    "ostara": "#74E8B8",
+    "beltane": "#FF67B7",
+    "litha": "#FFD477",
+    "lughnasadh": "#FFB86B",
+    "mabon": "#FFB86B",
+    "samhain": "#FFB86B",
+    "yule": "#E6DCEE",
+}
+RITUAL_DECORATIVE = ("lit", "lit_mid", "lit_soft", "earthshine", "star", "star_violet")
+
+# Windows Terminal profile settings (spec 4.2). backgroundImage is chosen at install time from the moon phase.
+WT_PROFILE: dict[str, Any] = {
+    "font": {"face": "Maple Mono NF", "size": 12, "cellHeight": "1.1"},
+    "cursorShape": "filledBox",
+    "padding": "14",
+    "opacity": 93,
+    "useAcrylic": True,
+    "backgroundImageOpacity": 0.12,
+    "backgroundImageAlignment": "bottomRight",
+    "backgroundImageStretchMode": "uniformToFill",
+    "icon": "\U0001F319",
+    "tabTitle": "witchyterm",
+    "suppressApplicationTitle": True,
+}
+
+
+# The Tide prompt (spec 5.2): fish universal variables. Colours are written without "#"; item lists are tuples
+# (fish lists). Text on each segment reads at 4.5:1 on its background (spec 11.3).
+TIDE: dict[str, str | tuple[str, ...]] = {
+    "tide_left_prompt_items": ("moon", "pwd", "git", "newline", "character"),
+    "tide_right_prompt_items": ("status", "cmd_duration", "time"),
+    "tide_moon_bg_color": "1D1230",
+    "tide_moon_color": "FFD477",
+    "tide_pwd_bg_color": "B99AFF",
+    "tide_pwd_color_anchors": "0D0916",
+    "tide_pwd_color_dirs": "1D1230",
+    "tide_pwd_color_truncated_dirs": "38234D",
+    "tide_git_bg_color": "FFD477",
+    "tide_git_bg_color_unstable": "FFB86B",
+    "tide_git_bg_color_urgent": "FF6B9F",
+    "tide_git_color_branch": "0D0916",
+    "tide_git_color_conflicted": "0D0916",
+    "tide_git_color_dirty": "0D0916",
+    "tide_git_color_operation": "0D0916",
+    "tide_git_color_staged": "0D0916",
+    "tide_git_color_stash": "0D0916",
+    "tide_git_color_untracked": "0D0916",
+    "tide_git_color_upstream": "0D0916",
+    "tide_character_color": "FF67B7",
+    "tide_character_color_failure": "FF6B9F",
+    "tide_prompt_color_frame_and_connection": "6E5A80",
+    "tide_prompt_color_separator_same_color": "A99AB9",
+    "tide_status_bg_color": "1D1230",
+    "tide_status_color": "74E8B8",
+    "tide_status_bg_color_failure": "1D1230",
+    "tide_status_color_failure": "FF6B9F",
+    "tide_cmd_duration_bg_color": "1D1230",
+    "tide_cmd_duration_color": "A99AB9",
+    "tide_cmd_duration_threshold": "3000",
+    "tide_time_bg_color": "1D1230",
+    "tide_time_color": "A99AB9",
+}
+
+# eza (spec 7): build.eza_colors turns these into EZA_COLORS. Git status uses Tide's three git colours.
+EZA: dict[str, str] = {
+    "directory": "#B99AFF",
+    "executable": "#74E8B8",
+    "symlink": "#77D9FF",
+    "size": "#A99AB9",
+    "date": "#A99AB9",
+    "git_new": "#FFD477",
+    "git_modified": "#FFB86B",
+    "git_renamed": "#FFB86B",
+    "git_typechange": "#FFB86B",
+    "git_deleted": "#FF6B9F",
+}
+
+
+@dataclass(frozen=True)
+class Variant:
+    """One complete colour set. Variants change colours only: theme name, scheme name and
+    installed paths stay the same, so switching never has to move files."""
+
+    name: str
+    claude_base: str
+    background: str
+    foreground: str
+    claude_overrides: dict[str, str]
+    wt_scheme: dict[str, str]
+    statusline: dict[str, str]
+    sky: dict[str, str] = field(default_factory=dict)
+    wt_profile: dict[str, Any] = field(default_factory=dict)
+    ritual: dict[str, str] = field(default_factory=dict)
+    tide: dict[str, str | tuple[str, ...]] = field(default_factory=dict)
+    eza: dict[str, str] = field(default_factory=dict)
+
+
+DEFAULT_VARIANT = "midnight"
+VARIANTS: dict[str, Variant] = {
+    "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE,
+                        sky=SKY, wt_profile=WT_PROFILE, ritual=RITUAL, tide=TIDE, eza=EZA),
 }

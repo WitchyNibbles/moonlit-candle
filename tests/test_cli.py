@@ -35,10 +35,10 @@ class CliTest(unittest.TestCase):
             home.mkdir()
             wt_file.write_text(json.dumps({"profiles": {"list": [
                 {"guid": UBUNTU, "name": "Ubuntu", "source": "Microsoft.WSL"}]}}, indent=4) + "\n")
-            env = {"HOME": str(home), "WT_PROFILE_ID": UBUNTU}
+            env = {"HOME": str(home), "WT_PROFILE_ID": UBUNTU, "XDG_RUNTIME_DIR": tmp}
             with mock.patch.dict(os.environ, env), mock.patch.object(build, "DIST", Path(tmp) / "dist"), \
                     contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(main(["install", "--wt-settings", str(wt_file)]), 0)
+                self.assertEqual(main(["install", "--wt-settings", str(wt_file), "--only", "claude", "--only", "windows-terminal"]), 0)
                 self.assertTrue((home / ".claude" / "themes" / "moonlit-candle.json").is_file())
                 self.assertEqual(main(["uninstall"]), 0)
             self.assertFalse((home / ".claude" / "themes" / "moonlit-candle.json").exists())
@@ -54,6 +54,26 @@ class CliTest(unittest.TestCase):
             main(["--help"])
         for command in ("validate", "build", "install", "uninstall"):
             self.assertIn(command, out.getvalue())
+
+    def test_help_lists_new_commands(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            main(["--help"])
+        for command in ("doctor", "mood"):
+            self.assertIn(command, out.getvalue())
+
+    def test_only_rejects_unknown_components(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            main(["install", "--only", "nope"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_doctor_and_mood_run_on_an_empty_home(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"HOME": tmp}), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(["doctor"]), 0)
+            self.assertEqual(main(["mood"]), 0)
+        self.assertIn("not installed", out.getvalue())
+        self.assertIn("active: midnight", out.getvalue())
 
 
 if __name__ == "__main__":
