@@ -240,7 +240,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 | `fetch.py` | system lines |
 | `layout.py` | side-by-side, stacked and omen layouts; glyph width table; `NO_COLOR` |
 | `sky.py` | the sky job (4.5) |
-| `log.py` | `~/.cache/witchy/ritual.log`, trimmed to the last 20 lines |
+| `log.py` | `~/.cache/witchy/ritual.log`, trimmed to the last 20 lines, each message cut to 300 characters; writers take `ritual.log.lock` in turn and replace the file atomically |
 | `palette.py` | colours; `build` rewrites its `# BEGIN PALETTE` block from the active variant |
 | `data.json` | copied from `content/ritual.json` |
 | `cli.py` | the greeting itself; `__main__.py` only finds it, in the repository or the installed copy |
