@@ -131,9 +131,26 @@ class AutoModeTest(CliTestCase):
         self.assertEqual(len(self.run_cli(columns=59).splitlines()), 2)
         self.assertFalse(self.stamp.exists())
 
+    def test_a_date_preview_leaves_no_stamp(self):
+        self.run_cli(["--full", "--date", "2026-12-24"])
+        self.assertFalse(self.stamp.exists())
+
+    def test_a_stamp_from_the_future_is_stale(self):
+        self.run_cli()
+        future = SAMHAIN_NIGHT.timestamp() + 86400
+        os.utime(self.stamp, (future, future))
+        self.assertIn("Good evening, eimi", self.run_cli())
+
     def test_explicit_full_ignores_the_stamp(self):
         self.run_cli()
         self.assertIn("Good evening, eimi", self.run_cli(["--full"]))
+
+
+class EntryPointTest(unittest.TestCase):
+    def test_ctrl_c_handler_is_installed_before_the_import(self):
+        lines = (Path(cli.__file__).parent / "__main__.py").read_text(encoding="utf-8").splitlines()
+        handler = next(i for i, line in enumerate(lines) if line.startswith("signal.signal(signal.SIGINT, signal.SIG_DFL)"))
+        self.assertLess(handler, next(i for i, line in enumerate(lines) if "from .cli import main" in line))
 
 
 class FailureTest(CliTestCase):

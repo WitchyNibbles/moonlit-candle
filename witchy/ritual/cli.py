@@ -105,7 +105,7 @@ def full_ritual(now: datetime, data: dict, fetched: list[tuple[str, str]], colum
 
 def _auto(stamp: Path, now: datetime, columns: int) -> str:
     try:
-        recent = now.timestamp() - stamp.stat().st_mtime < FULL_EVERY
+        recent = 0 <= now.timestamp() - stamp.stat().st_mtime < FULL_EVERY  # a future stamp is stale
     except OSError:
         recent = False
     return "full" if not recent and columns >= MIN_FULL_COLUMNS else "omen"
@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
             stages = [f"{name} {(end - start) * 1000:.1f} ms" for (_, start), (name, end) in zip(marks, marks[1:])]
             text += "debug: " + " · ".join(stages) + f" · total {(marks[-1][1] - marks[0][1]) * 1000:.1f} ms\n"
         out.write(text)
-        if mode == "full":
+        if mode == "full" and not args.date:  # a preview must not silence the real greeting
             _stamp(cache / STAMP, now)
     except Exception as exc:  # the greeting must never break a shell: log and stay silent
         log.append(cache / log.NAME, f"greeting: {exc!r}", datetime.now())
