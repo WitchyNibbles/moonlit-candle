@@ -182,6 +182,58 @@ WT_PROFILE: dict[str, Any] = {
 }
 
 
+# The Tide prompt (spec 5.2): fish universal variables. Colours are written without "#"; item lists are tuples
+# (fish lists). Text on each segment reads at 4.5:1 on its background (spec 11.3).
+TIDE: dict[str, str | tuple[str, ...]] = {
+    "tide_left_prompt_items": ("moon", "pwd", "git", "newline", "character"),
+    "tide_right_prompt_items": ("status", "cmd_duration", "time"),
+    "tide_moon_bg_color": "1D1230",
+    "tide_moon_color": "FFD477",
+    "tide_pwd_bg_color": "B99AFF",
+    "tide_pwd_color_anchors": "0D0916",
+    "tide_pwd_color_dirs": "1D1230",
+    "tide_pwd_color_truncated_dirs": "38234D",
+    "tide_git_bg_color": "FFD477",
+    "tide_git_bg_color_unstable": "FFB86B",
+    "tide_git_bg_color_urgent": "FF6B9F",
+    "tide_git_color_branch": "0D0916",
+    "tide_git_color_conflicted": "0D0916",
+    "tide_git_color_dirty": "0D0916",
+    "tide_git_color_operation": "0D0916",
+    "tide_git_color_staged": "0D0916",
+    "tide_git_color_stash": "0D0916",
+    "tide_git_color_untracked": "0D0916",
+    "tide_git_color_upstream": "0D0916",
+    "tide_character_color": "FF67B7",
+    "tide_character_color_failure": "FF6B9F",
+    "tide_prompt_color_frame_and_connection": "6E5A80",
+    "tide_prompt_color_separator_same_color": "A99AB9",
+    "tide_status_bg_color": "1D1230",
+    "tide_status_color": "74E8B8",
+    "tide_status_bg_color_failure": "1D1230",
+    "tide_status_color_failure": "FF6B9F",
+    "tide_cmd_duration_bg_color": "1D1230",
+    "tide_cmd_duration_color": "A99AB9",
+    "tide_cmd_duration_threshold": "3000",
+    "tide_time_bg_color": "1D1230",
+    "tide_time_color": "A99AB9",
+}
+
+# eza (spec 7): build.eza_colors turns these into EZA_COLORS. Git status uses Tide's three git colours.
+EZA: dict[str, str] = {
+    "directory": "#B99AFF",
+    "executable": "#74E8B8",
+    "symlink": "#77D9FF",
+    "size": "#A99AB9",
+    "date": "#A99AB9",
+    "git_new": "#FFD477",
+    "git_modified": "#FFB86B",
+    "git_renamed": "#FFB86B",
+    "git_typechange": "#FFB86B",
+    "git_deleted": "#FF6B9F",
+}
+
+
 @dataclass(frozen=True)
 class Variant:
     """One complete colour set. Variants change colours only: theme name, scheme name and
@@ -197,10 +249,12 @@ class Variant:
     sky: dict[str, str] = field(default_factory=dict)
     wt_profile: dict[str, Any] = field(default_factory=dict)
     ritual: dict[str, str] = field(default_factory=dict)
+    tide: dict[str, str | tuple[str, ...]] = field(default_factory=dict)
+    eza: dict[str, str] = field(default_factory=dict)
 
 
 DEFAULT_VARIANT = "midnight"
 VARIANTS: dict[str, Variant] = {
     "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE,
-                        sky=SKY, wt_profile=WT_PROFILE, ritual=RITUAL),
+                        sky=SKY, wt_profile=WT_PROFILE, ritual=RITUAL, tide=TIDE, eza=EZA),
 }
