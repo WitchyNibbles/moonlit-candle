@@ -1,33 +1,55 @@
 # Moonlit Candle
 
-Tema para Claude Code inspirado en [WitchyNibbles/Spellbound-Themes](https://github.com/WitchyNibbles/Spellbound-Themes): fondo berenjena de Moonlit, acento oro de vela y rosa para los permisos.
+A witchy theme for Claude Code and Windows Terminal on WSL, inspired by [WitchyNibbles/Spellbound-Themes](https://github.com/WitchyNibbles/Spellbound-Themes): an aubergine night background, candle-gold accents, and pink for permissions.
 
-Incluye:
+It installs:
 
-- Tema `moonlit-candle` para Claude Code (`~/.claude/themes/`)
-- Esquema "Moonlit Candle" para el perfil WSL de Windows Terminal
-- Verbos y tips del spinner (`spinnerVerbs`, `spinnerTipsOverride`)
-- Output style "WitchyNibbles", que solo cambia el tono de las respuestas en el chat
-- Status line con fases lunares según el contexto usado, límites de 5 h / 7 d y git
+- The `moonlit-candle` Claude Code theme (`~/.claude/themes/`)
+- The "Moonlit Candle" colour scheme on your WSL profile in Windows Terminal
+- Spinner verbs and tips (`spinnerVerbs`, `spinnerTipsOverride`)
+- The "WitchyNibbles" output style, which only changes the tone of chat replies
+- A status line with moon phases for context used, 5 h / 7 d limits, and git
 
-## Uso
+## Usage
 
 ```sh
-/usr/bin/python3 -m witchy validate           # contraste, tokens y contenido
-/usr/bin/python3 -m witchy install --dry-run  # muestra los cambios sin escribir
-/usr/bin/python3 -m witchy install
-/usr/bin/python3 -m witchy uninstall
+/usr/bin/python3 -m witchy validate                      # contrast, tokens and content
+/usr/bin/python3 -m witchy install --dry-run             # show every change without writing
+/usr/bin/python3 -m witchy install                       # install everything
+/usr/bin/python3 -m witchy install --only claude         # re-apply one component
+/usr/bin/python3 -m witchy doctor                        # check what is installed and how to fix it
+/usr/bin/python3 -m witchy mood                          # show the active colour variant
+/usr/bin/python3 -m witchy uninstall                     # give everything back
 ```
 
-`install` hace una copia `*.bak-witchy-<fecha>` de cada fichero que modifica y guarda los valores anteriores en `~/.claude/witchy/state.json`. `uninstall` los restaura. Un `settings.json` que no sea JSON estricto (comentarios, comas finales) nunca se reescribe. En el de Windows Terminal se muestra el fragmento para añadirlo a mano y el resto de la instalación sigue; en `~/.claude/settings.json` la instalación se aborta sin cambiar nada.
+Components, in install order: `claude`, `windows-terminal`.
 
-Después de instalar, reinicia Claude Code.
+`install` backs up every file it changes as `*.bak-witchy-<date>` and records the previous values in `~/.claude/witchy/state.json`; `uninstall` restores them. A `settings.json` that is not strict JSON (comments, trailing commas) is never rewritten: for Windows Terminal you get a snippet to paste by hand and the rest continues; for `~/.claude/settings.json` the install stops without changing anything.
 
-## Desarrollo
+Exit codes for `install` and `uninstall`: `0` everything done, `1` nothing changed, `2` done with warnings (a component was skipped or failed; the last line says which).
+
+Restart Claude Code after installing.
+
+## Troubleshooting
+
+Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by the command that fixes it.
+
+| Doctor says | Meaning | Fix |
+| :- | :- | :- |
+| `✗ claude  changed or missing: …` | an installed file was edited or deleted | `python3 -m witchy install --only claude` |
+| `✗ claude  settings changed: theme, …` | a settings key no longer holds the witchy value | same as above, or keep your change |
+| `✗ windows-terminal  profile colour scheme is …` | the profile uses another scheme | `python3 -m witchy install --only windows-terminal` |
+| `⚠ windows-terminal  not installed` | Windows Terminal was not found or the profile did not match | set `WT_PROFILE_ID` or pass `--wt-settings PATH`, then install |
+| `⚠ …  backup … is missing` | a backup was deleted | uninstall still works, key by key |
+| `⚠ …  last install (…): skipped: …` | a component was skipped at the last install | read the reason, then install `--only` that component |
+| `✗ state  … damaged` | `state.json` is not readable | fix or remove the file by hand |
+| `another witchy command is running` | a second command is still holding the lock | wait for it to finish |
+
+## Development
 
 ```sh
 /usr/bin/python3 -m unittest discover -s tests -t . -v
 /usr/bin/python3.10 -m unittest discover -s tests -t .
 ```
 
-Los colores están en `witchy/palette.py`. El diseño está en `docs/superpowers/specs/2026-09-30-moonlit-candle-design.md`.
+Colours live in `witchy/palette.py` (`VARIANTS`). Each installable piece is a component in `witchy/components/`. Designs: `docs/superpowers/specs/`. Architecture diagram: `docs/diagrams/witchy-components.html`.

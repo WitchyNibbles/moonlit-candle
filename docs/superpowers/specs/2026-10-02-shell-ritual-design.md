@@ -65,7 +65,7 @@ class Component(Protocol):
 
 ### 3.2 Runner (`witchy/runner.py`)
 
-1. Take `~/.claude/witchy/.lock` (`fcntl.flock`, non-blocking). Busy: print "another witchy command is running" and exit 1.
+1. Take `$XDG_RUNTIME_DIR/witchy-<uid>.lock` (system temp dir as fallback; outside HOME so uninstall leaves nothing behind) (`fcntl.flock`, non-blocking). Busy: print "another witchy command is running" and exit 1.
 2. Validate (section 11). Failure: exit 1, nothing written.
 3. Load state, migrating v1 (section 3.3).
 4. Plan every selected component in order: `claude`, `font`, `windows-terminal`, `fish`. `claude` aborting (its `settings.json` is not plain JSON) stops everything with exit 1, as today.
@@ -81,7 +81,7 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 {
   "version": 2,
   "variant": "midnight",
-  "last_install": { "at": "2026-10-02T21:14:03", "results": { "claude": "ok", "font": "skipped: offline" } },
+  "last_install": { "at": "20261002-211403", "results": { "claude": "ok", "font": "skipped: offline" } },
   "components": { "claude": {}, "font": {}, "windows-terminal": {}, "fish": {} }
 }
 ```
@@ -89,10 +89,13 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 - v1 migrates on load: `files` and `claude_settings` go to `components.claude`; `windows_terminal` goes to `components["windows-terminal"]`. Every recorded previous value is kept. The next write saves v2.
 - A component's entry is absent until it is installed. Reinstall keeps the first recorded previous values, as today.
 - `~/.claude/witchy/` is durable. `~/.cache/witchy/` (stamps, fail marker, log, font zip, sky render cache) is disposable at any time.
+- `last_install.at` is the run stamp used for backups.
 
 ### 3.4 Variants
 
 `palette.VARIANTS = {"midnight": Variant(...)}` holds every colour set: Claude overrides, Windows Terminal scheme, status line, Tide, ritual and sky. Components read the active variant from state (default `midnight`). Adding dawn later means adding one entry and passing validation.
+
+Variants change colours only; theme name, scheme name and installed paths stay the same.
 
 ### 3.5 Content changes
 
@@ -327,6 +330,7 @@ python3 -m witchy mood [VARIANT]
 - Existing commands and flags are unchanged.
 - `--only` accepts `claude`, `font`, `windows-terminal`, `fish` (repeatable). Components not named keep their state untouched.
 - Install and uninstall exit 0 (all ok), 1 (nothing changed: validation, lock, abort), 2 (done with warnings).
+- An uninstall whose restore cannot be written keeps that component in state and exits 2; running uninstall again retries it.
 - `doctor` prints one line per check, `✓`, `⚠` or `✗`, each `✗`/`⚠` with its fix (often `python3 -m witchy install --only <name>`). It uses the paths recorded in state (no `cmd.exe` lookup) and finishes under 2 s. Exit 1 on any `✗`, else 0. A `check()` that raises is reported as `✗` with the exception text.
 - Doctor checks: installed files match their recorded hashes; settings keys and profile keys hold installed values; the theme is active; the font is registered; the sky images and `ritual-config.json` exist; Tide variables match; eza is present; the backups state relies on still exist; the last `ritual.log` error; the sky fail marker; components skipped at the last install.
 - `mood` without an argument prints the active and available variants. With a variant it records it in state and re-runs install; an unknown variant exits 1 with `available: midnight`.
