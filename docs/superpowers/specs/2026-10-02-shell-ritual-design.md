@@ -171,8 +171,9 @@ On this machine step 2 selects `{51855cb2-8cce-5362-8f54-464b92b32386}`, the pro
 ### 4.5 Sky job
 
 - `conf.d/witchy.fish`, on interactive shells with `WT_SESSION` set and `~/.claude/witchy/ritual-config.json` present, computes the phase bin with `_witchy_moon_bin` and compares it with `~/.cache/witchy/sky-bin`.
-- Equal, or a fail marker for today exists: do nothing. Different: start `@PYTHON@ -I @WITCHY_DIR@/ritual --sky` in the background (`&; disown`), silently.
+- Equal, or a fail marker for today exists: do nothing. Different: start `@PYTHON@ -I -B @WITCHY_DIR@/ritual --sky` in the background (`&; disown`), silently.
 - The job takes the lock, reads `settings.json` strictly, and finds the profile from `ritual-config.json`. If the profile's `backgroundImage` is not one of the 8 sky values (the user changed it), it does nothing and logs once. Otherwise it sets the new value, re-checks the file hash, writes atomically and updates `sky-bin`.
+- The job edits only that value in the file's text (it must appear exactly once), re-parses the result and requires it to match; Windows Terminal's own layout survives. When the profile already shows tonight's image it only writes `sky-bin`.
 - Any failure writes `~/.cache/witchy/sky-fail` with today's date and logs the error. Retries happen at most once a day. Two windows opening at once are serialised by the lock; the second sees the updated stamp and exits.
 
 ## 5. Prompt (Tide)
@@ -221,7 +222,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 
 ### 6.1 Package
 
-`witchy/ritual/` is a directory package that imports nothing from `witchy`. It is installed to `~/.claude/witchy/ritual/` and run as `@PYTHON@ -I @WITCHY_DIR@/ritual`.
+`witchy/ritual/` is a directory package that imports nothing from `witchy`. It is installed to `~/.claude/witchy/ritual/` and run as `@PYTHON@ -I -B @WITCHY_DIR@/ritual` (`-B`: no `__pycache__` under `~/.claude`).
 
 | Module | Purpose |
 | :- | :- |
@@ -236,6 +237,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 | `log.py` | `~/.cache/witchy/ritual.log`, trimmed to the last 20 lines |
 | `palette.py` | colours; `build` rewrites its `# BEGIN PALETTE` block from the active variant |
 | `data.json` | copied from `content/ritual.json` |
+| `cli.py` | the greeting itself; `__main__.py` only finds it, in the repository or the installed copy |
 
 ### 6.2 When it runs
 
@@ -254,6 +256,7 @@ The `ritual` fish command always runs the full ritual, ignoring every condition.
 - Eight bins, each 1/8 of the cycle centred on its phase: New 🌑, Waxing Crescent 🌒, First Quarter 🌓, Waxing Gibbous 🌔, Full 🌕, Waning Gibbous 🌖, Last Quarter 🌗, Waning Crescent 🌘.
 - Northern-hemisphere view: waxing light on the right.
 - Event days (6.6) use Meeus ch. 49 for the exact instant of each new and full moon, converted to the local date.
+- ΔT (TT − UTC) is taken as 69 s, good to a few seconds through the 2020s.
 
 ### 6.4 Art
 
@@ -282,7 +285,7 @@ shell   fish 3.7.0
 - **Sabbat line** (6.6): only on a sabbat day or during the 7 days before.
 - **Lunar line** (6.6): only on an event day.
 - **Tarot:** `sha256("YYYY-MM-DD")` of the local date picks the card (`digest[0] mod 22`) and the orientation (reversed when `digest[1] < 85`, about one day in three).
-- **Fetch:** `PRETTY_NAME` from `/etc/os-release`, `os.uname().release`, `/proc/uptime`, `MemTotal − MemAvailable` from `/proc/meminfo`, and `fish $FISH_VERSION`. A missing value shows `--`. Control characters are stripped from every external string.
+- **Fetch:** `PRETTY_NAME` from `/etc/os-release`, `os.uname().release`, `/proc/uptime`, `MemTotal − MemAvailable` from `/proc/meminfo`, and `fish $FISH_VERSION` (fish passes `FISH_VERSION` in the environment). A missing value shows `--`. Control characters are stripped from every external string.
 - **Colours:** salutation `#FFD477` bold; labels `#A99AB9`; values `#F3EAF7`; moon line `#B99AFF`; tarot name `#FF67B7`; reversed marker and meaning `#CFC3DB`.
 
 ### 6.6 Wheel of the Year and lunar events

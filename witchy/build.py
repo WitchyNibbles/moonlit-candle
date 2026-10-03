@@ -40,6 +40,18 @@ def with_palette(source: Path, colours: dict[str, str]) -> str:
     return rewritten
 
 
+def ritual_package(variant: str = palette.DEFAULT_VARIANT, content_dir: Path = content.CONTENT_DIR,
+                   source: Path = RITUAL_SOURCE) -> dict[str, bytes]:
+    """The greeting package as installed: its modules, palette.py from ``variant``, and data.json from content/."""
+    files = {}
+    for module in sorted(source.glob("*.py")):
+        text = (with_palette(module, palette.VARIANTS[variant].ritual) if module.name == "palette.py"
+                else module.read_text(encoding="utf-8"))
+        files[module.name] = text.encode("utf-8")
+    files["data.json"] = (content_dir / content.RITUAL).read_bytes()
+    return files
+
+
 def _json(data: Any) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
