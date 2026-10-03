@@ -1,6 +1,7 @@
 import io
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,8 @@ from witchy.components.base import run_command
 from witchy.context import Context
 
 FISH = shutil.which("fish")
+# fish's own folder and the system ones, not the user's whole PATH.
+TOOL_DIRS = list(dict.fromkeys([str(Path(FISH).parent) if FISH else "/usr/bin", "/usr/bin", "/bin"]))
 # What a user's Tide set-up looks like before witchy: a few colours of their own, one exported variable,
 # a config.fish that prints something and sets a global that would hide a universal value.
 BEFORE = """\
@@ -40,7 +43,7 @@ class RealFishRoundTripTest(unittest.TestCase):
         (self.config / "functions" / "_tide_remove_unusable_items.fish").write_text(
             "function _tide_remove_unusable_items\n    set -U _tide_left_items $tide_left_prompt_items\nend\n",
             encoding="utf-8")
-        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config.parent), "PATH": "/usr/bin:/bin"}
+        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config.parent), "PATH": ":".join(TOOL_DIRS)}
         self.fish(BEFORE)
         (self.config / "config.fish").write_text(CONFIG, encoding="utf-8")
 
@@ -56,7 +59,7 @@ class RealFishRoundTripTest(unittest.TestCase):
 
     def ctx(self, stamp):
         self.out = io.StringIO()
-        return Context(home=self.home, env=self.env, out=self.out, python="/usr/bin/python3", stamp=stamp,
+        return Context(home=self.home, env=self.env, out=self.out, python=sys.executable, stamp=stamp,
                        dist=self.root / "dist", lock_path=self.root / "witchy.lock", only=("fish",))
 
     def test_install_recolours_tide_and_uninstall_gives_every_variable_back(self):

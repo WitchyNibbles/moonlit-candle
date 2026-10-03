@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +11,8 @@ from witchy import build, palette
 from witchy.ritual import moon
 
 FISH = shutil.which("fish")
+# Where the tests look for tools: fish's own folder and the system ones, not the user's whole PATH.
+TOOL_DIRS = list(dict.fromkeys([str(Path(FISH).parent) if FISH else "/usr/bin", "/usr/bin", "/bin"]))
 NAMES = {"functions/fish_greeting.fish", "functions/ritual.fish", "functions/_witchy_moon_bin.fish",
          "functions/_tide_item_moon.fish", "functions/ll.fish", "functions/lt.fish", "conf.d/witchy.fish"}
 # Stands in for Python: records its arguments and FISH_VERSION, and prints a line so callers can be heard.
@@ -66,7 +69,7 @@ class FishTestCase(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config.parent), "TERM": "dumb",
-                    "PATH": f"{self.python.parent}:/usr/bin:/bin"}
+                    "PATH": ":".join([str(self.python.parent), *TOOL_DIRS])}
 
     def fish(self, script, *args, interactive=False, env=None):
         command = [FISH, *(["-i"] if interactive else []), "-c", script, "--", *args]
@@ -175,6 +178,10 @@ class ListingTest(FishTestCase):
 
 
 class SkyJobStartTest(FishTestCase):
+    """Whether the job started is read from fish_trace, which prints every command before it runs. That is
+    synchronous, so a job that was not started is a fact, not a timeout. The starting cases are the controls
+    that prove the trace can see the job."""
+
     WT = {"WT_SESSION": "f00d"}
 
     def setUp(self):
@@ -183,8 +190,16 @@ class SkyJobStartTest(FishTestCase):
         self.cache.mkdir(parents=True)
         self.bin = moon.phase_bin(datetime.now(timezone.utc))
 
-    def start_shell(self, env=None, interactive=True):
-        return self.fish("true", interactive=interactive, env={**self.WT, **(env or {})})
+    def start_shell(self, env=None, interactive=True, session=True):
+        return self.fish("true", interactive=interactive, env={**(self.WT if session else {}), **(env or {})})
+
+    def sky_job_started(self, interactive=True, session=True):
+        """Starts a shell with tracing on and says whether it ran the --sky command. It also checks that the
+        trace saw the file that decides, so that an empty trace cannot pass for "did not start"."""
+        done = self.start_shell({"fish_trace": "1"}, interactive, session)
+        lines = done.stderr.splitlines()
+        self.assertTrue(any(re.search(r"source .*conf\.d/witchy\.fish$", line) for line in lines), done.stderr[-500:])
+        return any(re.search(r"^-+> .*/ritual'? --sky$", line) for line in lines)
 
     def wait_for_python(self):
         deadline = time.monotonic() + 5
@@ -197,34 +212,33 @@ class SkyJobStartTest(FishTestCase):
         done = self.start_shell()
         self.assertEqual((done.stdout, done.stderr), ("", ""))
         self.assertEqual(self.wait_for_python()[:4], ["-I", "-B", f"{self.witchy}/ritual", "--sky"])
+        (self.home / "python-args").unlink()
+        self.assertTrue(self.sky_job_started())
 
     def test_starts_the_job_when_there_is_no_stamp_yet(self):
-        self.start_shell()
+        self.assertTrue(self.sky_job_started())
         self.assertEqual(self.wait_for_python()[3], "--sky")
 
     def test_does_nothing_when_the_stamp_is_current(self):
         (self.cache / "sky-bin").write_text(f"{self.bin}\n", encoding="utf-8")
-        self.start_shell()
-        time.sleep(0.3)
+        self.assertFalse(self.sky_job_started())
         self.assertIsNone(self.python_args())
 
     def test_does_nothing_after_a_failure_today(self):
         (self.cache / "sky-fail").write_text(date.today().isoformat() + "\n", encoding="utf-8")
-        self.start_shell()
-        time.sleep(0.3)
+        self.assertFalse(self.sky_job_started())
         self.assertIsNone(self.python_args())
 
     def test_retries_the_day_after_a_failure(self):
         (self.cache / "sky-fail").write_text((date.today() - timedelta(days=1)).isoformat() + "\n", encoding="utf-8")
-        self.start_shell()
+        self.assertTrue(self.sky_job_started())
         self.assertEqual(self.wait_for_python()[3], "--sky")
 
     def test_needs_an_interactive_windows_terminal_shell_and_the_config(self):
-        self.start_shell(interactive=False)
-        self.fish("true", interactive=True)  # no WT_SESSION
+        self.assertFalse(self.sky_job_started(interactive=False))
+        self.assertFalse(self.sky_job_started(session=False))
         (self.witchy / "ritual-config.json").unlink()
-        self.start_shell()
-        time.sleep(0.3)
+        self.assertFalse(self.sky_job_started())
         self.assertIsNone(self.python_args())
 
 
