@@ -76,7 +76,8 @@ class Plan:
     """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied.
 
     For a restore plan the runner runs ``commands`` before writing ``changes``, then removes each ``prune``
-    directory that is left empty. ``outcome`` replaces "ok" in the install results when a plan applied only
+    directory that is left empty. A skipped restore plan means the restore is blocked: nothing of the component
+    is touched and it stays installed. ``outcome`` replaces "ok" in the install results when a plan applied only
     in part (for example "skipped: Tide not found").
     """
 

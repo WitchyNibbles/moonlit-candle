@@ -61,7 +61,7 @@ class Component(Protocol):
     def check(self, ctx, entry: dict | None) -> list[Check]  # doctor lines: ok | warn | fail, message, fix
 ```
 
-`Plan` holds file `Change`s (the existing dataclass), commands to run (fish, `reg.exe`), notes and warnings. `--dry-run` prints every plan and runs nothing. A restore plan's `commands` run before its file changes, and its `prune` folders are removed afterwards when empty. A plan that applies only in part sets `outcome` (for example `skipped: Tide not found`), which the runner records instead of `ok`. A `restore` that cannot be planned (its `settings.json` is no longer plain JSON) raises `ComponentFailed`: nothing of that component is touched and it stays in state.
+`Plan` holds file `Change`s (the existing dataclass), commands to run (fish, `reg.exe`), notes and warnings. `--dry-run` prints every plan (each plan's file changes, then its actions) and runs nothing. A restore plan's `commands` run before its file changes, and its `prune` folders are removed afterwards when empty (an uninstall dry run lists them as `<name>: remove <folder> if empty`). A plan that applies only in part sets `outcome` (for example `skipped: Tide not found`), which the runner records instead of `ok`. A `restore` that cannot be planned (its `settings.json` is no longer plain JSON) raises `ComponentFailed`: nothing of that component is touched and it stays in state.
 
 ### 3.2 Runner (`witchy/runner.py`)
 
@@ -71,7 +71,7 @@ class Component(Protocol):
 4. Plan every selected component in order: `claude`, `font`, `windows-terminal`, `fish`. `claude` aborting (its `settings.json` is not plain JSON) stops everything with exit 1, as today.
 5. Apply each component in order. After each one, save state. A failing `font`, `windows-terminal` or `fish` step records `skipped: <reason>` (its plan skipped) or `failed: <reason>` (applying it failed) and the runner continues.
 6. Uninstall runs `restore` in reverse order.
-7. Print an end summary, e.g. `3/4 components installed · failed: font (download failed (…))`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings).
+7. Print an end summary, e.g. `3/4 components installed · failed: font (download failed (…))`, and exit 0 (all ok), 1 (nothing changed) or 2 (installed with warnings). The line after it is `Moonlit Candle installed.` (exit 0), `Moonlit Candle partly installed.` (exit 2, something applied) or `Nothing was installed.` (exit 2, nothing applied).
 
 Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.py`. `jsonio.py` and `records.py` are reused unchanged. `install.py` shrinks to the CLI glue around the runner.
 
@@ -343,7 +343,7 @@ python3 -m witchy mood [VARIANT]
 - `--only` accepts `claude`, `font`, `windows-terminal`, `fish` (repeatable). Components not named keep their state untouched.
 - Install and uninstall exit 0 (all ok), 1 (nothing changed: validation, lock, abort), 2 (done with warnings).
 - An uninstall whose restore cannot be written, or cannot be planned, keeps that component in state and exits 2; running uninstall again retries it. A Claude or Windows Terminal `settings.json` that is no longer plain JSON keeps the whole component, files included, because the settings still point at them.
-- The end summary says `Nothing was installed.` instead of the install line when no component applied.
+- The line after the end summary says `Moonlit Candle installed.` only when every selected component ended `ok`. When at least one applied but not all ended `ok` (skipped, failed, or applied only in part, such as fish without Tide) it says `Moonlit Candle partly installed.`, and when no component applied it says `Nothing was installed.`
 - `doctor` prints one line per check, `✓`, `⚠` or `✗`, each `✗`/`⚠` with its fix (often `python3 -m witchy install --only <name>`). It uses the paths recorded in state (no `cmd.exe` lookup) and finishes under 2 s. Exit 1 on any `✗`, else 0. A `check()` that raises is reported as `✗` with the exception text.
 - Doctor checks: installed files match their recorded hashes; settings keys and profile keys hold installed values; the theme is active; the font is registered; the sky images and `ritual-config.json` exist; Tide variables match; eza is present; the backups state relies on still exist; the last `ritual.log` error; the sky fail marker; components skipped at the last install.
 - The newest `greeting` and `sky` errors are shown only when they are less than 7 days old, with their age (`today at 09:14`, `yesterday`, `3 days ago`) and cut to 100 characters. A sky fail marker for today adds `(it retries tomorrow)`. The log holds errors only, so an old error would otherwise warn for ever.
