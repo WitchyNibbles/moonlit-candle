@@ -88,6 +88,7 @@ Component code lives in `witchy/components/{claude,font,windows_terminal,fish}.p
 
 - v1 migrates on load: `files` and `claude_settings` go to `components.claude`; `windows_terminal` goes to `components["windows-terminal"]`. Every recorded previous value is kept. The next write saves v2.
 - A component's entry is absent until it is installed. Reinstall keeps the first recorded previous values, as today.
+- A copied file that someone edited after witchy wrote it is backed up again at the next install, and that backup becomes what uninstall gives back; while the file still holds witchy's bytes, the first backup stays.
 - `~/.claude/witchy/` is durable. `~/.cache/witchy/` (stamps, fail marker, log, font zip, sky render cache) is disposable at any time.
 - `last_install.at` is the run stamp used for backups.
 

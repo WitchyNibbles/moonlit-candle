@@ -169,6 +169,15 @@ class InstallTest(FishTestCase):
         self.assertEqual(record, {"previous": {"value": ["FFB7C5"], "exported": False}, "installed": ["D0B8FF"]})
         self.assertEqual(self.value("tide_pwd_bg_color"), ["D0B8FF"])
 
+    def test_uninstall_gives_back_a_function_the_user_replaced_between_installs(self):
+        function = self.home / ".config" / "fish" / "functions" / "ll.fish"
+        self.assertFalse(function.exists())
+        runner.install(self.ctx())
+        function.write_text("function ll; echo mine; end\n", encoding="utf-8")
+        runner.install(self.ctx(stamp="20261003-130000"))
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-140000")), 0)
+        self.assertEqual(function.read_text(encoding="utf-8"), "function ll; echo mine; end\n")
+
     def test_a_reinstall_that_cannot_ask_fish_keeps_the_recorded_variables(self):
         runner.install(self.ctx())
         recorded = self.entry()["variables"]

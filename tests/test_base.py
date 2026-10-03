@@ -2,10 +2,12 @@ import fcntl
 import io
 import subprocess
 import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 
-from witchy.components.base import Change, Command, ComponentFailed, file_lock, run_command, show_changes
+from witchy.components.base import (Change, Command, ComponentFailed, file_lock, file_record, run_command, sha,
+                                    show_changes)
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
 
@@ -16,6 +18,26 @@ class Ctx:
 
     def say(self, message):
         print(message, file=self.out)
+
+
+class FileRecordTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = Path(tmp.name) / "ll.fish"
+        self.path.write_bytes(b"new")
+        self.change = Change(self.path, b"old", b"new")
+        self.earlier = {self.path: {"path": str(self.path), "backup": None, "installed_sha256": sha(b"first")}}
+
+    def test_a_backup_made_this_run_wins_over_the_previous_one(self):
+        record = file_record(self.change, self.earlier, {self.path: Path("/x/ll.fish.bak-witchy-1")})
+        self.assertEqual(record, {"path": str(self.path), "backup": "/x/ll.fish.bak-witchy-1",
+                                  "installed_sha256": sha(b"new")})
+
+    def test_without_a_backup_this_run_the_previous_one_stays(self):
+        self.earlier[self.path]["backup"] = "/x/first.bak"
+        self.assertEqual(file_record(self.change, self.earlier, {})["backup"], "/x/first.bak")
+        self.assertIsNone(file_record(self.change, {}, {})["backup"])
 
 
 class ShowChangesTest(unittest.TestCase):

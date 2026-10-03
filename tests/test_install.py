@@ -146,6 +146,23 @@ class InstallTest(InstallTestCase):
         install.uninstall(self.ctx(stamp="20260930-130000"))
         self.assertEqual(self.claude_settings()["theme"], "dark")
 
+    def test_uninstall_gives_back_a_file_edited_between_installs(self):
+        style = self.claude / "output-styles" / "witchynibbles.md"
+        install.install(self.ctx())
+        style.write_bytes(b"my own style\n")
+        install.install(self.ctx(stamp="20260930-120500"))
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(style.read_bytes(), b"my own style\n")
+
+    def test_reinstall_over_an_unchanged_copy_keeps_the_original_backup(self):
+        style = self.claude / "output-styles" / "witchynibbles.md"
+        style.parent.mkdir()
+        style.write_bytes(b"before witchy\n")
+        install.install(self.ctx())
+        install.install(self.ctx(stamp="20260930-120500"))
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(style.read_bytes(), b"before witchy\n")
+
     def test_uninstall_keeps_keys_claude_code_added_later(self):
         install.install(self.ctx())
         data = self.claude_settings()

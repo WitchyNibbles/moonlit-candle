@@ -7,8 +7,8 @@ from typing import Any
 
 from .. import build, claude_settings, content, jsonio
 from ..records import snapshot
-from .base import (Abort, Change, Check, JsonPlan, Plan, apply_changes, backup_checks, fix_command, read,
-                   restore_copy, restore_json, sha)
+from .base import (Abort, Change, Check, JsonPlan, Plan, apply_changes, backup_checks, file_change, file_record,
+                   fix_command, read, restore_copy, restore_json, sha)
 
 DEFAULT_PYTHON = "/usr/bin/python3"
 RESTART_NOTE = "Restart Claude Code once so it starts watching ~/.claude/themes/"
@@ -34,18 +34,11 @@ class ClaudeComponent:
 
     def plan(self, ctx: Any, entry: dict | None) -> Plan:
         earlier = {Path(record["path"]): record for record in (entry or {}).get("files", [])}
-        files, changes = [], []
-        for rel, target in COPIES.items():
-            path = ctx.home / target
-            before = read(path)
-            after = ctx.outputs[rel].encode("utf-8")
-            previous = earlier.get(path)
-            ours = previous is not None and sha(before) == previous["installed_sha256"]
-            changes.append(Change(path, before, after, backup=not ours))
-            files.append((path, previous, after))
+        changes = [file_change(ctx.home / target, ctx.outputs[rel].encode("utf-8"), earlier)
+                   for rel, target in COPIES.items()]
         settings = self._plan_settings(ctx, (entry or {}).get("settings"))
         notes = [] if (ctx.claude_dir / "themes").is_dir() else [RESTART_NOTE]
-        return Plan(changes=[*changes, settings.change], notes=notes, data={"files": files, "settings": settings})
+        return Plan(changes=[*changes, settings.change], notes=notes, data={"earlier": earlier, "settings": settings})
 
     def _plan_settings(self, ctx: Any, previous: dict | None) -> JsonPlan:
         path = ctx.claude_dir / "settings.json"
@@ -67,12 +60,7 @@ class ClaudeComponent:
         backups = apply_changes(ctx, plan.changes)
         settings: JsonPlan = plan.data["settings"]
         return {
-            "files": [
-                {"path": str(path),
-                 "backup": previous["backup"] if previous else (str(backups[path]) if path in backups else None),
-                 "installed_sha256": sha(after)}
-                for path, previous, after in plan.data["files"]
-            ],
+            "files": [file_record(change, plan.data["earlier"], backups) for change in plan.changes[:-1]],
             "settings": settings.entry(backups.get(settings.change.path)),
         }
 

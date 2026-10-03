@@ -239,9 +239,16 @@ def file_change(path: Path, data: bytes, earlier: dict[Path, dict]) -> Change:
 
 
 def file_record(change: Change, earlier: dict[Path, dict], backups: dict[Path, Path]) -> dict:
-    """What state.json remembers about a copied file; the first backup ever made stays the restore target."""
+    """What state.json remembers about a copied file.
+
+    A backup made in this run holds what someone else wrote after witchy, so uninstall must give that back;
+    with none, the first backup ever made stays the restore target.
+    """
     previous = earlier.get(change.path)
-    backup = previous["backup"] if previous else (str(backups[change.path]) if change.path in backups else None)
+    if change.path in backups:
+        backup = str(backups[change.path])
+    else:
+        backup = previous["backup"] if previous else None
     return {"path": str(change.path), "backup": backup, "installed_sha256": sha(read(change.path))}
 
 
