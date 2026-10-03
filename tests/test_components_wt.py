@@ -206,6 +206,26 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         self.assertFalse((self.root / wt.sky_file(4)).exists())
         self.assertFalse(self.config().exists())
 
+    def test_failed_reinstall_copy_keeps_the_files_recorded(self):
+        ctx, entry = self.install()
+        real = jsonio.write_atomic_bytes
+
+        def write(path, data):
+            if Path(path).suffix == ".png":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, data)
+
+        again = self.ctx(stamp="20261002-130000")
+        again.sky_size = (128, 72)
+        with mock.patch("witchy.jsonio.write_atomic_bytes", side_effect=write):
+            entry2 = self.component.apply(again, self.component.plan(again, entry))
+        self.assertEqual(len(entry2["files"]), 9)
+        plan = self.component.restore(again, entry2)
+        apply_changes(again, plan.changes)
+        for bin_ in range(8):
+            self.assertFalse((self.root / wt.sky_file(bin_)).exists(), bin_)
+        self.assertFalse(self.config().exists())
+
     def test_restore_writes_settings_first_under_the_lock(self):
         ctx, entry = self.install()
         plan = self.component.restore(ctx, entry)

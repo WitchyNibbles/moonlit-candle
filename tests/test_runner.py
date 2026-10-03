@@ -183,6 +183,28 @@ class InstallRunnerTest(RunnerTestCase):
         self.assertEqual(target.read_text(encoding="utf-8"), '{"sky": 3}')
         self.assertNotIn(("apply", "b"), self.log)
 
+    def test_a_rewrite_during_planning_fails_only_the_locked_component(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Locked(Fake):
+            def plan(self, ctx, entry):
+                super().plan(ctx, entry)
+                return Plan(lock=ctx.home / "wt.lock", changes=[Change(target, b"{}", b'{"x": 1}')])
+
+        class Rewriter(Fake):
+            def plan(self, ctx, entry):
+                target.write_text('{"sky": 3}', encoding="utf-8")
+                return super().plan(ctx, entry)
+
+        code = runner.install(self.ctx(), [Locked("a", self.log), Rewriter("b", self.log)])
+        self.assertEqual(code, 2)
+        results = self.state()["last_install"]["results"]
+        self.assertTrue(results["a"].startswith("failed: "))
+        self.assertEqual(results["b"], "ok")
+        self.assertEqual(target.read_text(encoding="utf-8"), '{"sky": 3}')
+        self.assertNotIn(("apply", "a"), self.log)
+
     def test_the_plan_lock_is_held_while_applying(self):
         lock = self.root / "wt.lock"
         seen = []
@@ -234,6 +256,28 @@ class UninstallRunnerTest(RunnerTestCase):
     def test_nothing_to_uninstall(self):
         self.assertEqual(runner.uninstall(self.ctx(), [Fake("a", self.log)]), 0)
         self.assertIn("Nothing to uninstall", self.out.getvalue())
+
+
+class UninstallRaceTest(RunnerTestCase):
+    def test_a_rewrite_during_planning_leaves_only_that_component_installed(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Locked(Fake):
+            def restore(self, ctx, entry):
+                super().restore(ctx, entry)
+                return Plan(lock=ctx.home / "wt.lock", changes=[Change(target, b"{}", None)])
+
+        class Rewriter(Fake):
+            def restore(self, ctx, entry):
+                target.write_text('{"sky": 3}', encoding="utf-8")
+                return super().restore(ctx, entry)
+
+        a, b = Locked("a", self.log), Rewriter("b", self.log)
+        runner.install(self.ctx(), [a, b])
+        self.assertEqual(runner.uninstall(self.ctx(), [a, b]), 2)
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertEqual(target.read_text(encoding="utf-8"), '{"sky": 3}')
 
 
 class DoctorTest(RunnerTestCase):

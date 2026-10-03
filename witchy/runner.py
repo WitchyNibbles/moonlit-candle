@@ -62,6 +62,11 @@ def _recheck(changes: list) -> None:
         raise ComponentFailed(str(exc)) from exc
 
 
+def _unlocked(plans: list) -> list:
+    """Changes of plans without a lock; locked plans are re-checked under their lock instead."""
+    return [change for _, plan in plans if plan.skip is None and plan.lock is None for change in plan.changes]
+
+
 def install(ctx: Any, components: Sequence[Component] | None = None) -> int:
     failures = validate.validate_all()
     if failures:
@@ -100,7 +105,7 @@ def _install(ctx: Any, components: list) -> int:
                     ctx.say(action)
         ctx.say("Dry run: nothing was written.")
         return 0
-    check_unchanged(changes)
+    check_unchanged(_unlocked(plans))
     build.write_dist(ctx.outputs, ctx.dist)
     new_state = state or statefile.empty(ctx.variant)
     new_state["variant"] = ctx.variant
@@ -166,7 +171,7 @@ def _uninstall(ctx: Any, components: list) -> int:
             ctx.say(warning)
         ctx.say("Dry run: nothing was written.")
         return 0
-    check_unchanged(changes)
+    check_unchanged(_unlocked(plans))
     failed = []
     for component, plan in plans:
         try:

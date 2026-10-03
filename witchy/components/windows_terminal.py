@@ -53,7 +53,15 @@ def _file_change(path: Path, data: bytes, earlier: dict[Path, dict]) -> Change:
 def _file_record(change: Change, earlier: dict[Path, dict], backups: dict[Path, Path]) -> dict:
     previous = earlier.get(change.path)
     backup = previous["backup"] if previous else (str(backups[change.path]) if change.path in backups else None)
-    return {"path": str(change.path), "backup": backup, "installed_sha256": sha(change.after)}
+    return {"path": str(change.path), "backup": backup, "installed_sha256": sha(read(change.path))}
+
+
+def _still_ours(change: Change, earlier: dict[Path, dict]) -> bool:
+    """The file holds witchy's bytes: this run's, or the ones an earlier install recorded."""
+    current = sha(read(change.path))
+    previous = earlier.get(change.path)
+    return current is not None and (current == sha(change.after) or
+                                    (previous is not None and current == previous["installed_sha256"]))
 
 
 class WindowsTerminalComponent:
@@ -132,13 +140,14 @@ class WindowsTerminalComponent:
             ctx.say(f"Windows Terminal: could not write {settings.path} ({exc}); {WT_SKIP}.")
             raise ComponentFailed(f"could not write {settings.path}") from exc
         entry = json_plan.entry(backups.get(settings.path))
-        files = [_file_record(image, earlier, backups) for image in images if read(image.path) == image.after]
+        files = [_file_record(image, earlier, backups) for image in images if _still_ours(image, earlier)]
         if background:
             try:
                 backups.update(apply_changes(ctx, [config]))
-                files.append(_file_record(config, earlier, backups))
             except OSError as exc:
                 ctx.say(f"windows-terminal: could not write {config.path} ({exc}); the sky keeps tonight's phase.")
+        if _still_ours(config, earlier):
+            files.append(_file_record(config, earlier, backups))
         entry["files"] = files
         return entry
 
