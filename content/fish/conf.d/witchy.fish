@@ -15,4 +15,4 @@ set -l failed
 test -r $cache/sky-fail; and read failed <$cache/sky-fail
 test "$failed" = (date +%F); and exit
 @PYTHON@ -I -B @WITCHY_DIR@/ritual --sky >/dev/null 2>&1 &
-disown
+builtin disown 2>/dev/null

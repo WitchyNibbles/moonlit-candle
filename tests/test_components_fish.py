@@ -133,6 +133,29 @@ class InstallTest(FishTestCase):
         self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
         self.assertEqual(self.variables, USER_TIDE)
 
+    def unknown_outcome(self, answer):
+        answers = fake_fish(self.variables)
+
+        def run(args, **kwargs):
+            if args == ["fish", "-c", fish.SET_SCRIPT]:
+                return answer(args)
+            return answers(args, **kwargs)
+
+        self.assertEqual(runner.install(self.ctx(run=run)), 2)
+        self.assertEqual(self.state()["last_install"]["results"]["fish"],
+                         "failed: fish did not finish setting the Tide variables")
+        self.assertEqual(set(self.entry()["variables"]), set(palette.TIDE))
+
+    def test_a_set_call_killed_by_a_signal_is_an_unknown_outcome(self):
+        name = next(iter(palette.TIDE))
+        self.unknown_outcome(lambda args: subprocess.CompletedProcess(
+            args, -9, stdout=f"{fish.SENTINEL}\0{name}\0", stderr=""))
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.variables, USER_TIDE)
+
+    def test_a_set_call_with_no_marker_is_an_unknown_outcome(self):
+        self.unknown_outcome(lambda args: subprocess.CompletedProcess(args, 0, stdout="garbage", stderr=""))
+
     def test_what_config_fish_prints_is_ignored(self):
         run = fake_fish(self.variables, noise="Welcome!\n\0stray\0", calls=self.calls)
         self.assertEqual(runner.install(self.ctx(run=run)), 0)

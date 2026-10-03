@@ -219,8 +219,12 @@ def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.Co
     try:
         done = ctx.run(list(command.args), input=command.input, capture_output=True, text=True, errors="replace",
                        timeout=COMMAND_TIMEOUT, env=dict(ctx.env))
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        raise ComponentFailed(f"could not {command.label} ({exc})") from exc
+    except subprocess.TimeoutExpired as exc:  # its text would hold the whole argument list
+        raise ComponentFailed(f"could not {command.label} (timed out after {COMMAND_TIMEOUT} s)") from exc
+    except OSError as exc:
+        raise ComponentFailed(f"could not {command.label} ({exc.strerror or type(exc).__name__})") from exc
+    except (ValueError, subprocess.SubprocessError) as exc:
+        raise ComponentFailed(f"could not {command.label} ({str(exc)[:100]})") from exc
     if check and done.returncode != 0:
         raise ComponentFailed(f"could not {command.label} (exit {done.returncode})")
     return done

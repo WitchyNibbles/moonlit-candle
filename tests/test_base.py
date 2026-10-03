@@ -67,6 +67,26 @@ class RunCommandTest(unittest.TestCase):
                 run_command(self.ctx(run), Command(("x",), "do x"))
             self.assertIs(caught.exception.__cause__, error)
 
+    def test_the_reason_is_short_whatever_the_error(self):
+        script = "echo " + "x" * 1400
+        cases = ((subprocess.TimeoutExpired(["fish", "-c", script], 5), "timed out after 5 s"),
+                 (FileNotFoundError(2, "No such file or directory", "x"), "No such file or directory"))
+        for error, reason in cases:
+            def run(args, **kwargs):
+                raise error
+
+            with self.assertRaises(ComponentFailed) as caught:
+                run_command(self.ctx(run), Command(("x",), "do x"))
+            self.assertEqual(str(caught.exception), f"could not do x ({reason})")
+
+    def test_any_other_error_text_is_cut_to_100_characters(self):
+        def run(args, **kwargs):
+            raise ValueError("y" * 500)
+
+        with self.assertRaises(ComponentFailed) as caught:
+            run_command(self.ctx(run), Command(("x",), "do x"))
+        self.assertEqual(str(caught.exception), f"could not do x ({'y' * 100})")
+
 
 class FileLockTest(unittest.TestCase):
     def test_busy_lock_times_out_as_a_component_failure(self):

@@ -24,7 +24,7 @@ It installs:
 /usr/bin/python3 -m witchy uninstall                     # give everything back
 ```
 
-Components, in install order: `claude`, `font`, `windows-terminal`, `fish`. The `fish` component needs [Tide](https://github.com/IlanCosman/tide) for the prompt colours; without Tide (or fish) it still installs the greeting and `ll`/`lt`, and the last line says `skipped: Tide not found`.
+Components, in install order: `claude`, `font`, `windows-terminal`, `fish`. The `fish` component needs [Tide](https://github.com/IlanCosman/tide) for the prompt colours; without Tide or fish it still installs the greeting and `ll`/`lt`, and the summary line says `skipped: Tide not found` (or `skipped: fish not found`).
 
 `install` backs up every file it changes as `*.bak-witchy-<date>` and records the previous values in `~/.claude/witchy/state.json`; `uninstall` restores them. A `settings.json` that is not strict JSON (comments, trailing commas) is never rewritten: for Windows Terminal you get a snippet to paste by hand and the rest continues; for `~/.claude/settings.json` the install stops without changing anything.
 
@@ -63,7 +63,8 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by the comm
 | `⚠ …  backup … is missing` | a backup was deleted | uninstall still works, key by key |
 | `✗ fish  changed or missing: …` | a fish function, `conf.d/witchy.fish` or a greeting file was edited or deleted | `python3 -m witchy install --only fish` |
 | `✗ fish  Tide variables changed: …` | a Tide colour no longer holds the witchy value (for example after `tide configure`) | `python3 -m witchy install --only fish`, or keep your change |
-| `⚠ fish  cannot check the Tide variables: …` | `fish` did not answer within 5 s | run doctor again |
+| `⚠ fish  cannot check the Tide variables: …` | `fish` is not on PATH, or did not answer within 5 s | put `fish` on PATH, or run doctor again |
+| `⚠ fish  sky: the sky job failed today (it retries tomorrow)` | the sky job failed today and logged nothing readable | see `~/.cache/witchy/ritual.log` |
 | `⚠ fish  eza missing — sudo apt install eza` | `ll` and `lt` fall back to `ls` | `sudo apt install eza` |
 | `⚠ fish  greeting: last run failed …` | the greeting hit an error in the last 7 days and printed nothing | see `~/.cache/witchy/ritual.log`; `ritual` shows the greeting |
 | `⚠ fish  sky: last run failed …` | the sky job could not move the moon (for example, you set your own `backgroundImage`); it retries once a day | `python3 -m witchy install --only windows-terminal` puts the moon sky back |

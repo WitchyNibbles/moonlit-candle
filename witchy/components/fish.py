@@ -237,6 +237,8 @@ class FishComponent:
                 result = run_command(ctx, set_command(updates, f"set {len(updates)} Tide variables"), check=False)
                 done = set(_fields(result.stdout))
                 ok = result.returncode == 0
+                # Only the script's own exit 1 is a known stop; a signal or any other code may hide a set.
+                unknown = result.returncode not in (0, 1)
             except (ComponentFailed, ValueError):
                 ok = False
                 unknown = True

@@ -210,7 +210,7 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 
 ### 5.3 Rules
 
-- Tide check: `fish -c 'functions -q tide'`. Missing fish or Tide: skip the variables with a warning; the fish files and greeting still install. The component result is `skipped: Tide not found`.
+- Tide check: `fish -c 'functions -q tide'`. Missing fish or Tide: skip the variables with a warning; the fish files and greeting still install either way. Missing fish gives `skipped: fish not found`, missing Tide `skipped: Tide not found`.
 - Snapshot each variable before the first install: its values (read NUL-separated), its export flag, or `{"absent": true}`.
 - Set with `set -U` (`-Ux` when the snapshot was exported) after the fish files exist.
 - If a `set -U` exits non-zero, stop; state records only the variables already set.
@@ -361,7 +361,7 @@ python3 -m witchy mood [VARIANT]
 | font | `reg.exe add` `OSError` / `TimeoutExpired` / non-zero exit | `failed: could not register <name>`, exit 2; nothing recorded for `font`; files already copied stay | warning naming the registry value |
 | windows-terminal | sky image copy `OSError` | set no background keys; the rest applies | `windows-terminal: sky images not copied (…)` |
 | windows-terminal | `StrictJsonError`, profile not found, write `OSError` | existing handling | existing messages |
-| fish | no fish, no Tide, `TimeoutExpired` | skip the variables; files still install | `fish: Tide not found; prompt not recoloured` |
+| fish | no fish, no Tide, `TimeoutExpired` | skip the variables; files still install | `fish: fish not found; prompt not recoloured.`, `fish: Tide not found; prompt not recoloured.`, `fish: could not read the Tide variables (timed out after 5 s); prompt not recoloured.` |
 | fish | `set -U` non-zero (`CalledProcessError`) | stop; record the variables already set | warning naming the variable |
 | greeting | any exception | exit 0, no output, log | doctor `⚠ greeting: last run failed …` |
 | sky job | hash changed, not plain JSON, profile gone, value changed by user | skip, log, fail marker for today | doctor `⚠ sky: …` |
