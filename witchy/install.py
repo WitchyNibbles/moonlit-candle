@@ -7,17 +7,17 @@ original bytes when nothing else has touched it since.
 """
 from __future__ import annotations
 
-import difflib
-import hashlib
 import json
-import subprocess
 import sys
-from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, TextIO
 
 from . import build, claude_settings, content, jsonio, palette, validate, wt
+from .components.base import (Abort, Change, JsonPlan, apply_changes as _apply, check_unchanged as _check_unchanged,
+                              read as _read, restore_copy as _restore_copy, restore_json, sha as _sha,
+                              show_changes as _show)
+from .context import Context
+
+_restore_json = restore_json
 
 STATE_VERSION = 1
 DEFAULT_PYTHON = "/usr/bin/python3"
@@ -33,75 +33,6 @@ COPIES = {
     build.STATUSLINE: Path("witchy/statusline.py"),
     build.TIPS: Path("witchy/tips.json"),
 }
-
-
-def _sha(data: bytes | None) -> str | None:
-    return None if data is None else hashlib.sha256(data).hexdigest()
-
-
-def _read(path: Path) -> bytes | None:
-    return path.read_bytes() if path.is_file() else None
-
-
-class Abort(Exception):
-    """Stop before anything is written; the message says why."""
-
-
-@dataclass
-class Change:
-    """One file's planned content; ``None`` means absent (before) or deleted (after)."""
-
-    path: Path
-    before: bytes | None
-    after: bytes | None
-    backup: bool = True
-
-
-@dataclass
-class JsonPlan:
-    """A planned settings-file rewrite plus what state.json must remember about it."""
-
-    change: Change
-    previous: dict | None
-    extra: dict
-
-    def entry(self, backup: Path | None) -> dict:
-        after = _sha(self.change.after)
-        if self.previous:
-            # The first backup stays the right restore target while each reinstall overwrites exactly what
-            # witchy wrote last time; a file someone else edited in between is restored key by key instead.
-            ok = self.previous["byte_restore_ok"] and _sha(self.change.before) == self.previous["installed_sha256"]
-            base = {**self.previous, "installed_sha256": after, "byte_restore_ok": ok}
-        else:
-            existed = self.change.before is not None
-            base = {"path": str(self.change.path), "existed": existed,
-                    "backup": str(backup) if backup else None, "installed_sha256": after,
-                    "byte_restore_ok": not existed or backup is not None}
-        return {**base, **self.extra}
-
-
-@dataclass
-class Context:
-    home: Path
-    env: Mapping[str, str]
-    out: TextIO
-    dry_run: bool = False
-    wt_settings: Path | None = None
-    python: str | None = None
-    stamp: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d-%H%M%S"))
-    run: Callable[..., Any] = subprocess.run
-    dist: Path = field(default_factory=lambda: build.DIST)
-
-    @property
-    def claude_dir(self) -> Path:
-        return self.home / ".claude"
-
-    @property
-    def state_path(self) -> Path:
-        return self.claude_dir / "witchy" / "state.json"
-
-    def say(self, message: str) -> None:
-        print(message, file=self.out)
 
 
 def _python(ctx: Context) -> str:
@@ -184,46 +115,6 @@ def _plan_windows_terminal(ctx: Context, state: dict | None) -> JsonPlan | None:
     return JsonPlan(Change(path, path.read_bytes(), after), previous, record)
 
 
-def _check_unchanged(changes: list[Change]) -> None:
-    """Planning and writing are apart in time (the cmd.exe lookup); never overwrite what another program wrote."""
-    for change in changes:
-        if _read(change.path) != change.before:
-            raise Abort(f"{change.path} changed while planning; nothing was written. Run the command again.")
-
-
-def _show(ctx: Context, changes: list[Change]) -> None:
-    for change in changes:
-        if change.before == change.after:
-            continue
-        if change.before is None:
-            ctx.say(f"create {change.path} ({len(change.after.splitlines())} lines)")
-        elif change.after is None:
-            ctx.say(f"remove {change.path}")
-        else:
-            before = change.before.decode("utf-8", "replace").splitlines(keepends=True)
-            after = change.after.decode("utf-8", "replace").splitlines(keepends=True)
-            ctx.out.writelines(difflib.unified_diff(before, after, f"{change.path} (now)", f"{change.path} (after)"))
-            ctx.say("")
-
-
-def _apply(ctx: Context, changes: list[Change]) -> dict[Path, Path]:
-    backups: dict[Path, Path] = {}
-    for change in changes:
-        if change.before == change.after:
-            continue
-        if change.before is not None and change.backup:
-            backups[change.path] = jsonio.backup(change.path, ctx.stamp)
-        if change.after is None:
-            change.path.unlink(missing_ok=True)
-            verb = "removed"
-        else:
-            jsonio.write_atomic_bytes(change.path, change.after)
-            verb = "created" if change.before is None else "updated"
-        note = f" (backup: {backups[change.path]})" if change.path in backups else ""
-        ctx.say(f"{verb} {change.path}{note}")
-    return backups
-
-
 def _save_state(ctx: Context, files: list, backups: dict[Path, Path], claude: JsonPlan, terminal: dict | None) -> None:
     new_state = {
         "version": STATE_VERSION,
@@ -284,48 +175,6 @@ def install(ctx: Context) -> int:
         ctx.say(RESTART_NOTE)
     ctx.say(NEW_SESSION_NOTE)
     return 0
-
-
-def _restore_copy(entry: dict) -> Change | None:
-    path = Path(entry["path"])
-    current = _read(path)
-    original = _read(Path(entry["backup"])) if entry.get("backup") else None
-    if current is None and original is None:
-        return None
-    # Keep a copy of anything the user edited (for example with /theme → Ctrl+E) before it goes.
-    edited = current is not None and _sha(current) != entry["installed_sha256"]
-    return Change(path, current, original, backup=edited)
-
-
-def _restore_json(entry: dict, restore: Callable[[dict], tuple[dict, list[str]]], warnings: list[str]) -> Change | None:
-    path = Path(entry["path"])
-    current = _read(path)
-    if current is None:
-        # A file witchy created and an earlier uninstall already removed is back to how it started.
-        if entry["existed"]:
-            warnings.append(f"{path} no longer exists; nothing to restore there.")
-        return None
-    if entry["byte_restore_ok"] and _sha(current) == entry["installed_sha256"]:
-        if not entry["existed"]:
-            return Change(path, current, None, backup=False)
-        original = _read(Path(entry["backup"])) if entry.get("backup") else None
-        if original is not None:
-            return Change(path, current, original, backup=False)
-    try:
-        data, text = jsonio.read_json(path)
-    except jsonio.StrictJsonError:
-        warnings.append(f"{path} is no longer plain JSON; restore it by hand from {entry.get('backup')}.")
-        return None
-    if not isinstance(data, dict):
-        warnings.append(f"{path} no longer holds a JSON object; restore it by hand from {entry.get('backup')}.")
-        return None
-    restored, notes = restore(data)
-    warnings.extend(notes)
-    if notes and entry.get("backup"):
-        warnings.append(f"The file as it was before install is kept at {entry['backup']}.")
-    if restored == data:
-        return None
-    return Change(path, current, jsonio.dumps_like(restored, text).encode("utf-8"))
 
 
 def uninstall(ctx: Context) -> int:
