@@ -1,10 +1,9 @@
 import fcntl
 import io
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-
-import subprocess
 
 from witchy.components.base import Change, Command, ComponentFailed, file_lock, run_command, show_changes
 

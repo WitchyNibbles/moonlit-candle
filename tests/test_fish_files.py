@@ -1,4 +1,3 @@
-import os
 import shutil
 import subprocess
 import tempfile
@@ -25,7 +24,7 @@ class RenderTest(unittest.TestCase):
         files = build.fish_files("/usr/bin/python3", Path("/home/eimi/.claude/witchy"))
         self.assertEqual(set(files), NAMES)
         for name, data in files.items():
-            self.assertNotIn("@", data.decode("utf-8").replace("@PWD@", ""), name)
+            self.assertNotIn("@", data.decode("utf-8"), name)
 
     def test_paths_are_quoted_for_fish(self):
         files = build.fish_files("/opt/py thon/bin/python3", Path("/home/o'neil/.claude/witchy"))
@@ -83,7 +82,7 @@ class SyntaxTest(FishTestCase):
     def test_every_file_parses(self):
         for name in NAMES:
             done = subprocess.run([FISH, "--no-execute", str(self.config / name)], capture_output=True, text=True,
-                                  timeout=10)
+                                  timeout=10, env=self.env)
             self.assertEqual((done.returncode, done.stderr), (0, ""), name)
 
 
