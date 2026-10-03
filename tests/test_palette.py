@@ -47,5 +47,17 @@ class PaletteTest(unittest.TestCase):
         )
 
 
+class VariantTest(unittest.TestCase):
+    def test_midnight_is_the_default_and_holds_the_module_colours(self):
+        midnight = palette.VARIANTS[palette.DEFAULT_VARIANT]
+        self.assertEqual(palette.DEFAULT_VARIANT, "midnight")
+        self.assertEqual(midnight.claude_base, "dark")
+        # Same objects, so mock.patch.dict on the module constants also patches the variant.
+        self.assertIs(midnight.claude_overrides, palette.CLAUDE_OVERRIDES)
+        self.assertIs(midnight.wt_scheme, palette.WT_SCHEME)
+        self.assertIs(midnight.statusline, palette.STATUSLINE)
+        self.assertEqual((midnight.background, midnight.foreground), (palette.BACKGROUND, palette.FOREGROUND))
+
+
 if __name__ == "__main__":
     unittest.main()

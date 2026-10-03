@@ -38,14 +38,16 @@ def _json(data: Any) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def render_outputs(content_dir: Path = content.CONTENT_DIR) -> dict[str, str]:
+def render_outputs(content_dir: Path = content.CONTENT_DIR,
+                   variant: str = palette.DEFAULT_VARIANT) -> dict[str, str]:
+    colours = palette.VARIANTS[variant]
     spinner = content.load_spinner(content_dir)
     return {
-        THEME: _json({"name": palette.THEME_NAME, "base": "dark", "overrides": palette.CLAUDE_OVERRIDES}),
+        THEME: _json({"name": palette.THEME_NAME, "base": colours.claude_base, "overrides": colours.claude_overrides}),
         OUTPUT_STYLE: content.read_output_style(content_dir),
-        STATUSLINE: statusline_source(),
+        STATUSLINE: statusline_source(colours.statusline),
         TIPS: _json({"tips": spinner["tips"]}),
-        WT_SCHEME: _json(palette.WT_SCHEME),
+        WT_SCHEME: _json(colours.wt_scheme),
     }
 
 

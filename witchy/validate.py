@@ -215,7 +215,10 @@ def validate_content(spinner: Mapping[str, Any], output_style: str) -> list[Fail
 
 
 def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
-    failures = validate_palette()
+    failures: list[Failure] = []
+    for variant in palette.VARIANTS.values():
+        failures += validate_palette(variant.claude_overrides, variant.wt_scheme, variant.statusline,
+                                     variant.background, variant.foreground)
     try:
         spinner = content.load_spinner(content_dir)
         style = content.read_output_style(content_dir)

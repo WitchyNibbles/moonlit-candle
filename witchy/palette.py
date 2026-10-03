@@ -6,6 +6,8 @@ and the status line palette; validate.py holds all of it to the contrast rules.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 THEME_NAME = "Moonlit Candle"
 THEME_SLUG = "moonlit-candle"
 BACKGROUND = "#0D0916"
@@ -122,4 +124,24 @@ STATUSLINE: dict[str, str] = {
     "left_high": "#FFD477",
     "left_mid": "#B99AFF",
     "left_low": "#FF67B7",
+}
+
+
+@dataclass(frozen=True)
+class Variant:
+    """One complete colour set. Variants change colours only: theme name, scheme name and
+    installed paths stay the same, so switching never has to move files."""
+
+    name: str
+    claude_base: str
+    background: str
+    foreground: str
+    claude_overrides: dict[str, str]
+    wt_scheme: dict[str, str]
+    statusline: dict[str, str]
+
+
+DEFAULT_VARIANT = "midnight"
+VARIANTS: dict[str, Variant] = {
+    "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE),
 }

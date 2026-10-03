@@ -2,6 +2,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from witchy import content, palette, validate
 
@@ -152,6 +153,17 @@ class ValidateAllTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             failures = validate.validate_all(Path(empty))
         self.assertEqual({f.rule for f in failures}, {"content"})
+
+
+class VariantValidateTest(unittest.TestCase):
+    def test_every_variant_is_validated(self):
+        midnight = palette.VARIANTS["midnight"]
+        broken = palette.Variant("broken", "dark", midnight.background, midnight.foreground,
+                                 dict(midnight.claude_overrides, claude="#111111"), midnight.wt_scheme,
+                                 midnight.statusline)
+        with mock.patch.dict(palette.VARIANTS, {"broken": broken}):
+            failures = validate.validate_all()
+        self.assertIn(("text-contrast", "claude.claude"), {(f.rule, f.item) for f in failures})
 
 
 if __name__ == "__main__":
