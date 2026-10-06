@@ -262,13 +262,17 @@ class TideComponent:
     def _apply(self, ctx: Any, plan: Plan, entry: dict) -> None:
         data, earlier = plan.data, plan.data["entry"]
         if data["fisher"] == "install":
-            self._install_fisher(ctx)
+            self._install_fisher(ctx, entry)
         elif data["fisher"] == "update":
             self._check_release(ctx, FISHER_SOURCE)
             self._run(ctx, fisher_command("update fisher", "install", FISHER_SOURCE))
         if data["fisher"] is not None:
-            self._verify(ctx, fishprobe.FISHER_PLUGIN, FISHER_SOURCE, "fisher")
-            entry["installed_fisher"] = entry["installed_fisher"] or data["fisher"] == "install"
+            try:
+                self._verify(ctx, fishprobe.FISHER_PLUGIN, FISHER_SOURCE, "fisher")
+            except ComponentFailed as exc:
+                if getattr(exc, "removed", False):
+                    entry["installed_fisher"] = earlier.get("installed_fisher", False)  # taken out again
+                raise
         if data["tide"] is not None:
             # Checked before the prompt and plugins go: a release that does not match leaves them in place.
             self._check_release(ctx, TIDE_SOURCE)
@@ -287,6 +291,8 @@ class TideComponent:
             entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or data["replace"]
             self._run(ctx, swap_command("install Tide", data["replace"], TIDE_SOURCE))
         elif data["tide"] is not None:
+            # Recorded first: fisher may copy Tide's files and still fail or time out, and uninstall must take them.
+            entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
             self._run(ctx, fisher_command("install Tide", "install", TIDE_SOURCE))
         if data["tide"] is not None:
             # Fresh: no Tide was there before witchy, so a mismatch removes it with its variables (D13).
@@ -297,11 +303,12 @@ class TideComponent:
             except ComponentFailed as exc:
                 if getattr(exc, "restored", False):
                     entry["previous_tide_plugin"] = earlier.get("previous_tide_plugin")  # it is back in place
+                if getattr(exc, "removed", False):
+                    entry["installed_tide"] = earlier.get("installed_tide", False)  # taken out again
                 elif data["tide"] == "update" and not entry["installed_tide"]:
                     # The user's Tide was (or may be) removed: uninstall puts it back.
                     entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or TIDE_SOURCE
                 raise
-            entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
         # Last: while Tide is not in place, the user's own prompt line keeps working.
         self._disable_lines(ctx, plan, entry)
         if data["tide"] is not None or plan.changes:
@@ -350,7 +357,7 @@ class TideComponent:
         if done.returncode != 0:
             raise ComponentFailed(installlog.failure(ctx, command.label, done))
 
-    def _install_fisher(self, ctx: Any) -> None:
+    def _install_fisher(self, ctx: Any, entry: dict) -> None:
         bootstrap = self._pins()["bootstrap"]
         cached = self._bootstrap_file(ctx)
         data = read(cached)
@@ -369,6 +376,8 @@ class TideComponent:
             except OSError as exc:
                 raise ComponentFailed(f"could not keep fisher.fish in {cached.parent} ({exc})") from exc
         self._check_release(ctx, FISHER_SOURCE)
+        # Recorded first: fisher may copy its files and still fail or time out, and uninstall must take them.
+        entry["installed_fisher"] = True
         self._run(ctx, Command((FISH, "-c", BOOTSTRAP_SCRIPT, "--", str(cached), FISHER_SOURCE), "install fisher",
                                "", timeout=FISHER_TIMEOUT))
 
@@ -413,6 +422,7 @@ class TideComponent:
                                             name, restore or ""))
             error = ComponentFailed(f"{plugin} files do not match the pinned release")
             error.restored = restore is not None
+            error.removed = plugin == fishprobe.FISHER_PLUGIN or fresh  # gone again, as if never installed
             raise error
         return found
 

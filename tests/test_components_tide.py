@@ -315,7 +315,8 @@ class BootstrapTest(TideTestCase):
         with mock.patch.object(Path, "read_bytes", unreadable):
             self.assertEqual(self.install(), 2)
         self.assertTrue(self.result().startswith("failed: could not read the files of a plugin (["), self.result())
-        self.assertEqual((self.entry()["installed_fisher"], self.entry()["installed_tide"]), (True, False))
+        # Tide went in before its files could be read: it is recorded, so uninstall takes it out.
+        self.assertEqual((self.entry()["installed_fisher"], self.entry()["installed_tide"]), (True, True))
 
     def test_the_swap_has_120_seconds_and_empty_standard_input(self):
         seen = []
@@ -344,7 +345,38 @@ class BootstrapTest(TideTestCase):
         self.fisher(served={"jorgebucaran/fisher@4.4.5": FISHER})
         self.assertEqual(self.install(), 2)
         self.assertTrue(self.result().startswith("failed: could not install Tide (exit 1)"))
+        # Tide is recorded before fisher runs (fisher may copy files and still fail); uninstall skips it when absent.
+        self.assertEqual((self.entry()["installed_fisher"], self.entry()["installed_tide"]), (True, True))
+        self.fake.calls.clear()
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261005-130000"), [tide.TideComponent(fake_pins())]), 0,
+                         self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "jorgebucaran/fisher@4.4.5")])
+
+    def timing_out(self, script):
+        """fish runs ``script`` to the end (fisher copies its files), then witchy's wait for it times out."""
+        def run(args, **kwargs):
+            done = self.fake.run(args, **kwargs)
+            if args[:3] == ["fish", "-c", script]:
+                raise subprocess.TimeoutExpired(args, tide.FISHER_TIMEOUT)
+            return done
+        return mock.Mock(run=run)
+
+    def test_a_fisher_bootstrap_that_times_out_after_copying_its_files_stays_recorded(self):
+        self.fisher()
+        self.assertEqual(self.install(self.ctx(fake=self.timing_out(tide.BOOTSTRAP_SCRIPT))), 2)
+        self.assertEqual(self.result(), "failed: could not install fisher (timed out after 120 s)")
         self.assertEqual((self.entry()["installed_fisher"], self.entry()["installed_tide"]), (True, False))
+        self.assertIn("jorgebucaran/fisher@4.4.5", self.fake.plugins)
+
+    def test_a_tide_install_that_times_out_after_copying_its_files_stays_recorded(self):
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(self.ctx(fake=self.timing_out(tide.FISHER_SCRIPT))), 2)
+        self.assertEqual(self.result(), "failed: could not install Tide (timed out after 120 s)")
+        self.assertEqual((self.entry()["installed_fisher"], self.entry()["installed_tide"]), (False, True))
+        self.fake.calls.clear()
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261005-130000"), [tide.TideComponent(fake_pins())]), 0,
+                         self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "ilancosman/tide@v6.1.1")])
 
     def test_every_fisher_call_has_120_seconds_and_empty_standard_input(self):
         seen = []
