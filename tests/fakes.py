@@ -54,7 +54,14 @@ def make_zip(members):
     return buffer.getvalue()
 
 
-def fake_fish(variables=None, tide=True, fail_at=None, missing=False, noise="", calls=None):
+# The machine fake_fish stands for: fisher 4.4.5 and Tide 6.1.1 installed by fisher in /home/user.
+FAKE_FUNCTIONS = "/home/user/.config/fish/functions"
+FAKE_PROMPT = f"{FAKE_FUNCTIONS}/fish_prompt.fish"
+FAKE_TIDE_FILES = [FAKE_PROMPT, f"{FAKE_FUNCTIONS}/tide.fish", f"{FAKE_FUNCTIONS}/_tide_item_git.fish"]
+
+
+def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="", calls=None, fisher="4.4.5",
+              prompt=FAKE_PROMPT, plugins=None):
     """A ``run`` that answers witchy's fish scripts the way fish would, byte for byte.
 
     ``variables`` maps names to ``{"value": [...], "exported": bool}`` and is changed in place by the set
@@ -63,12 +70,31 @@ def fake_fish(variables=None, tide=True, fail_at=None, missing=False, noise="", 
     with ``errors`` and has its newlines translated. ``fail_at`` names a variable whose set fails (the script
     stops there, exit 1); ``missing`` makes fish absent; ``noise`` is what config.fish prints first. Every
     call is appended to ``calls``, with its input as a string.
+
+    The fisher and Tide probe (witchy.fishprobe) sees: ``fisher``, the version ``fisher --version`` reports (None:
+    fisher is not installed); ``tide``, the version ``tide --version`` reports (None or False: Tide is not
+    installed); ``prompt``, the file fish_prompt comes from (None: not defined); and ``plugins``, fisher's plugins
+    and their files. By default ``plugins`` lists fisher and Tide (``FAKE_TIDE_FILES``) when they are installed.
     """
+    from witchy import fishprobe
     from witchy.components import fish
 
     store = {} if variables is None else variables
+    if plugins is None:
+        plugins = {}
+        if fisher is not None:
+            plugins["jorgebucaran/fisher"] = [f"{FAKE_FUNCTIONS}/fisher.fish"]
+        if tide:
+            plugins["ilancosman/tide"] = list(FAKE_TIDE_FILES)
 
     def answer(args, received):
+        if args == ["fish", "-c", fishprobe.PROBE_SCRIPT]:
+            fields = ["fisher", f"fisher, version {fisher}"] if fisher is not None else ["no-fisher"]
+            fields += ["tide", f"tide, version {tide}"] if tide else ["no-tide"]
+            fields.append(prompt if prompt is not None else "n/a")
+            for name, files in plugins.items():
+                fields += [name, str(len(files)), *files]
+            return 0, fields
         if args[:3] == ["fish", "-c", fish.SNAPSHOT_SCRIPT] and args[3] == "--":
             fields = ["tide" if tide else "no-tide"]
             for name in args[4:]:
@@ -107,7 +133,7 @@ def fake_fish(variables=None, tide=True, fail_at=None, missing=False, noise="", 
         if missing:
             raise FileNotFoundError(2, "No such file or directory", "fish")
         code, fields = answer(args, received)
-        printed = noise + ("" if fields is None else "".join(f"{field}\0" for field in [fish.SENTINEL, *fields]))
+        printed = noise + ("" if fields is None else "".join(f"{field}\0" for field in [fishprobe.SENTINEL, *fields]))
         stdout = printed.encode("utf-8", "surrogateescape")
         if text:
             stdout = stdout.decode("utf-8", errors).replace("\r\n", "\n").replace("\r", "\n")
