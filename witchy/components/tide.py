@@ -1,14 +1,16 @@
 """tide: fisher and Tide 6.1.1, pinned file by file, with Tide as the only prompt (spec 5)."""
 from __future__ import annotations
 
+import copy
 import http.client
 import shutil
 import tarfile
 from pathlib import Path
 from typing import Any
 
-from .. import content, fishprobe, installlog, jsonio, pinning
-from .base import Command, ComponentFailed, Plan, read, sha
+from .. import build, content, fishprobe, installlog, jsonio, pinning, takeover
+from .base import Command, ComponentFailed, Plan, read, sha, tilde
+from .fish import config_dir
 
 FISH = "fish"
 FISHER_VERSION = "4.4.5"
@@ -94,6 +96,29 @@ def mismatches(found: fishprobe.Probe, plugin: str, pinned: dict[str, str]) -> l
     return sorted(name for name in pinned.keys() | hashes.keys() if pinned.get(name) != hashes.get(name))
 
 
+def aside(path: Path, stamp: str) -> Path:
+    """A free ``<name>.bak-witchy-<stamp>`` beside ``path``."""
+    target = path.with_name(f"{path.name}.bak-witchy-{stamp}")
+    counter = 1
+    while target.exists() or target.is_symlink():
+        target = path.with_name(f"{path.name}.bak-witchy-{stamp}-{counter}")
+        counter += 1
+    return target
+
+
+def owners(ctx: Any, found: fishprobe.Probe) -> tuple[Path | None, list[str], takeover.Scan]:
+    """Every other prompt owner (spec 5.2): a fish_prompt.fish no plugin installed, the other fisher plugins that
+    ship one, and the lines of config.fish and conf.d that start one or set a global tide_ variable."""
+    folder = config_dir(ctx)
+    prompt = folder / "functions" / "fish_prompt.fish"
+    listed = {Path(path) for files in found.plugins.values() for path in files}
+    ours = {folder / name for name in build.fish_files("", Path())}  # witchy's own fish files
+    hand_written = prompt if (prompt.is_file() or prompt.is_symlink()) and prompt not in listed else None
+    plugins = [name for name, files in found.plugins.items()
+               if name.lower().split("@", 1)[0] != fishprobe.TIDE_PLUGIN and str(prompt) in files]
+    return hand_written, plugins, takeover.scan(folder, listed | ours)
+
+
 class TideComponent:
     name = "tide"
 
@@ -119,8 +144,13 @@ class TideComponent:
                 ctx.say(f"tide: {FISH_MISSING}")
                 return Plan.skipped(FISH_MISSING)
             return Plan.skipped(str(exc))
-        data: dict[str, Any] = {"entry": entry or {}, "error": None, "fisher": None, "tide": None, "replace": None}
+        prompt, plugins, scan = owners(ctx, found)
+        data: dict[str, Any] = {"entry": entry or {}, "error": None, "fisher": None, "tide": None, "replace": None,
+                                "prompt": prompt, "plugins": plugins, "lines": scan.lines}
         actions = []
+        if prompt is not None:
+            actions.append(f"tide: move {prompt} to {aside(prompt, ctx.stamp).name} (a fish_prompt that is not Tide's)")
+        actions += [f"tide: fisher remove {name} (it ships its own fish_prompt)" for name in plugins]
         try:
             fisher_name = installed_name(found, fishprobe.FISHER_PLUGIN)
             if found.fisher is None:
@@ -163,13 +193,15 @@ class TideComponent:
         except ComponentFailed as exc:
             data["error"] = str(exc)
         installs = data["fisher"] is not None or data["tide"] is not None
-        if data["error"] is None and installs and not shutil.which("curl", path=ctx.env.get("PATH")):
+        if scan.blockers:
+            data["error"] = "; ".join(scan.blockers)
+        elif data["error"] is None and installs and not shutil.which("curl", path=ctx.env.get("PATH")):
             data["error"] = CURL_MISSING  # fisher downloads with curl; nothing is downloaded without it
         if data["error"] is not None:
-            actions = [f"tide: cannot go ahead: {data['error']}"]
-        # fish plans again after this plan ran when it installs anything (spec D19: fish asks fish itself).
-        data["installs"] = installs and data["error"] is None
-        return Plan(actions=actions, data=data)
+            return Plan(actions=[f"tide: cannot go ahead: {data['error']}"], data=data)
+        # fish plans again once this plan ran when it changes which prompt fish runs (spec D19: fish asks fish).
+        data["reprobe"] = installs or prompt is not None or bool(plugins)
+        return Plan(changes=scan.changes, actions=actions, data=data)
 
     def apply(self, ctx: Any, plan: Plan) -> dict:
         data = plan.data
@@ -183,42 +215,88 @@ class TideComponent:
                  "removed_plugins": list(earlier.get("removed_plugins", [])),
                  "disabled_files": list(earlier.get("disabled_files", [])),
                  "moved_prompt": earlier.get("moved_prompt")}
-        start = dict(entry)
+        start = copy.deepcopy(entry)
         try:
-            if data["fisher"] == "install":
-                self._install_fisher(ctx)
-            elif data["fisher"] == "update":
-                self._check_release(ctx, FISHER_SOURCE)
-                self._run(ctx, fisher_command("update fisher", "install", FISHER_SOURCE))
-            if data["fisher"] is not None:
-                self._verify(ctx, fishprobe.FISHER_PLUGIN, FISHER_SOURCE, "fisher")
-                entry["installed_fisher"] = entry["installed_fisher"] or data["fisher"] == "install"
-            if data["tide"] is not None:
-                self._check_release(ctx, TIDE_SOURCE)
-            if data["tide"] == "replace":
-                # Recorded first: from here on the user's Tide may be gone, and uninstall must bring it back.
-                entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or data["replace"]
-                self._run(ctx, swap_command("install Tide", data["replace"], TIDE_SOURCE))
-            elif data["tide"] is not None:
-                self._run(ctx, fisher_command("install Tide", "install", TIDE_SOURCE))
-            if data["tide"] is not None:
-                try:
-                    found = self._verify(ctx, fishprobe.TIDE_PLUGIN, TIDE_SOURCE, "Tide",
-                                         data["replace"] if data["tide"] == "replace" else None)
-                except ComponentFailed as exc:
-                    if getattr(exc, "restored", False):
-                        entry["previous_tide_plugin"] = earlier.get("previous_tide_plugin")  # it is back in place
-                    raise
-                entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
-                reason = fishprobe.tide_ready(found)
-                if reason:
-                    raise ComponentFailed(f"Tide is installed but not ready: {reason}")
+            self._apply(ctx, plan, entry)
         except ComponentFailed as exc:
             ctx.say(f"tide: {exc}")
             if entry == start and not earlier:
                 raise
             plan.outcome = f"failed: {exc}"  # what was installed so far stays recorded (ritual 3.3)
         return entry
+
+    def _apply(self, ctx: Any, plan: Plan, entry: dict) -> None:
+        data, earlier = plan.data, plan.data["entry"]
+        if data["fisher"] == "install":
+            self._install_fisher(ctx)
+        elif data["fisher"] == "update":
+            self._check_release(ctx, FISHER_SOURCE)
+            self._run(ctx, fisher_command("update fisher", "install", FISHER_SOURCE))
+        if data["fisher"] is not None:
+            self._verify(ctx, fishprobe.FISHER_PLUGIN, FISHER_SOURCE, "fisher")
+            entry["installed_fisher"] = entry["installed_fisher"] or data["fisher"] == "install"
+        if data["tide"] is not None:
+            # Checked before the prompt and plugins go: a release that does not match leaves them in place.
+            self._check_release(ctx, TIDE_SOURCE)
+        # Before Tide goes in: fisher refuses to put a file where another one already is.
+        if data["prompt"] is not None:
+            moved = self._move_prompt(ctx, data["prompt"])
+            entry["moved_prompt"] = entry["moved_prompt"] or moved
+        for name in data["plugins"]:
+            self._run(ctx, fisher_command(f"remove {name}", "remove", name))
+            ctx.say(f"tide: removed the fisher plugin {name}, which shipped its own fish_prompt")
+            if name not in entry["removed_plugins"]:
+                entry["removed_plugins"].append(name)
+        if data["tide"] == "replace":
+            # Recorded first: from here on the user's Tide may be gone, and uninstall must bring it back.
+            entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or data["replace"]
+            self._run(ctx, swap_command("install Tide", data["replace"], TIDE_SOURCE))
+        elif data["tide"] is not None:
+            self._run(ctx, fisher_command("install Tide", "install", TIDE_SOURCE))
+        if data["tide"] is not None:
+            try:
+                found = self._verify(ctx, fishprobe.TIDE_PLUGIN, TIDE_SOURCE, "Tide",
+                                     data["replace"] if data["tide"] == "replace" else None)
+            except ComponentFailed as exc:
+                if getattr(exc, "restored", False):
+                    entry["previous_tide_plugin"] = earlier.get("previous_tide_plugin")  # it is back in place
+                raise
+            entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
+            reason = fishprobe.tide_ready(found)
+            if reason:
+                raise ComponentFailed(f"Tide is installed but not ready: {reason}")
+        # Last: while Tide is not in place, the user's own prompt line keeps working.
+        self._disable_lines(ctx, plan, entry)
+
+    def _move_prompt(self, ctx: Any, prompt: Path) -> dict:
+        target = aside(prompt, ctx.stamp)
+        data = read(prompt)
+        try:
+            prompt.rename(target)
+        except OSError as exc:
+            raise ComponentFailed(f"could not move {tilde(ctx, prompt)} aside ({exc.strerror or exc})") from exc
+        ctx.say(f"tide: moved {tilde(ctx, prompt)} aside, a fish_prompt that was not Tide's "
+                f"(backup: {tilde(ctx, target)})")
+        return {"path": str(prompt), "backup": str(target), "installed_sha256": sha(data)}
+
+    def _disable_lines(self, ctx: Any, plan: Plan, entry: dict) -> None:
+        """Comment out each line of another prompt owner; a file's first backup stays its record (spec 5.2)."""
+        records = {record["path"]: record for record in entry["disabled_files"]}
+        for change in plan.changes:
+            try:
+                backup = jsonio.backup(change.path, ctx.stamp)
+                jsonio.write_atomic_bytes(change.path, change.after)
+            except OSError as exc:
+                raise ComponentFailed(f"could not write {tilde(ctx, change.path)} ({exc.strerror or exc})") from exc
+            for line in plan.data["lines"]:
+                if line.path == change.path:
+                    ctx.say(f"tide: disabled {line.what} in {tilde(ctx, line.path)} line {line.number} "
+                            f"(backup: {tilde(ctx, backup)})")
+            earlier = records.get(str(change.path))
+            records[str(change.path)] = {"path": str(change.path),
+                                         "backup": earlier["backup"] if earlier else str(backup),
+                                         "installed_sha256": sha(change.after)}
+        entry["disabled_files"] = list(records.values())
 
     def _run(self, ctx: Any, command: Command) -> None:
         done = installlog.run(ctx, command)

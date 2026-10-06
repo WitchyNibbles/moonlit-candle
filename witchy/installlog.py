@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonio
-from .components.base import Command, ComponentFailed, run_command
+from .components.base import Command, ComponentFailed, run_command, tilde
 
 NAME = "install.log"
 LIMIT = 200 * 1024
@@ -25,11 +25,7 @@ def path(ctx: Any) -> Path:
 
 def shown(ctx: Any) -> str:
     """The log's path with ~ for HOME, as messages show it."""
-    target = path(ctx)
-    try:
-        return "~/" + target.relative_to(ctx.home).as_posix()
-    except ValueError:
-        return str(target)
+    return tilde(ctx, path(ctx))
 
 
 def plain(text: str) -> str:

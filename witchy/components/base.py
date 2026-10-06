@@ -16,7 +16,7 @@ from ..errors import Abort, ComponentFailed
 
 __all__ = ["Abort", "ComponentFailed", "Change", "Command", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
            "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes", "run_command",
-           "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock"]
+           "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock", "tilde"]
 
 COMMAND_TIMEOUT = 5  # seconds, unless a command carries its own timeout (spec 5.3)
 
@@ -152,6 +152,14 @@ class Component(Protocol):
     def restore(self, ctx: Any, entry: dict) -> Plan: ...
 
     def check(self, ctx: Any, entry: dict) -> list[Check]: ...
+
+
+def tilde(ctx: Any, path: Path | str) -> str:
+    """``path`` with ~ for HOME, as messages about the user's own files show it."""
+    try:
+        return "~/" + Path(path).relative_to(ctx.home).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def fix_command(name: str) -> str:

@@ -87,7 +87,7 @@ New file `witchy/components/tide.py`. Component order becomes `claude`, `font`, 
 
 ### 5.1 Bootstrap
 
-`plan` runs one `fish -c` call that reports: fish version, whether `fisher` is a function and its version, whether `tide` is a function and `tide --version`, the path of `functions --details fish_prompt`, and the universal list `_fisher_ilancosman_2f_tide_files`.
+`plan` runs one `fish -c` call that reports: fish version, whether `fisher` is a function and its version, whether `tide` is a function and `tide --version`, the path of `functions --details fish_prompt`, and each fisher plugin with its file list (`_fisher_ilancosman_2F_tide_files`; installed from a tag, `_fisher_ilancosman_2F_tide_40_v6_2E_31_2E_31__files`).
 
 | Found | Action |
 | :- | :- |
@@ -108,21 +108,21 @@ New file `witchy/components/tide.py`. Component order becomes `claude`, `font`, 
 
 ### 5.2 Taking over other prompt owners
 
-Runs in `plan` (detection) and `apply` (changes), before the bootstrap in the same `apply`, because fisher refuses to overwrite files it does not own.
+Runs in `plan` (detection) and `apply` (changes). In `apply`, a hand-written `fish_prompt.fish` and other prompt plugins go after fisher is installed and before Tide, because fisher refuses to put a file where another one already is. The lines in `config.fish` and `conf.d` are disabled last, once Tide is in place, so a failed Tide install leaves the user's own prompt line working. Any case below that fails (a `fish_prompt` function, a continued line, a symlink) stops the whole component before it changes anything. witchy's own `conf.d/witchy.fish` and every file fisher lists for a plugin are never scanned.
 
 | Owner | Detection | Takeover |
 | :- | :- | :- |
-| A hand-written `functions/fish_prompt.fish` | The file exists and is not in `_fisher_ilancosman_2f_tide_files`. | Moved to `fish_prompt.fish.bak-witchy-<stamp>`. |
+| A hand-written `functions/fish_prompt.fish` | The file exists and no fisher plugin lists it. | Moved to `fish_prompt.fish.bak-witchy-<stamp>` (a symlink is moved as a link; its target is not touched). |
 | Another fisher plugin that ships `fish_prompt.fish` (pure, hydro, bobthefish, …) | Its `_fisher_<plugin>_files` lists `fish_prompt.fish`. | `fisher remove <plugin>`; the plugin name is recorded. |
-| `starship init fish`, `oh-my-posh init fish`, `set -g`/`set -gx`/`set --global` of a `tide_*` name | A matching line in `config.fish` or in a `conf.d/*.fish` that is neither witchy's nor fisher-managed. | The file is backed up, then each matching line is prefixed with `# witchy-disabled: `. |
+| `starship init fish`, `oh-my-posh init fish`, `set -g`/`set -gx`/`set --global` of a `tide_*` name | A matching line in `config.fish` or in a `conf.d/*.fish` that is neither witchy's nor fisher-managed. | The file is backed up, then each matching line is prefixed with `# witchy-disabled: `. A file's first backup stays its record. |
 | `function fish_prompt` inside `config.fish` or `conf.d` | Matching line. | Not edited: a multi-line block cannot be commented safely. `failed: config.fish defines fish_prompt at line N; remove that function`. |
 
-Every takeover prints one line, for example `tide: disabled starship init in ~/.config/fish/config.fish (backup: …)`.
+Every takeover prints one line, for example `tide: disabled starship init in ~/.config/fish/config.fish line 2 (backup: …)`.
 
 Edge cases:
 
 - A line already starting with `# witchy-disabled: ` is left alone, so a second run changes nothing.
-- A matching line that ends in `\` (continued) fails like a `function fish_prompt` block, naming file and line.
+- A matching line that ends in `\`, or follows a line that does (continued), fails like a `function fish_prompt` block, naming file and line: `failed: config.fish line N is continued over several lines; disable it yourself`.
 - A file whose path is a symlink (for example into a dotfiles repo) is never edited (D22): `failed: config.fish is a symlink to <target>; disable line N there yourself`.
 - Line endings and bytes are kept exactly: files are read and written as bytes, lines split on `\n`, non-UTF-8 bytes kept (`surrogateescape`).
 - A disabled line the user turns back on is drift: doctor ✗, and install disables it again.
@@ -236,7 +236,7 @@ The `tide` component's `check`:
 
 - ✓/✗ fisher found; Tide is version 6.1.1.
 - ✓/✗ every fisher and Tide file matches `content/pins.json` (D21).
-- ✓/✗ the active `fish_prompt` is Tide's (`functions --details fish_prompt` is in `_fisher_ilancosman_2f_tide_files`).
+- ✓/✗ the active `fish_prompt` is Tide's (`functions --details fish_prompt` is in Tide's fisher file list).
 - ✓/✗ no other prompt owner from 5.2 is active.
 - An info line: `glyph test: 🧹 🔮 🪦 🌿 🧪 💀 🔥 🐈 🦉 ❯ — each should be one clear symbol`.
 

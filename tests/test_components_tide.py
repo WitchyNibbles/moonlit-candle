@@ -376,6 +376,155 @@ class BootstrapTest(TideTestCase):
         self.assertEqual(self.fisher_calls(), [])
 
 
+PURE = {"functions/fish_prompt.fish": b"function fish_prompt\n    echo pure\nend\n",
+        "conf.d/pure.fish": b"set -g pure_symbol x\n"}
+PINNED = {"jorgebucaran/fisher": FISHER, "ilancosman/tide@v6.1.1": TIDE_FILES}
+
+
+class TakeoverTest(TideTestCase):
+    def write(self, name, data):
+        path = self.config / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def backups(self):
+        return sorted(path.name for path in self.config.rglob("*.bak-witchy-*"))
+
+    def test_a_hand_written_prompt_is_moved_aside_before_tide_goes_in(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        moved = prompt.with_name("fish_prompt.fish.bak-witchy-20261005-120000")
+        self.assertEqual(moved.read_bytes(), b"function fish_prompt\n    echo mine\nend\n")
+        self.assertEqual(prompt.read_bytes(), TIDE_FILES["functions/fish_prompt.fish"])
+        self.assertEqual(self.entry()["moved_prompt"], {"path": str(prompt), "backup": str(moved),
+                                                        "installed_sha256": sha(moved.read_bytes())})
+        self.assertIn("tide: moved ~/.config/fish/functions/fish_prompt.fish aside, a fish_prompt that was not "
+                      "Tide's (backup: ~/.config/fish/functions/fish_prompt.fish.bak-witchy-20261005-120000)",
+                      self.out.getvalue())
+
+    def test_another_prompt_plugin_is_removed_before_tide_goes_in(self):
+        self.fisher({"jorgebucaran/fisher": FISHER, "pure-fish/pure": PURE})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "pure-fish/pure"),
+                                               ("fisher", "install", "ilancosman/tide@v6.1.1")])
+        self.assertEqual(self.entry()["removed_plugins"], ["pure-fish/pure"])
+        self.assertIn("tide: removed the fisher plugin pure-fish/pure, which shipped its own fish_prompt",
+                      self.out.getvalue())
+
+    def test_a_starship_line_is_disabled_with_a_backup(self):
+        config = self.write("config.fish", b"if status is-interactive\n    starship init fish | source\nend\n")
+        self.fisher(PINNED)
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertEqual(config.read_bytes(),
+                         b"if status is-interactive\n# witchy-disabled:     starship init fish | source\nend\n")
+        backup = config.with_name("config.fish.bak-witchy-20261005-120000")
+        self.assertEqual(backup.read_bytes(), b"if status is-interactive\n    starship init fish | source\nend\n")
+        self.assertEqual(self.entry()["disabled_files"], [{"path": str(config), "backup": str(backup),
+                                                           "installed_sha256": sha(config.read_bytes())}])
+        self.assertIn("tide: disabled starship init in ~/.config/fish/config.fish line 2 "
+                      "(backup: ~/.config/fish/config.fish.bak-witchy-20261005-120000)", self.out.getvalue())
+
+    def test_lines_are_disabled_only_once_tide_is_in_place(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher({"jorgebucaran/fisher": FISHER}, served={})
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\n")
+
+    def test_a_tide_release_that_does_not_match_leaves_the_prompt_and_the_lines_in_place(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.releases["ilancosman/tide@v6.1.1"] = {**TIDE_FILES, "conf.d/evil.fish": b"evil\n"}
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: ilancosman/tide release does not match the pinned files")
+        self.assertEqual(prompt.read_bytes(), b"function fish_prompt\n    echo mine\nend\n")
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\n")
+        self.assertEqual(self.backups(), [])
+
+    def test_a_second_run_changes_nothing(self):
+        self.write("config.fish", b"starship init fish | source\nset -gx tide_time_color 5F8787\n")
+        self.fisher(PINNED)
+        self.install()
+        first = self.entry()
+        self.assertEqual(self.install(self.ctx(stamp="20261005-130000")), 0)
+        self.assertEqual(self.entry(), first)
+        self.assertEqual(self.backups(), ["config.fish.bak-witchy-20261005-120000"])
+        self.assertNotIn("disabled", self.out.getvalue())
+
+    def test_a_line_turned_back_on_is_disabled_again_and_the_first_backup_stays(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher(PINNED)
+        self.install()
+        first = self.entry()["disabled_files"][0]["backup"]
+        config.write_bytes(b"starship init fish | source\n")
+        self.assertEqual(self.install(self.ctx(stamp="20261005-130000")), 0)
+        self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertEqual(self.entry()["disabled_files"][0]["backup"], first)
+
+    def test_a_fish_prompt_function_fails_and_changes_nothing(self):
+        config = self.write("config.fish", b"starship init fish | source\nfunction fish_prompt\n    echo x\nend\n")
+        self.fisher()
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: config.fish defines fish_prompt at line 2; remove that function")
+        self.assertEqual((self.fetched, self.fisher_calls()), ([], []))
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\nfunction fish_prompt\n    echo x\nend\n")
+
+    def test_a_symlinked_config_is_never_edited(self):
+        dotfiles = self.root / "dotfiles" / "config.fish"
+        dotfiles.parent.mkdir()
+        dotfiles.write_bytes(b"starship init fish | source\n")
+        (self.config / "config.fish").symlink_to(dotfiles)
+        self.fisher(PINNED)
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(),
+                         f"failed: config.fish is a symlink to {dotfiles}; disable line 1 there yourself")
+        self.assertEqual(dotfiles.read_bytes(), b"starship init fish | source\n")
+
+    def test_a_continued_line_fails_naming_file_and_line(self):
+        self.write("conf.d/mine.fish", b"set -g tide_left_prompt_items pwd \\\n    git\n")
+        self.fisher(PINNED)
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: conf.d/mine.fish line 1 is continued over several lines; "
+                                        "disable it yourself")
+
+    def test_crlf_and_bytes_that_are_not_utf8_are_kept(self):
+        config = self.write("config.fish", b"echo \xff\r\nstarship init fish | source\r\n")
+        self.fisher(PINNED)
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertEqual(config.read_bytes(), b"echo \xff\r\n# witchy-disabled: starship init fish | source\r\n")
+
+    def test_witchys_own_and_fishers_files_are_left_alone(self):
+        ours = self.write("conf.d/witchy.fish", b"set -g tide_character_color FFB86B\n")
+        self.fisher({**PINNED, "pure-fish/pure": {"conf.d/pure.fish": b"set -g tide_x y\n"}})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertEqual(ours.read_bytes(), b"set -g tide_character_color FFB86B\n")
+        self.assertEqual((self.config / "conf.d" / "pure.fish").read_bytes(), b"set -g tide_x y\n")
+        self.assertEqual(self.backups(), [])
+
+    def test_dry_run_shows_the_takeover_and_changes_nothing(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\nend\n")
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher({"jorgebucaran/fisher": FISHER, "pure-fish/pure": {"conf.d/pure.fish": b"x\n"}})
+        self.assertEqual(self.install(self.ctx(dry_run=True)), 0)
+        output = self.out.getvalue()
+        self.assertIn(f"tide: move {prompt} to fish_prompt.fish.bak-witchy-20261005-120000 (a fish_prompt that is "
+                      "not Tide's)", output)
+        self.assertIn("+# witchy-disabled: starship init fish | source", output)
+        self.assertEqual(prompt.read_bytes(), b"function fish_prompt\nend\n")
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\n")
+        self.assertEqual(self.fisher_calls(), [])
+
+    def test_fish_plans_again_only_after_a_plan_that_changes_which_prompt_runs(self):
+        def reprobe(fake):
+            return tide.TideComponent(fake_pins()).plan(self.ctx(fake=fake), None).data["reprobe"]
+
+        self.assertTrue(reprobe(FakeFisher(self.config, {"jorgebucaran/fisher": FISHER})))
+        self.write("config.fish", b"starship init fish | source\n")
+        self.assertFalse(reprobe(FakeFisher(self.config, PINNED)))
+
+
 class PinsTest(unittest.TestCase):
     def test_the_installed_sources_are_the_pinned_ones(self):
         self.assertEqual(tuple(content.load_pins()["plugins"]), (tide.FISHER_SOURCE, tide.TIDE_SOURCE))
