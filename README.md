@@ -49,7 +49,7 @@ ritual --date 2026-10-31   # preview another day
 ritual --debug             # time each stage
 ```
 
-The sky job runs in the background when a tab opens and moves the Windows Terminal moon to tonight's phase. Errors from the greeting and the sky job go to `~/.cache/witchy/ritual.log`; `doctor` shows the newest ones.
+The sky job runs in the background when a tab opens and moves the Windows Terminal moon to tonight's phase. Once a day it also writes `~/.cache/witchy/caret`: on a sabbat and the day before, the prompt's `❯` takes the sabbat's colour (Samhain amber on 30 and 31 October), and it is candle gold on every other day. Errors from the greeting and the sky job go to `~/.cache/witchy/ritual.log`; `doctor` shows the newest ones.
 
 ## Troubleshooting
 

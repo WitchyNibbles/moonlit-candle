@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from witchy import build, palette
-from witchy.ritual import moon
+from witchy.ritual import caret, moon
 
 FISH = shutil.which("fish")
 # Where the tests look for tools: fish's own folder and the system ones, not the user's whole PATH.
@@ -59,6 +59,9 @@ class FishTestCase(unittest.TestCase):
         self.witchy = self.home / ".claude" / "witchy"
         self.cache = self.home / ".cache" / "witchy"
         (self.witchy / "ritual").mkdir(parents=True)
+        # Today's caret cache, so no shell starts the caret job unless a test means it to.
+        self.cache.mkdir(parents=True)
+        self.write_caret(f"{date.today().isoformat()}\n")
         (self.witchy / "ritual" / "__main__.py").write_text("", encoding="utf-8")
         self.python = Path(tmp.name) / "bin" / "python3"
         self.python.parent.mkdir()
@@ -70,6 +73,9 @@ class FishTestCase(unittest.TestCase):
             path.write_bytes(data)
         self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config.parent), "TERM": "dumb",
                     "PATH": ":".join([str(self.python.parent), *TOOL_DIRS])}
+
+    def write_caret(self, text):
+        (self.cache / "caret").write_text(text, encoding="utf-8")
 
     def fish(self, script, *args, interactive=False, env=None):
         command = [FISH, *(["-i"] if interactive else []), "-c", script, "--", *args]
@@ -184,7 +190,7 @@ class ListingTest(FishTestCase):
         self.assertEqual(done.stdout.strip(), build.eza_colors(palette.EZA))
 
 
-class SkyJobStartTest(FishTestCase):
+class JobStartTestCase(FishTestCase):
     """Whether the job started is read from fish_trace, which prints every command before it runs. That is
     synchronous, so a job that was not started is a fact, not a timeout. The starting cases are the controls
     that prove the trace can see the job."""
@@ -194,19 +200,18 @@ class SkyJobStartTest(FishTestCase):
     def setUp(self):
         super().setUp()
         (self.witchy / "ritual-config.json").write_text("{}", encoding="utf-8")
-        self.cache.mkdir(parents=True)
         self.bin = moon.phase_bin(datetime.now(timezone.utc))
 
     def start_shell(self, env=None, interactive=True, session=True):
         return self.fish("true", interactive=interactive, env={**(self.WT if session else {}), **(env or {})})
 
-    def sky_job_started(self, interactive=True, session=True):
-        """Starts a shell with tracing on and says whether it ran the --sky command. It also checks that the
+    def sky_job_started(self, interactive=True, session=True, mode="--sky", env=None):
+        """Starts a shell with tracing on and says whether it ran the job with ``mode``. It also checks that the
         trace saw the file that decides, so that an empty trace cannot pass for "did not start"."""
-        done = self.start_shell({"fish_trace": "1"}, interactive, session)
+        done = self.start_shell({"fish_trace": "1", **(env or {})}, interactive, session)
         lines = done.stderr.splitlines()
         self.assertTrue(any(re.search(r"source .*conf\.d/witchy\.fish$", line) for line in lines), done.stderr[-500:])
-        return any(re.search(r"^-+> .*/ritual'? --sky$", line) for line in lines)
+        return any(re.search(rf"^-+> .*/ritual'? {mode}$", line) for line in lines)
 
     def wait_for_python(self):
         deadline = time.monotonic() + 5
@@ -214,6 +219,8 @@ class SkyJobStartTest(FishTestCase):
             time.sleep(0.05)
         return self.python_args()
 
+
+class SkyJobStartTest(JobStartTestCase):
     def test_starts_the_job_when_the_phase_moved(self):
         (self.cache / "sky-bin").write_text(f"{(self.bin + 1) % 8}\n", encoding="utf-8")
         done = self.start_shell()
@@ -254,6 +261,111 @@ class SkyJobStartTest(FishTestCase):
         (self.witchy / "ritual-config.json").unlink()
         self.assertFalse(self.sky_job_started())
         self.assertIsNone(self.python_args())
+
+
+class CaretJobStartTest(JobStartTestCase):
+    """The same job, started once a day for the caret cache (prompt takeover spec 15.3)."""
+
+    def setUp(self):
+        super().setUp()
+        (self.cache / "sky-bin").write_text(f"{self.bin}\n", encoding="utf-8")  # the sky is current
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        self.write_caret(f"{yesterday}\n{date.today().isoformat()}\n")
+
+    def test_starts_the_caret_job_when_the_cache_is_not_from_today(self):
+        self.assertTrue(self.sky_job_started(mode="--caret"))
+        self.assertEqual(self.wait_for_python()[:4], ["-I", "-B", f"{self.witchy}/ritual", "--caret"])
+
+    def test_starts_it_outside_windows_terminal_and_without_the_sky_config(self):
+        (self.witchy / "ritual-config.json").unlink()
+        self.assertTrue(self.sky_job_started(session=False, mode="--caret"))
+
+    def test_starts_it_when_there_is_no_cache_yet(self):
+        (self.cache / "caret").unlink()
+        self.assertTrue(self.sky_job_started(mode="--caret"))
+
+    def test_a_moved_phase_starts_only_the_sky_job_which_writes_the_caret_too(self):
+        (self.cache / "sky-bin").write_text(f"{(self.bin + 1) % 8}\n", encoding="utf-8")
+        self.assertTrue(self.sky_job_started())
+        self.assertFalse(self.sky_job_started(mode="--caret"))
+
+    def test_nothing_after_a_failure_today_in_the_doctors_shell_or_a_non_interactive_one(self):
+        (self.cache / "sky-fail").write_text(date.today().isoformat() + "\n", encoding="utf-8")
+        self.assertFalse(self.sky_job_started(mode="--caret"))
+        (self.cache / "sky-fail").unlink()
+        self.assertFalse(self.sky_job_started(mode="--caret", env={"WITCHY_DOCTOR": "1"}))
+        self.assertFalse(self.sky_job_started(mode="--caret", interactive=False))
+        self.assertIsNone(self.python_args())
+
+    def test_nothing_without_python_or_the_greeting_package(self):
+        (self.witchy / "ritual" / "__main__.py").unlink()
+        self.assertFalse(self.sky_job_started(mode="--caret"))
+        self.python.unlink()
+        self.assertFalse(self.sky_job_started(mode="--caret"))
+
+
+class CaretTest(FishTestCase):
+    """conf.d/witchy.fish sets the caret colour from today's line of the cache, in every shell that reads conf.d."""
+
+    def caret(self, interactive=False, env=None):
+        done = self.fish("set -q -U tide_character_color; and echo universal; "
+                         "set -q -g tide_character_color; and echo $tide_character_color; or echo gold",
+                         interactive=interactive, env=env)
+        self.assertEqual(done.stderr, "")
+        return done.stdout.strip()
+
+    def day(self, offset=0):
+        return (date.today() + timedelta(days=offset)).isoformat()
+
+    def test_todays_line_sets_a_global_in_tides_child_shell_and_in_a_new_tab(self):
+        self.write_caret(f"{self.day()} FFB86B samhain\n{self.day(1)}\n")
+        self.assertEqual(self.caret(), "FFB86B")  # Tide draws the prompt in a non-interactive fish -c
+        self.assertEqual(self.caret(interactive=True), "FFB86B")
+        self.assertEqual(self.caret(interactive=True, env={"WITCHY_DOCTOR": "1"}), "FFB86B")
+
+    def test_yesterdays_second_line_covers_the_first_shell_of_today(self):
+        self.write_caret(f"{self.day(-1)} FFB86B samhain\n{self.day()} FFB86B samhain\n")
+        self.assertEqual(self.caret(), "FFB86B")
+
+    def test_other_days_leave_it_gold(self):
+        for text in (f"{self.day(-1)} FFB86B samhain\n{self.day()}\n", f"{self.day(-2)} FFB86B samhain\n",
+                     f"{self.day(1)} FFB86B samhain\n", f"{self.day()}\n{self.day(1)} FFB86B samhain\n"):
+            with self.subTest(text=text):
+                self.write_caret(text)
+                self.assertEqual(self.caret(), "gold")
+
+    def test_a_damaged_cache_leaves_it_gold(self):
+        for text in (f"{self.day()} #FFB86B samhain\n", f"{self.day()} ffb86b samhain\n",
+                     f"{self.day()} FFB86B; echo hacked\n", f"{self.day()} (echo FFB86B)\n", "", "\n\n",
+                     f"\xff\xfe {self.day()} FFB86B\n"):
+            with self.subTest(text=text):
+                self.write_caret(text)
+                self.assertEqual(self.caret(), "gold")
+
+    def test_samhain_eve_and_day_are_amber_and_the_day_after_gold(self):
+        """Acceptance criterion 10: the cache the job wrote, read by a shell on a later day or the same one."""
+        fake = Path(self.home.parent) / "fake-date"
+        fake.mkdir()
+        cases = (("2026-10-29", "2026-10-30", "FFB86B"), ("2026-10-30", "2026-10-30", "FFB86B"),
+                 ("2026-10-31", "2026-10-31", "FFB86B"), ("2026-10-31", "2026-11-01", "gold"),
+                 ("2026-11-01", "2026-11-01", "gold"))
+        for written, today, expected in cases:
+            with self.subTest(written=written, today=today):
+                caret.write(self.cache / "caret", date.fromisoformat(written), None)
+                (fake / "date").write_text(f"#!/bin/sh\necho {today}\n", encoding="utf-8")
+                (fake / "date").chmod(0o755)
+                self.assertEqual(self.caret(env={"PATH": f"{fake}:{self.env['PATH']}"}), expected)
+
+    def test_a_missing_or_unreadable_cache_leaves_it_gold(self):
+        (self.cache / "caret").unlink()
+        self.assertEqual(self.caret(), "gold")
+        (self.cache / "caret").mkdir()
+        self.assertEqual(self.caret(), "gold")
+        (self.cache / "caret").rmdir()
+        self.write_caret(f"{self.day()} FFB86B samhain\n")
+        (self.cache / "caret").chmod(0)
+        self.addCleanup((self.cache / "caret").chmod, 0o644)
+        self.assertEqual(self.caret(), "gold")
 
 
 if __name__ == "__main__":
