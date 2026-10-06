@@ -445,7 +445,7 @@ class InstallTest(InstallTestCase):
         mine = self.home / ".config" / "fish" / "functions" / "ll.fish"
         mine.parent.mkdir(parents=True)
         mine.write_text("function ll; ls -lh $argv; end\n", encoding="utf-8")
-        variables = {"tide_pwd_bg_color": {"value": ["FFB7C5"], "exported": False},
+        variables = {"tide_pwd_bg_color": {"value": ["3465A4"], "exported": False},
                      "tide_time_color": {"value": ["5F8787"], "exported": True}}
         original = json.loads(json.dumps(variables))
         before = self.snapshot()

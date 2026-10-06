@@ -18,7 +18,7 @@ TOOL_DIRS = list(dict.fromkeys([str(Path(FISH).parent) if FISH else "/usr/bin", 
 # a config.fish that prints something and sets a global that would hide a universal value.
 BEFORE = """\
 set -U tide_left_prompt_items os pwd git newline character
-set -U tide_pwd_bg_color FFB7C5
+set -U tide_pwd_bg_color 3465A4
 set -Ux tide_time_color 5F8787
 set -U tide_cmd_duration_threshold 3000
 """

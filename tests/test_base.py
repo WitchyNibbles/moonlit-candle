@@ -126,6 +126,19 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual((seen["args"], seen["input"], seen["timeout"], seen["env"]),
                          (["fish", "-c", "x"], "in", 5, {"HOME": "/tmp/h"}))
 
+    def test_a_command_can_carry_its_own_timeout(self):
+        seen = {}
+
+        def run(args, **kwargs):
+            seen.update(kwargs)
+            raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+        with self.assertRaises(ComponentFailed) as caught:
+            run_command(self.ctx(run), Command(("fish", "-i", "-c", "x"), "read the shell", timeout=15))
+        self.assertEqual(seen["timeout"], 15)
+        self.assertEqual(str(caught.exception), "could not read the shell (timed out after 15 s)")
+        self.assertEqual(Command(("x",), "do x").timeout, 5)
+
     def test_an_exact_command_sends_and_reads_every_byte_unchanged(self):
         seen = {}
 

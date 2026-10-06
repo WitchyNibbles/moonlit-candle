@@ -18,7 +18,7 @@ __all__ = ["Abort", "ComponentFailed", "Change", "Command", "JsonPlan", "Plan", 
            "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes", "run_command",
            "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock"]
 
-COMMAND_TIMEOUT = 5  # seconds for every fish call (spec 5.3)
+COMMAND_TIMEOUT = 5  # seconds, unless a command carries its own timeout (spec 5.3)
 
 
 def sha(data: bytes | None) -> str | None:
@@ -67,13 +67,15 @@ class Command:
     """A program to run: list arguments (never a shell string), optional standard input, and a label for messages.
 
     An ``exact`` command's input and output travel as UTF-8 bytes with surrogate escapes and no newline
-    translation, so every byte comes back as it was (a fish value can hold any byte but NUL).
+    translation, so every byte comes back as it was (a fish value can hold any byte but NUL). ``timeout`` is in
+    seconds.
     """
 
     args: tuple[str, ...]
     label: str
     input: str | None = None
     exact: bool = False
+    timeout: float = COMMAND_TIMEOUT
 
 
 @dataclass
@@ -222,7 +224,7 @@ def apply_changes(ctx: Any, changes: list[Change], backups: dict[Path, Path] | N
 
 
 def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.CompletedProcess:
-    """Run ``command`` through ``ctx.run`` with ``ctx.env`` and a timeout.
+    """Run ``command`` through ``ctx.run`` with ``ctx.env`` and the command's timeout.
 
     A command that cannot start or times out raises ComponentFailed (the cause is kept, so a caller can tell a
     missing program from a slow one); a non-zero exit raises it too unless ``check`` is false.
@@ -233,10 +235,10 @@ def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.Co
     else:
         data, text = command.input, {"text": True, "errors": "replace"}
     try:
-        done = ctx.run(list(command.args), input=data, capture_output=True, timeout=COMMAND_TIMEOUT,
+        done = ctx.run(list(command.args), input=data, capture_output=True, timeout=command.timeout,
                        env=dict(ctx.env), **text)
     except subprocess.TimeoutExpired as exc:  # its text would hold the whole argument list
-        raise ComponentFailed(f"could not {command.label} (timed out after {COMMAND_TIMEOUT} s)") from exc
+        raise ComponentFailed(f"could not {command.label} (timed out after {command.timeout:g} s)") from exc
     except OSError as exc:
         raise ComponentFailed(f"could not {command.label} ({exc.strerror or type(exc).__name__})") from exc
     except (ValueError, subprocess.SubprocessError) as exc:

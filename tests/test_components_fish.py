@@ -21,7 +21,7 @@ FISH = shutil.which("fish")
 # The prompt as Tide's own "lean" setup and the user left it: a pink pwd, an exported variable, no moon.
 USER_TIDE = {
     "tide_left_prompt_items": {"value": ["os", "pwd", "git", "newline", "character"], "exported": False},
-    "tide_pwd_bg_color": {"value": ["FFB7C5"], "exported": False},
+    "tide_pwd_bg_color": {"value": ["3465A4"], "exported": False},
     "tide_time_color": {"value": ["5F8787"], "exported": True},
     "tide_cmd_duration_threshold": {"value": ["3000"], "exported": False},
 }
@@ -99,7 +99,7 @@ class InstallTest(FishTestCase):
         runner.install(self.ctx())
         variables = self.entry()["variables"]
         self.assertEqual(set(variables), set(palette.TIDE))
-        self.assertEqual(variables["tide_pwd_bg_color"], {"previous": {"value": ["FFB7C5"], "exported": False},
+        self.assertEqual(variables["tide_pwd_bg_color"], {"previous": {"value": ["3465A4"], "exported": False},
                                                           "installed": ["B99AFF"]})
         self.assertEqual(variables["tide_moon_color"]["previous"], {"absent": True})
         self.assertEqual(variables["tide_time_color"]["previous"]["exported"], True)
@@ -153,7 +153,7 @@ class InstallTest(FishTestCase):
         self.assertNotIn("tide_pwd_bg_color", variables)
         self.assertNotIn("tide_time_color", variables)  # never reached
         self.assertIn("tide_cmd_duration_threshold", variables)  # needed no change
-        self.assertEqual(self.value("tide_pwd_bg_color"), ["FFB7C5"])
+        self.assertEqual(self.value("tide_pwd_bg_color"), ["3465A4"])
         self.assertEqual(self.state()["last_install"]["results"], {"fish": "failed: could not set tide_pwd_bg_color"})
 
     def test_a_fish_that_times_out_while_setting_keeps_the_files_recorded(self):
@@ -198,7 +198,7 @@ class InstallTest(FishTestCase):
     def test_what_config_fish_prints_is_ignored(self):
         run = fake_fish(self.variables, noise="Welcome!\n\0stray\0", calls=self.calls)
         self.assertEqual(runner.install(self.ctx(run=run)), 0)
-        self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"]["value"], ["FFB7C5"])
+        self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"]["value"], ["3465A4"])
 
     def test_a_value_comes_back_byte_for_byte(self):
         # A carriage return, a line break and a byte that is not UTF-8 (0xFF, held as the surrogate U+DCFF).
@@ -221,7 +221,7 @@ class InstallTest(FishTestCase):
         with mock.patch.dict(palette.TIDE, {"tide_pwd_bg_color": "D0B8FF"}):
             self.assertEqual(runner.install(self.ctx(stamp="20261003-130000")), 0)
         record = self.entry()["variables"]["tide_pwd_bg_color"]
-        self.assertEqual(record, {"previous": {"value": ["FFB7C5"], "exported": False}, "installed": ["D0B8FF"]})
+        self.assertEqual(record, {"previous": {"value": ["3465A4"], "exported": False}, "installed": ["D0B8FF"]})
         self.assertEqual(self.value("tide_pwd_bg_color"), ["D0B8FF"])
 
     def test_uninstall_gives_back_a_function_the_user_replaced_between_installs(self):
@@ -252,7 +252,7 @@ class InstallTest(FishTestCase):
         self.assertEqual(self.set_calls(), [])
         self.assertFalse((self.home / ".config").exists())
         self.assertEqual(self.variables, USER_TIDE)
-        self.assertIn("fish: set -U tide_pwd_bg_color B99AFF (now: FFB7C5)", self.out.getvalue())
+        self.assertIn("fish: set -U tide_pwd_bg_color B99AFF (now: 3465A4)", self.out.getvalue())
         self.assertIn("fish: set -Ux tide_time_color A99AB9 (now: 5F8787)", self.out.getvalue())
         self.assertIn("fish: set -U tide_moon_color FFD477 (now: unset)", self.out.getvalue())
 
