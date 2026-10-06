@@ -591,6 +591,60 @@ class DoctorTest(RunnerTestCase):
         self.assertIn("last install (20261002-120000): skipped: offline", self.out.getvalue())
 
 
+class Drifting(Fake):
+    """A component whose check fails with ``fix`` until it is applied again; ``heals`` False keeps it failing."""
+
+    def __init__(self, name, log, fix=None, heals=True):
+        super().__init__(name, log)
+        self.fix, self.heals, self.applied = fix, heals, False
+
+    def apply(self, ctx, plan):
+        self.applied = self.heals
+        return super().apply(ctx, plan)
+
+    def check(self, ctx, entry):
+        if self.applied:
+            return [Check("ok", self.name, "fine")]
+        return [Check("fail", self.name, "drifted", self.fix or f"python3 -m witchy install --only {self.name}")]
+
+
+class DoctorFixTest(RunnerTestCase):
+    def test_installs_only_what_a_witchy_command_fixes_then_checks_again(self):
+        self.write_state({"a": {}, "b": {}, "c": {}})
+        a, b, c = Fake("a", self.log), Drifting("b", self.log), Drifting("c", self.log)
+        self.assertEqual(runner.doctor(self.ctx(), [a, b, c], fix=True), 0, self.out.getvalue())
+        self.assertEqual(self.log, [("plan", "b"), ("plan", "c"), ("apply", "b"), ("apply", "c")])
+        output = self.out.getvalue()
+        self.assertIn("doctor --fix: python3 -m witchy install --only b --only c\n", output)
+        self.assertIn("doctor --fix: checking again\n✓ b                 fine\n✓ c                 fine\n", output)
+
+    def test_a_fix_another_component_carries_installs_that_component_in_order(self):
+        self.write_state({"tide": {}, "fish": {}})
+        tide, fish = Drifting("tide", self.log), Drifting("fish", self.log, fix="python3 -m witchy install --only tide")
+        runner.doctor(self.ctx(), [tide, fish], fix=True)
+        self.assertEqual(self.log, [("plan", "tide"), ("apply", "tide")])
+
+    def test_a_fix_by_hand_is_printed_and_never_run(self):
+        self.write_state({"a": {}})
+        by_hand = Drifting("a", self.log, fix="remove that function")
+        self.assertEqual(runner.doctor(self.ctx(), [by_hand], fix=True), 1)
+        self.assertEqual(self.log, [])
+        self.assertIn("    fix: remove that function\ndoctor --fix: no witchy command fixes these; do the fixes "
+                      "above by hand.\n", self.out.getvalue())
+
+    def test_still_broken_after_the_install_exits_1(self):
+        self.write_state({"a": {}})
+        self.assertEqual(runner.doctor(self.ctx(), [Drifting("a", self.log, heals=False)], fix=True), 1)
+        self.assertEqual(self.log, [("plan", "a"), ("apply", "a")])
+
+    def test_nothing_failing_installs_nothing(self):
+        self.write_state({"a": {}})
+        fine = CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])
+        self.assertEqual(runner.doctor(self.ctx(), [fine], fix=True), 0)
+        self.assertEqual(self.log, [])
+        self.assertNotIn("doctor --fix", self.out.getvalue())
+
+
 class MoodTest(RunnerTestCase):
     def test_lists_active_and_available(self):
         self.assertEqual(runner.mood(self.ctx(), None, [Fake("a", self.log)]), 0)

@@ -981,6 +981,17 @@ class FreshPcTest(TideTestCase):
         self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide@v6.1.1", "jorgebucaran/fisher@4.4.5"])
         self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
 
+    def test_doctor_fix_after_tide_configure_ends_clean(self):
+        self.fisher()
+        self.run_install()
+        self.variables["tide_pwd_icon"] = {"value": ["x"], "exported": False}  # what tide configure does
+        ctx = self.ctx(stamp="20261005-130000")
+        ctx.python = "/usr/bin/python3"
+        self.assertEqual(runner.doctor(ctx, [tide.TideComponent(fake_pins()), fish.FishComponent()], fix=True), 0,
+                         self.out.getvalue())
+        self.assertIn("doctor --fix: python3 -m witchy install --only fish\n", self.out.getvalue())
+        self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
+
     def test_a_ready_tide_lets_fish_plan_once(self):
         self.fisher(PINNED)
         self.assertEqual(self.run_install(), 0, self.out.getvalue())

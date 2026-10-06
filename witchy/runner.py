@@ -253,12 +253,33 @@ def _print_check(ctx: Any, check: Check) -> None:
         ctx.say(f"    fix: {check.fix}")
 
 
-def doctor(ctx: Any, components: Sequence[Component] | None = None) -> int:
+def doctor(ctx: Any, components: Sequence[Component] | None = None, fix: bool = False) -> int:
+    """Check every component; with ``fix``, re-install the ones a ✗ names in its fix, then check again (D18)."""
+    checks = _doctor(ctx, components)
+    failed = checks is None or any(check.level == "fail" for check in checks)
+    if not fix or not failed or checks is None:
+        return 1 if failed else 0
+    # Only fixes that are witchy commands run; the others (sudo apt, editing config.fish) stay printed above.
+    fixable = [component.name for component in _components(components)
+               if any(check.level == "fail" and check.fix == fix_command(component.name) for check in checks)]
+    if not fixable:
+        ctx.say("doctor --fix: no witchy command fixes these; do the fixes above by hand.")
+        return 1
+    ctx.say("doctor --fix: python3 -m witchy install " + " ".join(f"--only {name}" for name in fixable))
+    ctx.only = tuple(fixable)
+    install(ctx, components)
+    ctx.say("doctor --fix: checking again")
+    checks = _doctor(ctx, components)
+    return 1 if checks is None or any(check.level == "fail" for check in checks) else 0
+
+
+def _doctor(ctx: Any, components: Sequence[Component] | None) -> list[Check] | None:
+    """Print every check; None when state.json cannot be read."""
     try:
         state = statefile.load(ctx.state_path)
     except Abort as exc:
         _print_check(ctx, Check("fail", "state", " ".join(str(exc).split())))
-        return 1
+        return None
     entries = (state or {}).get("components", {})
     ctx.variant = ctx.variant or (state or {}).get("variant")  # fish compares the prompt with this variant's
     checks: list[Check] = []
@@ -277,7 +298,7 @@ def doctor(ctx: Any, components: Sequence[Component] | None = None) -> int:
             checks.append(Check("warn", name, f"last install ({last.get('at')}): {result}", fix_command(name)))
     for check in checks:
         _print_check(ctx, check)
-    return 1 if any(check.level == "fail" for check in checks) else 0
+    return checks
 
 
 def mood(ctx: Any, variant: str | None, components: Sequence[Component] | None = None) -> int:

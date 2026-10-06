@@ -25,7 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     uninstall_parser.add_argument("--dry-run", action="store_true", help="show the changes without writing anything")
     uninstall_parser.add_argument("--only", action="append", choices=components.NAMES, metavar="NAME",
                                   help="uninstall only this component (repeatable)")
-    commands.add_parser("doctor", help="check every installed piece and say how to fix it")
+    doctor_parser = commands.add_parser("doctor", help="check every installed piece and say how to fix it")
+    doctor_parser.add_argument("--fix", action="store_true",
+                               help="re-install what doctor marks ✗ when a witchy command fixes it, then check again")
     mood_parser = commands.add_parser("mood", help="show or switch the colour variant")
     mood_parser.add_argument("variant", nargs="?", help="variant to switch to")
     args = parser.parse_args(argv)
@@ -53,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "uninstall":
         return runner.uninstall(ctx)
     if args.command == "doctor":
-        return runner.doctor(ctx)
+        return runner.doctor(ctx, fix=args.fix)
     return runner.mood(ctx, args.variant)
 
 

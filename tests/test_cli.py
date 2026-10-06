@@ -73,6 +73,13 @@ class CliTest(unittest.TestCase):
             self.assertEqual(main(["install", "--only", "tide", "--only", "fish"]), 0)
         self.assertEqual(seen, [("tide", "fish")])
 
+    def test_doctor_fix_reaches_the_runner(self):
+        seen = []
+        with mock.patch("witchy.runner.doctor", side_effect=lambda ctx, fix: seen.append(fix) or 0):
+            self.assertEqual(main(["doctor", "--fix"]), 0)
+            self.assertEqual(main(["doctor"]), 0)
+        self.assertEqual(seen, [True, False])
+
     def test_doctor_and_mood_run_on_an_empty_home(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"HOME": tmp}), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
