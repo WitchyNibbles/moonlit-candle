@@ -24,6 +24,7 @@ It installs:
 /usr/bin/python3 -m witchy doctor                        # check what is installed and how to fix it
 /usr/bin/python3 -m witchy doctor --fix                  # re-install what doctor marks ✗, then check again
 /usr/bin/python3 -m witchy mood                          # show the active colour variant
+/usr/bin/python3 -m witchy preview                       # draw the prompt from the palette, without fish or Tide
 /usr/bin/python3 -m witchy uninstall                     # give everything back
 ```
 
@@ -38,6 +39,8 @@ Components, in install order: `claude`, `font`, `windows-terminal`, `tide`, `fis
 Exit codes for `install` and `uninstall`: `0` everything done, `1` nothing changed, `2` done with warnings (a component was skipped or failed: install names it in its summary line, `4/5 components installed · skipped: …`, and, for every component whose result is not ok, in a `✗✗✗ witchy is NOT fully installed ✗✗✗` banner below it with each reason; uninstall in its last line, `… still installed: …`).
 
 Restart Claude Code and Windows Terminal after installing, and open a new tab for the new prompt and greeting.
+
+`preview` prints the prompt in 24-bit colour for five sample states (home, a project with changes, a folder you cannot write to, a failed command, background jobs), as Tide would draw it with witchy's values. It needs neither fish nor Tide and writes nothing, so it also shows the prompt on a PC before install; `--variant NAME` picks another colour variant. It is a sketch: Tide's own code does not run.
 
 ## The greeting
 

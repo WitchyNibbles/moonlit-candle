@@ -334,6 +334,8 @@ Without a terminal on stdin, `--fresh` exits 1 with `--fresh needs a terminal to
 
 `python3 -m witchy preview [--variant NAME]` prints the left and right prompt as fish would draw them, in 24-bit colour, from `build.tide(variant)`, for these sample states: home, a project with dirty git, an unwritable directory, a failed command with duration, background jobs. It needs neither fish nor Tide, writes nothing and exits 0. It is a sketch: Tide's truncation and padding rules are copied for the samples, not run. It lives in `witchy/preview.py`.
 
+The lines fill the terminal's width, today's moon phase and time included. The failed command exits 2: with `character` on the left, Tide shows no status item for exit 1 and only turns the caret rose-red. The golden files hold each sample's two lines at 80 columns on 2026-10-31 21:13 UTC.
+
 ### 15.3 Seasonal caret (D17)
 
 - The sky job (ritual 4.5) also writes `~/.cache/witchy/caret`, two lines: one for today and one for tomorrow, each `<YYYY-MM-DD> <HEX> <sabbat>` when that day or the next is a sabbat, else `<YYYY-MM-DD>` alone (on 2026-10-31: `2026-10-31 FFB86B samhain`, then `2026-11-01`). Tomorrow's line lets the first shell of a day show the right caret before the job has run that day. Colours come from `palette.RITUAL` (the sabbat colours, already contrast-checked against the background), upper case and without `#`. `ritual --caret` writes the file and leaves the sky alone; `ritual --sky` writes it, then moves the sky.

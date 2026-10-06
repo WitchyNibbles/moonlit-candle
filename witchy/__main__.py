@@ -1,12 +1,13 @@
-"""python3 -m witchy validate | build | install | uninstall | doctor | mood"""
+"""python3 -m witchy validate | build | install | uninstall | doctor | mood | preview"""
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 from pathlib import Path
 
-from . import build, components, fresh, runner, validate
+from . import build, components, fresh, palette, preview, runner, validate
 from .context import Context
 
 
@@ -33,7 +34,14 @@ def main(argv: list[str] | None = None) -> int:
                                help="re-install what doctor marks ✗ when a witchy command fixes it, then check again")
     mood_parser = commands.add_parser("mood", help="show or switch the colour variant")
     mood_parser.add_argument("variant", nargs="?", help="variant to switch to")
+    preview_parser = commands.add_parser("preview", help="draw the prompt from the palette, without fish or Tide")
+    preview_parser.add_argument("--variant", choices=sorted(palette.VARIANTS), default=palette.DEFAULT_VARIANT,
+                                help="colour variant to draw")
     args = parser.parse_args(argv)
+
+    if args.command == "preview":
+        print(preview.render(args.variant, columns=shutil.get_terminal_size((80, 24)).columns), end="")
+        return 0
 
     if args.command == "validate":
         failures = validate.validate_all()
