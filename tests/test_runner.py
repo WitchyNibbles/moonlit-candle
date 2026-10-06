@@ -267,9 +267,64 @@ class Replanning(Fake):
 
 class ReplanTest(RunnerTestCase):
     def test_a_plan_can_ask_to_be_made_again_after_earlier_components_applied(self):
-        self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log), Replanning("b", self.log)]), 0)
+        ctx = self.ctx()
+        self.assertEqual(runner.install(ctx, [Fake("a", self.log), Replanning("b", self.log)]), 0)
         self.assertEqual(self.log, [("plan", "a"), ("plan", "b"), ("apply", "a"), ("plan", "b"), ("apply", "b")])
         self.assertIn("b planned after a", self.out.getvalue())
+        self.assertEqual((ctx.planned["b"].replan, ctx.planned["b"].notes), (False, ["b planned after a"]))
+
+    def test_a_second_plan_that_fails_fails_only_that_component(self):
+        class Failing(Fake):
+            def plan(self, ctx, entry):
+                self.log.append(("plan", self.name))
+                if ("apply", "a") in self.log:
+                    raise ComponentFailed("fish did not answer")
+                return Plan(replan=True)
+
+        code = runner.install(self.ctx(), [Fake("a", self.log), Failing("b", self.log)])
+        self.assertEqual(code, 2)
+        self.assertEqual(self.state()["last_install"]["results"], {"a": "ok", "b": "failed: fish did not answer"})
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertIn("1/2 components installed · failed: b (fish did not answer)", self.out.getvalue())
+        self.assertIn("  b: failed: fish did not answer", self.out.getvalue())
+        self.assertNotIn(("apply", "b"), self.log)
+
+    def test_the_second_plan_reads_files_an_earlier_component_changed(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Fresh(Fake):
+            def plan(self, ctx, entry):
+                self.log.append(("plan", self.name))
+                return Plan(changes=[Change(target, target.read_bytes(), b'{"x": 1}')],
+                            replan=("apply", "a") not in self.log)
+
+        def sky_job(ctx):
+            target.write_text('{"sky": 3}', encoding="utf-8")
+
+        code = runner.install(self.ctx(), [Fake("a", self.log, on_apply=sky_job), Fresh("b", self.log)])
+        self.assertEqual(code, 0, self.out.getvalue())
+        self.assertEqual(self.state()["last_install"]["results"], {"a": "ok", "b": "ok"})
+
+    def test_a_file_changed_after_the_second_plan_is_caught_under_its_lock(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Raced(Fake):
+            def plan(self, ctx, entry):
+                self.log.append(("plan", self.name))
+                if ("apply", "a") not in self.log:
+                    return Plan(replan=True)
+                plan = Plan(lock=ctx.home / "wt.lock", changes=[Change(target, target.read_bytes(), b'{"x": 1}')])
+                target.write_text('{"sky": 3}', encoding="utf-8")  # another writer, before b applies
+                return plan
+
+        code = runner.install(self.ctx(), [Fake("a", self.log), Raced("b", self.log)])
+        self.assertEqual(code, 2)
+        self.assertTrue(self.state()["last_install"]["results"]["b"].startswith("failed: "))
+        self.assertIn("changed while planning", self.state()["last_install"]["results"]["b"])
+        self.assertEqual(target.read_text(encoding="utf-8"), '{"sky": 3}')
+        self.assertNotIn(("apply", "b"), self.log)
 
     def test_a_dry_run_shows_the_first_plan(self):
         self.assertEqual(runner.install(self.ctx(dry_run=True), [Fake("a", self.log), Replanning("b", self.log)]), 0)
@@ -288,6 +343,15 @@ class BannerTest(RunnerTestCase):
                                                       "  b: skipped: Tide not found",
                                                       "  c: failed: boom",
                                                       "Fix the lines above, then run: python3 -m witchy install"])
+
+    def test_any_result_that_is_not_ok_gets_the_banner(self):
+        class Partial(Fake):
+            def plan(self, ctx, entry):
+                return Plan(outcome="partly: Tide variables not set")
+
+        self.assertEqual(runner.install(self.ctx(), [Partial("a", self.log)]), 2)
+        self.assertIn("✗✗✗ witchy is NOT fully installed ✗✗✗\n  a: partly: Tide variables not set\n",
+                      self.out.getvalue())
 
     def test_a_clean_run_has_no_banner(self):
         self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log)]), 0)

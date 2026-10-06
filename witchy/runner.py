@@ -118,29 +118,29 @@ def _install(ctx: Any, components: list) -> int:
     ctx.results = results
     applied = set()
     for index, (component, plan) in enumerate(plans):
-        if plan.replan:
-            # An earlier component of this run changed what this one finds (fish after tide installed Tide).
-            plan = component.plan(ctx, ctx.entries.get(component.name))
-            plans[index] = (component, plan)
-            ctx.planned[component.name] = plan
-        if plan.skip is not None:
-            results[component.name] = f"skipped: {plan.skip}"
-        else:
-            try:
+        try:
+            if plan.replan:
+                # An earlier component of this run changed what this one finds (fish after tide installed Tide).
+                plan = component.plan(ctx, ctx.entries.get(component.name))
+                plans[index] = (component, plan)
+                ctx.planned[component.name] = plan
+            if plan.skip is not None:
+                results[component.name] = f"skipped: {plan.skip}"
+            else:
                 with file_lock(plan.lock):
                     _recheck(plan.changes)
                     new_state["components"][component.name] = component.apply(ctx, plan)
                 applied.add(component.name)
                 results[component.name] = plan.outcome or "ok"
-            except ComponentFailed as exc:
-                results[component.name] = f"failed: {exc}"
+        except ComponentFailed as exc:
+            results[component.name] = f"failed: {exc}"
         new_state["last_install"] = {"at": ctx.stamp, "results": dict(results)}
         # Saved after every component: a later one can fail on the Windows side, and the
         # record must already describe what is really installed.
         statefile.save(ctx.state_path, new_state)
     ok = all(result == "ok" for result in results.values())
     ctx.say(_summary(results))
-    problems = {name: result for name, result in results.items() if result.startswith(("skipped: ", "failed: "))}
+    problems = {name: result for name, result in results.items() if result != "ok"}
     if problems:  # spec 9.2: a summary line alone is too easy to miss
         ctx.say(BANNER)
         for name, result in problems.items():

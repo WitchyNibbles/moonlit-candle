@@ -612,8 +612,11 @@ class TakeoverTest(TideTestCase):
             return tide.TideComponent(fake_pins()).plan(self.ctx(fake=fake), None).data["reprobe"]
 
         self.assertTrue(reprobe(FakeFisher(self.config, {"jorgebucaran/fisher": FISHER})))
-        self.write("config.fish", b"starship init fish | source\n")
         self.assertFalse(reprobe(FakeFisher(self.config, PINNED)))
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.assertTrue(reprobe(FakeFisher(self.config, PINNED)))  # disabling it gives the prompt back to Tide
+        config.write_bytes(b"set -g tide_time_color 5F8787\n")
+        self.assertTrue(reprobe(FakeFisher(self.config, PINNED)))  # it hides the universal tide_ variables
 
 
 class UninstallTest(TideTestCase):
@@ -942,6 +945,15 @@ class FreshPcTest(TideTestCase):
         self.assertEqual(self.state()["last_install"]["results"]["fish"],
                          "skipped: Tide not ready (run: python3 -m witchy install --only tide)")
         self.assertEqual(self.fisher_calls(), [])
+
+    def test_a_line_tide_disables_no_longer_keeps_fish_from_finding_tide_ready(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher(PINNED, sourced=True)
+        self.assertEqual(fishprobe.tide_ready(fishprobe.probe(self.ctx())), "fish_prompt is not Tide's (-)")
+        self.assertEqual(self.run_install(), 0, self.out.getvalue())
+        self.assertEqual(self.state()["last_install"]["results"], {"tide": "ok", "fish": "ok"})
+        self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
 
     def test_a_ready_tide_lets_fish_plan_once(self):
         self.fisher(PINNED)

@@ -212,8 +212,9 @@ class TideComponent:
             data["error"] = CURL_MISSING  # fisher downloads with curl; nothing is downloaded without it
         if data["error"] is not None:
             return Plan(actions=[f"tide: cannot go ahead: {data['error']}"], data=data)
-        # fish plans again once this plan ran when it changes which prompt fish runs (spec D19: fish asks fish).
-        data["reprobe"] = installs or prompt is not None or bool(plugins)
+        # fish plans again once this plan ran when it changes what fish finds (spec D19: fish asks fish): `fish -c`
+        # reads config.fish and conf.d, so a line still to be disabled hides Tide's prompt or its variables.
+        data["reprobe"] = installs or prompt is not None or bool(plugins) or bool(scan.changes)
         return Plan(changes=scan.changes, actions=actions, data=data)
 
     def apply(self, ctx: Any, plan: Plan) -> dict:

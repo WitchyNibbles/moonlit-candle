@@ -213,7 +213,10 @@ class FakeFisher:
     ``installed`` maps the plugins there at the start (by fisher's name, such as ``ilancosman/tide``) to their files;
     ``served`` is what `fisher install` can fetch, by ``owner/repo@ref``. fisher is a function when
     functions/fisher.fish exists or while a bootstrap script runs; `fisher --version` and `tide --version` print the
-    version their file holds, and fish_prompt comes from functions/fish_prompt.fish. Like the real fisher, install
+    version their file holds, and fish_prompt comes from functions/fish_prompt.fish. With ``sourced``, an active
+    `starship init` or `oh-my-posh init` line in config.fish or conf.d defines it from stdin ("-") instead, as
+    `fish -c` does for a line outside `if status is-interactive` (the fake does not read such guards, so tests that
+    set ``sourced`` use unguarded lines). Like the real fisher, install
     refuses a file that is already there (unless it updates that plugin), remove deletes the plugin's files, and
     removing Tide erases every universal tide_ variable. Other fish calls go to fake_fish with ``variables``.
     ``calls`` gets each command.
@@ -221,8 +224,9 @@ class FakeFisher:
 
     VERSION = re.compile(rb"version (\S+)'")
 
-    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False):
-        self.config, self.missing, self.bootstrapping = config, missing, False
+    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False,
+                 sourced=False):
+        self.config, self.missing, self.bootstrapping, self.sourced = config, missing, False, sourced
         self.served = RELEASES if served is None else served
         self.variables = {} if variables is None else variables
         self.calls = [] if calls is None else calls
@@ -252,10 +256,20 @@ class FakeFisher:
         prompt = self.config / "functions" / "fish_prompt.fish"
         fields = ["fisher", f"fisher, version {fisher}"] if fisher is not None else ["no-fisher"]
         fields += ["tide", f"tide, version {tide}"] if tide is not None else ["no-tide"]
-        fields.append(str(prompt) if prompt.is_file() else "n/a")
+        fields.append("-" if self.sourced and self._sourced_prompt() else str(prompt) if prompt.is_file() else "n/a")
         for name, tops in self.plugins.items():
             fields += [name, str(len(tops)), *(str(self.config / top) for top in tops)]
         return fields
+
+    def _sourced_prompt(self):
+        """An active line that sources another prompt's fish_prompt, as fish -c reads config.fish and conf.d."""
+        from witchy import takeover
+
+        conf_d = self.config / "conf.d"
+        files = [self.config / "config.fish"] + (sorted(conf_d.glob("*.fish")) if conf_d.is_dir() else [])
+        return any(takeover.owner(line) in ("starship init", "oh-my-posh init")
+                   for path in files if path.is_file()
+                   for line in path.read_text(encoding="utf-8", errors="surrogateescape").splitlines())
 
     def fisher(self, command, names):
         if not self.bootstrapping and not (self.config / "functions" / "fisher.fish").is_file():
