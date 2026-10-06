@@ -106,16 +106,25 @@ def aside(path: Path, stamp: str) -> Path:
     return target
 
 
+def located(path: Path) -> Path:
+    """``path`` with its folder resolved: fisher may list a symlinked config folder by its target, while a
+    symlinked file keeps its own name."""
+    return path.parent.resolve() / path.name
+
+
 def owners(ctx: Any, found: fishprobe.Probe) -> tuple[Path | None, list[str], takeover.Scan]:
     """Every other prompt owner (spec 5.2): a fish_prompt.fish no plugin installed, the other fisher plugins that
     ship one, and the lines of config.fish and conf.d that start one or set a global tide_ variable."""
     folder = config_dir(ctx)
     prompt = folder / "functions" / "fish_prompt.fish"
+    where = located(prompt)
     listed = {Path(path) for files in found.plugins.values() for path in files}
     ours = {folder / name for name in build.fish_files("", Path())}  # witchy's own fish files
-    hand_written = prompt if (prompt.is_file() or prompt.is_symlink()) and prompt not in listed else None
+    hand_written = (prompt if (prompt.is_file() or prompt.is_symlink())
+                    and where not in {located(path) for path in listed} else None)
     plugins = [name for name, files in found.plugins.items()
-               if name.lower().split("@", 1)[0] != fishprobe.TIDE_PLUGIN and str(prompt) in files]
+               if name.lower().split("@", 1)[0] != fishprobe.TIDE_PLUGIN
+               and where in {located(Path(path)) for path in files}]
     return hand_written, plugins, takeover.scan(folder, listed | ours)
 
 
@@ -243,10 +252,11 @@ class TideComponent:
             moved = self._move_prompt(ctx, data["prompt"])
             entry["moved_prompt"] = entry["moved_prompt"] or moved
         for name in data["plugins"]:
-            self._run(ctx, fisher_command(f"remove {name}", "remove", name))
-            ctx.say(f"tide: removed the fisher plugin {name}, which shipped its own fish_prompt")
+            # Recorded first: fisher may delete the plugin's files and still fail, and uninstall must bring it back.
             if name not in entry["removed_plugins"]:
                 entry["removed_plugins"].append(name)
+            self._run(ctx, fisher_command(f"remove {name}", "remove", name))
+            ctx.say(f"tide: removed the fisher plugin {name}, which shipped its own fish_prompt")
         if data["tide"] == "replace":
             # Recorded first: from here on the user's Tide may be gone, and uninstall must bring it back.
             entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or data["replace"]
@@ -270,8 +280,8 @@ class TideComponent:
 
     def _move_prompt(self, ctx: Any, prompt: Path) -> dict:
         target = aside(prompt, ctx.stamp)
-        data = read(prompt)
         try:
+            data = read(prompt)
             prompt.rename(target)
         except OSError as exc:
             raise ComponentFailed(f"could not move {tilde(ctx, prompt)} aside ({exc.strerror or exc})") from exc
@@ -280,10 +290,15 @@ class TideComponent:
         return {"path": str(prompt), "backup": str(target), "installed_sha256": sha(data)}
 
     def _disable_lines(self, ctx: Any, plan: Plan, entry: dict) -> None:
-        """Comment out each line of another prompt owner; a file's first backup stays its record (spec 5.2)."""
+        """Comment out each line of another prompt owner; a file's first backup stays its record (spec 5.2).
+
+        fisher ran for minutes since the plan, so each file is checked again first: an edit is never overwritten."""
         records = {record["path"]: record for record in entry["disabled_files"]}
         for change in plan.changes:
             try:
+                if read(change.path) != change.before:
+                    raise ComponentFailed(f"{tilde(ctx, change.path)} changed while Tide was installed; its lines "
+                                          "were not disabled. Run the command again.")
                 backup = jsonio.backup(change.path, ctx.stamp)
                 jsonio.write_atomic_bytes(change.path, change.after)
             except OSError as exc:
@@ -296,7 +311,7 @@ class TideComponent:
             records[str(change.path)] = {"path": str(change.path),
                                          "backup": earlier["backup"] if earlier else str(backup),
                                          "installed_sha256": sha(change.after)}
-        entry["disabled_files"] = list(records.values())
+            entry["disabled_files"] = list(records.values())  # each file as it is written
 
     def _run(self, ctx: Any, command: Command) -> None:
         done = installlog.run(ctx, command)

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -442,6 +443,84 @@ class TakeoverTest(TideTestCase):
         self.assertEqual(prompt.read_bytes(), b"function fish_prompt\n    echo mine\nend\n")
         self.assertEqual(config.read_bytes(), b"starship init fish | source\n")
         self.assertEqual(self.backups(), [])
+
+    def test_a_plugin_whose_remove_fails_is_still_recorded(self):
+        self.fisher({"jorgebucaran/fisher": FISHER, "pure-fish/pure": PURE})
+        ctx = self.ctx()
+        real = ctx.run
+
+        def run(args, **kwargs):
+            done = real(args, **kwargs)
+            if args[2:5] == [tide.FISHER_SCRIPT, "--", "remove"]:  # the files are gone, and fisher still fails
+                error = "pure: uninstall failed\n"
+                return subprocess.CompletedProcess(args, 1, stdout=done.stdout,
+                                                   stderr=error if kwargs.get("text") else error.encode())
+            return done
+
+        ctx.run = run
+        self.assertEqual(self.install(ctx), 2)
+        self.assertTrue(self.result().startswith("failed: could not remove pure-fish/pure (exit 1)"), self.result())
+        self.assertEqual(self.entry()["removed_plugins"], ["pure-fish/pure"])
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads every file")
+    def test_an_unreadable_prompt_fails_and_what_was_installed_stays_recorded(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\nend\n")
+        prompt.chmod(0)
+        self.addCleanup(prompt.chmod, 0o644)
+        self.fisher()
+        self.assertEqual(self.install(), 2)
+        self.assertTrue(self.result().startswith("failed: could not move ~/.config/fish/functions/fish_prompt.fish "
+                                                 "aside"), self.result())
+        self.assertTrue(self.entry()["installed_fisher"])
+        self.assertTrue(prompt.is_file())
+
+    def test_tides_own_prompt_stays_when_fisher_lists_the_folder_a_symlink_points_to(self):
+        real = self.root / "dotfiles" / "fish"
+        real.parent.mkdir()
+        self.config.rmdir()
+        self.config.symlink_to(real, target_is_directory=True)
+        real.mkdir()
+        self.fake = FakeFisher(real, PINNED, variables=self.variables)  # fisher_path is the resolved folder
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertEqual((real / "functions" / "fish_prompt.fish").read_bytes(),
+                         TIDE_FILES["functions/fish_prompt.fish"])
+        self.assertEqual(self.backups(), [])
+        self.assertNotIn("moved", self.out.getvalue())
+
+    def test_a_config_edited_while_tide_installs_is_not_overwritten(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        ctx = self.ctx()
+        real = ctx.run
+
+        def run(args, **kwargs):
+            if args[2:6] == [tide.FISHER_SCRIPT, "--", "install", tide.TIDE_SOURCE]:
+                config.write_bytes(b"starship init fish | source\nset -g fish_greeting\n")
+            return real(args, **kwargs)
+
+        ctx.run = run
+        self.assertEqual(self.install(ctx), 2)
+        self.assertEqual(self.result(), "failed: ~/.config/fish/config.fish changed while Tide was installed; "
+                                        "its lines were not disabled. Run the command again.")
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\nset -g fish_greeting\n")
+        self.assertTrue(self.entry()["installed_tide"])
+        self.assertEqual(self.backups(), [])
+
+    def test_a_symlinked_prompt_is_moved_as_a_link_and_its_target_is_untouched(self):
+        target = self.root / "dotfiles" / "fish_prompt.fish"
+        target.parent.mkdir()
+        target.write_bytes(b"function fish_prompt\n    echo dotfiles\nend\n")
+        prompt = self.config / "functions" / "fish_prompt.fish"
+        prompt.parent.mkdir()
+        prompt.symlink_to(target)
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        moved = prompt.with_name("fish_prompt.fish.bak-witchy-20261005-120000")
+        self.assertTrue(moved.is_symlink())
+        self.assertEqual(moved.resolve(), target)
+        self.assertEqual(target.read_bytes(), b"function fish_prompt\n    echo dotfiles\nend\n")
+        self.assertEqual(prompt.read_bytes(), TIDE_FILES["functions/fish_prompt.fish"])
+        self.assertEqual(self.entry()["moved_prompt"]["installed_sha256"], sha(target.read_bytes()))
 
     def test_a_second_run_changes_nothing(self):
         self.write("config.fish", b"starship init fish | source\nset -gx tide_time_color 5F8787\n")
