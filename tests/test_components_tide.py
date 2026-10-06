@@ -518,6 +518,23 @@ class TakeoverTest(TideTestCase):
         self.assertTrue(self.entry()["installed_tide"])
         self.assertEqual(self.backups(), [])
 
+    def test_tide_is_ready_only_once_the_lines_are_disabled(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertTrue(self.entry()["installed_tide"])
+        self.assertIsNone(fishprobe.tide_ready(fishprobe.probe(self.ctx())))
+
+    def test_a_prompt_line_it_cannot_disable_fails_and_keeps_the_record(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        # A plugin's own conf.d is fisher's to manage, never edited; this one ships no fish_prompt.
+        self.fisher({**PINNED, "someone/starship": {"conf.d/starship.fish": b"starship init fish | source\n"}})
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: Tide is installed but not ready: fish_prompt is not Tide's (-)")
+        self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertEqual([record["path"] for record in self.entry()["disabled_files"]], [str(config)])
+
     def test_a_symlinked_prompt_is_moved_as_a_link_and_its_target_is_untouched(self):
         target = self.root / "dotfiles" / "fish_prompt.fish"
         target.parent.mkdir()
@@ -948,11 +965,20 @@ class FreshPcTest(TideTestCase):
 
     def test_a_line_tide_disables_no_longer_keeps_fish_from_finding_tide_ready(self):
         config = self.write("config.fish", b"starship init fish | source\n")
-        self.fisher(PINNED, sourced=True)
+        self.fisher(PINNED)
         self.assertEqual(fishprobe.tide_ready(fishprobe.probe(self.ctx())), "fish_prompt is not Tide's (-)")
         self.assertEqual(self.run_install(), 0, self.out.getvalue())
         self.assertEqual(self.state()["last_install"]["results"], {"tide": "ok", "fish": "ok"})
         self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
+
+    def test_a_fresh_pc_with_a_starship_line_ends_with_the_witchy_prompt(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher()
+        self.assertEqual(self.run_install(), 0, self.out.getvalue())
+        self.assertEqual(self.state()["last_install"]["results"], {"tide": "ok", "fish": "ok"})
+        self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide@v6.1.1", "jorgebucaran/fisher@4.4.5"])
         self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
 
     def test_a_ready_tide_lets_fish_plan_once(self):

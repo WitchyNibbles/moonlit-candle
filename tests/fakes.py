@@ -213,10 +213,10 @@ class FakeFisher:
     ``installed`` maps the plugins there at the start (by fisher's name, such as ``ilancosman/tide``) to their files;
     ``served`` is what `fisher install` can fetch, by ``owner/repo@ref``. fisher is a function when
     functions/fisher.fish exists or while a bootstrap script runs; `fisher --version` and `tide --version` print the
-    version their file holds, and fish_prompt comes from functions/fish_prompt.fish. With ``sourced``, an active
-    `starship init` or `oh-my-posh init` line in config.fish or conf.d defines it from stdin ("-") instead, as
-    `fish -c` does for a line outside `if status is-interactive` (the fake does not read such guards, so tests that
-    set ``sourced`` use unguarded lines). Like the real fisher, install
+    version their file holds, and fish_prompt comes from functions/fish_prompt.fish, or from stdin ("-") while an
+    active `starship init` or `oh-my-posh init` line in config.fish or conf.d sources one, as `fish -c` does. The
+    fake does not read `if status is-interactive` guards (`fish -c` skips what they hold), so tests that want such a
+    line to define fish_prompt write it unguarded. Like the real fisher, install
     refuses a file that is already there (unless it updates that plugin), remove deletes the plugin's files, and
     removing Tide erases every universal tide_ variable. Other fish calls go to fake_fish with ``variables``.
     ``calls`` gets each command.
@@ -224,9 +224,8 @@ class FakeFisher:
 
     VERSION = re.compile(rb"version (\S+)'")
 
-    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False,
-                 sourced=False):
-        self.config, self.missing, self.bootstrapping, self.sourced = config, missing, False, sourced
+    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False):
+        self.config, self.missing, self.bootstrapping = config, missing, False
         self.served = RELEASES if served is None else served
         self.variables = {} if variables is None else variables
         self.calls = [] if calls is None else calls
@@ -256,7 +255,7 @@ class FakeFisher:
         prompt = self.config / "functions" / "fish_prompt.fish"
         fields = ["fisher", f"fisher, version {fisher}"] if fisher is not None else ["no-fisher"]
         fields += ["tide", f"tide, version {tide}"] if tide is not None else ["no-tide"]
-        fields.append("-" if self.sourced and self._sourced_prompt() else str(prompt) if prompt.is_file() else "n/a")
+        fields.append("-" if self._sourced_prompt() else str(prompt) if prompt.is_file() else "n/a")
         for name, tops in self.plugins.items():
             fields += [name, str(len(tops)), *(str(self.config / top) for top in tops)]
         return fields

@@ -282,11 +282,13 @@ class TideComponent:
                     entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or TIDE_SOURCE
                 raise
             entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
-            reason = fishprobe.tide_ready(found)
-            if reason:
-                raise ComponentFailed(f"Tide is installed but not ready: {reason}")
         # Last: while Tide is not in place, the user's own prompt line keeps working.
         self._disable_lines(ctx, plan, entry)
+        if data["tide"] is not None or plan.changes:
+            # Only now can fish_prompt be Tide's: `fish -c` read the lines just disabled until they were.
+            reason = fishprobe.tide_ready(fishprobe.probe(ctx) if plan.changes else found)
+            if reason:
+                raise ComponentFailed(f"Tide is installed but not ready: {reason}")
 
     def _move_prompt(self, ctx: Any, prompt: Path) -> dict:
         target = aside(prompt, ctx.stamp)
