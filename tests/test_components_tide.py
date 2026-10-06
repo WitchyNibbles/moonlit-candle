@@ -6,14 +6,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from tests.fakes import FISHER_FILE, RELEASES, TIDE_FILES, FakeFisher, fake_pins
-from witchy import content, fishprobe, runner
+from tests.fakes import FISHER_FILE, RELEASES, TIDE_FILES, FakeFisher, fake_pins, release_tarball
+from witchy import content, fishprobe, pinning, runner
 from witchy.components import fish, tide
 from witchy.components.base import run_command, sha
 from witchy.context import Context
 
 FISHER = RELEASES["jorgebucaran/fisher@4.4.5"]
+BOOTSTRAP_URL = "https://example.invalid/fisher.fish"
 REAL_FISH = shutil.which("fish")
 ROOT = Path(__file__).resolve().parent.parent
 OLD_TIDE = {**TIDE_FILES, "functions/tide.fish": b"function tide\n    echo 'tide, version 6.0.0'\nend\n"}
@@ -33,6 +35,7 @@ class TideTestCase(unittest.TestCase):
         (self.bin / "curl").chmod(0o755)
         self.fetched = []
         self.variables = {}
+        self.releases = dict(RELEASES)  # what the release tarballs hold when witchy downloads them to check them
 
     def fisher(self, installed=None, served=None, **kwargs):
         self.fake = FakeFisher(self.config, installed=installed, served=served, variables=self.variables, **kwargs)
@@ -40,7 +43,17 @@ class TideTestCase(unittest.TestCase):
 
     def fetch(self, url):
         self.fetched.append(url)
-        return FISHER_FILE
+        if url == BOOTSTRAP_URL:
+            return FISHER_FILE
+        for source, files in self.releases.items():
+            if url == pinning.tarball_url(source):
+                return release_tarball(files)
+        raise OSError(f"no such download: {url}")
+
+    def downloads(self):
+        """The bootstrap file and each release tarball, by what was downloaded."""
+        return [url for url in self.fetched if url == BOOTSTRAP_URL] + [
+            url.split("/repos/")[1].split("/tarball")[0] for url in self.fetched if "/tarball/" in url]
 
     def ctx(self, fake=None, dry_run=False, stamp="20261005-120000", fetch=None, path=None):
         self.out = io.StringIO()
@@ -76,7 +89,7 @@ class BootstrapTest(TideTestCase):
     def test_a_pc_with_fish_only_gets_fisher_and_tide(self):
         self.fisher()
         self.assertEqual(self.install(), 0, self.out.getvalue())
-        self.assertEqual(self.fetched, ["https://example.invalid/fisher.fish"])
+        self.assertEqual(self.downloads(), [BOOTSTRAP_URL, "jorgebucaran/fisher", "ilancosman/tide"])
         cached = self.home / ".cache" / "witchy" / "fisher-4.4.5.fish"
         self.assertEqual(cached.read_bytes(), FISHER_FILE)
         self.assertEqual(self.fisher_calls(), [("bootstrap", str(cached), "jorgebucaran/fisher@4.4.5"),
@@ -93,7 +106,7 @@ class BootstrapTest(TideTestCase):
         cached.write_bytes(FISHER_FILE)
         self.fisher()
         self.assertEqual(self.install(), 0, self.out.getvalue())
-        self.assertEqual(self.fetched, [])
+        self.assertEqual(self.downloads(), ["jorgebucaran/fisher", "ilancosman/tide"])
 
     def test_a_bootstrap_file_that_does_not_match_its_pin_is_never_run(self):
         self.fisher()
@@ -179,9 +192,123 @@ class BootstrapTest(TideTestCase):
         self.assertEqual(self.install(), 2)
         self.assertEqual(self.result(), "failed: ilancosman/tide files do not match the pinned release")
         self.assertEqual(self.fisher_calls(), [("fisher", "install", "ilancosman/tide@v6.1.1"),
-                                               ("fisher", "remove", "ilancosman/tide@v6.1.1")])
+                                               ("swap", "ilancosman/tide@v6.1.1", "")])
         self.assertFalse((self.config / "functions" / "tide.fish").exists())
         self.assertNotIn("tide", self.state()["components"])
+
+    def test_a_removed_tide_that_did_not_match_keeps_the_tide_variables(self):
+        self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.fisher({"jorgebucaran/fisher": FISHER}, served=self.tampered_tide())
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+
+    def tampered_tide(self, **more):
+        bad = {**TIDE_FILES, "functions/tide.fish": b"function tide\n    echo 'tide, version 6.1.1'; evil\nend\n"}
+        return {**RELEASES, "ilancosman/tide@v6.1.1": bad, **more}
+
+    def test_a_replacement_that_does_not_match_puts_the_previous_tide_back(self):
+        self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE},
+                    served=self.tampered_tide(**{"ilancosman/tide": OLD_TIDE}))
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: ilancosman/tide files do not match the pinned release")
+        self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide", "ilancosman/tide@v6.1.1"),
+                                               ("swap", "ilancosman/tide@v6.1.1", "ilancosman/tide")])
+        self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide", "jorgebucaran/fisher"])
+        self.assertEqual((self.config / "functions" / "tide.fish").read_bytes(), OLD_TIDE["functions/tide.fish"])
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.assertNotIn("tide", self.state()["components"])  # nothing changed, so nothing is recorded
+
+    def test_fisher_that_does_not_match_after_the_bootstrap_is_removed_again(self):
+        bad = {**RELEASES["jorgebucaran/fisher@4.4.5"], "completions/fisher.fish": b"evil\n"}
+        self.fisher(served={**RELEASES, "jorgebucaran/fisher@4.4.5": bad})
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: jorgebucaran/fisher files do not match the pinned release")
+        self.assertEqual([call[0] for call in self.fisher_calls()], ["bootstrap", "fisher"])
+        self.assertEqual(self.fisher_calls()[1][:2], ("fisher", "remove"))
+        self.assertEqual(self.fake.plugins, {})
+
+    def test_fisher_that_does_not_match_after_an_update_is_removed_again(self):
+        bad = {**RELEASES["jorgebucaran/fisher@4.4.5"], "completions/fisher.fish": b"evil\n"}
+        self.fisher({"jorgebucaran/fisher@4.4.5": FISHER, "ilancosman/tide@v6.1.1": TIDE_FILES},
+                    served={**RELEASES, "jorgebucaran/fisher@4.4.5": bad})
+        (self.config / "completions" / "fisher.fish").write_bytes(b"edited\n")
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: jorgebucaran/fisher files do not match the pinned release")
+        self.assertEqual(self.fisher_calls(), [("fisher", "install", "jorgebucaran/fisher@4.4.5"),
+                                               ("fisher", "remove", "jorgebucaran/fisher@4.4.5")])
+
+    def test_a_release_that_does_not_match_the_pins_is_never_installed(self):
+        self.releases["ilancosman/tide@v6.1.1"] = self.tampered_tide()["ilancosman/tide@v6.1.1"]
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: ilancosman/tide release does not match the pinned files")
+        self.assertEqual(self.fisher_calls(), [])
+        self.assertEqual(sorted(self.fake.plugins), ["jorgebucaran/fisher"])
+        self.assertIn("--- download https://api.github.com/repos/ilancosman/tide/tarball/v6.1.1: ", self.log())
+        self.assertNotIn("tide", self.state()["components"])
+
+    def test_a_fisher_release_that_does_not_match_stops_before_the_bootstrap_runs(self):
+        self.releases["jorgebucaran/fisher@4.4.5"] = {**FISHER, "functions/extra.fish": b"evil\n"}
+        self.fisher()
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: jorgebucaran/fisher release does not match the pinned files")
+        self.assertEqual(self.fisher_calls(), [])
+
+    def test_a_release_that_does_not_match_never_replaces_the_users_tide(self):
+        self.releases["ilancosman/tide@v6.1.1"] = {**TIDE_FILES, "conf.d/evil.fish": b"evil\n"}
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE})
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.fisher_calls(), [])
+        self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide", "jorgebucaran/fisher"])
+
+    def test_a_download_that_is_no_archive_does_not_match(self):
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        ctx = self.ctx(fetch=lambda url: b"<html>rate limited</html>")
+        self.assertEqual(self.install(ctx), 2)
+        self.assertEqual(self.result(), "failed: ilancosman/tide release does not match the pinned files")
+        self.assertEqual(self.fisher_calls(), [])
+
+    def test_a_release_download_that_fails_installs_nothing(self):
+        def offline(url):
+            raise OSError("network is unreachable")
+
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(self.ctx(fetch=offline)), 2)
+        self.assertEqual(self.result(), "failed: could not download ilancosman/tide to check it "
+                                        "(network is unreachable)")
+        self.assertEqual(self.fisher_calls(), [])
+        self.assertIn("--- download https://api.github.com/repos/ilancosman/tide/tarball/v6.1.1: network is "
+                      "unreachable", self.log())
+
+    def test_a_file_witchy_cannot_read_ends_the_install_without_a_traceback(self):
+        real = Path.read_bytes
+
+        def unreadable(path):
+            if path.name == "icons.fish" and path.is_relative_to(self.config):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path)
+
+        self.fisher()
+        with mock.patch.object(Path, "read_bytes", unreadable):
+            self.assertEqual(self.install(), 2)
+        self.assertTrue(self.result().startswith("failed: could not read the files of a plugin (["), self.result())
+        self.assertEqual((self.entry()["installed_fisher"], self.entry()["installed_tide"]), (True, False))
+
+    def test_the_swap_has_120_seconds_and_empty_standard_input(self):
+        seen = []
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE})
+        ctx = self.ctx()
+        real = ctx.run
+
+        def run(args, **kwargs):
+            if args[2:3] == [tide.SWAP_SCRIPT]:
+                seen.append((kwargs["timeout"], kwargs["input"]))
+            return real(args, **kwargs)
+
+        ctx.run = run
+        self.assertEqual(self.install(ctx), 0, self.out.getvalue())
+        self.assertEqual(seen, [(120, "")])
 
     def test_a_fisher_error_names_its_last_line_and_the_log(self):
         self.fisher({"jorgebucaran/fisher": FISHER}, served={})
@@ -215,8 +342,9 @@ class BootstrapTest(TideTestCase):
         self.fisher()
         self.assertEqual(self.install(self.ctx(dry_run=True)), 0)
         self.assertIn("tide: download https://example.invalid/fisher.fish (sha256 ", self.out.getvalue())
-        self.assertIn("tide: fisher install jorgebucaran/fisher@4.4.5\ntide: fisher install ilancosman/tide@v6.1.1\n",
-                      self.out.getvalue())
+        for plugin in ("jorgebucaran/fisher@4.4.5", "ilancosman/tide@v6.1.1"):
+            self.assertIn(f"tide: download {pinning.tarball_url(plugin)} and check its files against the pins\n"
+                          f"tide: fisher install {plugin}\n", self.out.getvalue())
         self.assertEqual((self.fetched, self.fisher_calls()), ([], []))
         self.assertFalse((self.home / ".claude").exists())
         self.assertFalse((self.home / ".cache").exists())
@@ -307,6 +435,15 @@ class RealFishSwapTest(unittest.TestCase):
         done = run_command(self.ctx, tide.swap_command("install Tide", "ilancosman/tide", "ilancosman/tide@v6.1.1"),
                            check=False)
         self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(fish.snapshot(self.ctx, []), self.before)
+
+    def test_a_global_from_config_fish_does_not_shadow_the_saved_value(self):
+        config = Path(self.ctx.env["XDG_CONFIG_HOME"]) / "fish" / "config.fish"
+        config.write_text("set -g tide_pwd_icon shadowed\nset -g tide_time_color shadowed\n", encoding="utf-8")
+        done = run_command(self.ctx, tide.swap_command("install Tide", "ilancosman/tide", "ilancosman/tide@v6.1.1"),
+                           check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        config.unlink()
         self.assertEqual(fish.snapshot(self.ctx, []), self.before)
 
     def test_a_swap_whose_install_fails_still_keeps_them(self):

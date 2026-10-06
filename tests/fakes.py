@@ -5,6 +5,7 @@ import re
 import shutil
 import struct
 import subprocess
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -184,6 +185,17 @@ RELEASES = {"jorgebucaran/fisher@4.4.5": {"functions/fisher.fish": FISHER_FILE,
             "ilancosman/tide@v6.1.1": TIDE_FILES}
 
 
+def release_tarball(files):
+    """A gzip tarball like GitHub's release download: every path below one top folder."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        for name, data in files.items():
+            info = tarfile.TarInfo(f"owner-repo-abc1234/{name}")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
 def fake_pins(releases=None, bootstrap=FISHER_FILE):
     """content/pins.json for ``releases``: the bootstrap file's hash and each plugin's file hashes."""
     def digest(data):
@@ -299,9 +311,11 @@ class FakeFisher:
                 self.bootstrapping = False
         elif args[:4] == ["fish", "-c", tide.SWAP_SCRIPT, "--"]:
             kept = {name: value for name, value in self.variables.items() if name.startswith("tide_")}
+            code, out, err = 0, "", ""
             if args[4]:
-                self.fisher("remove", [args[4]])
-            code, out, err = self.fisher("install", [args[5]])
+                code, out, err = self.fisher("remove", [args[4]])
+            if args[5]:
+                code, out, err = self.fisher("install", [args[5]])
             self.variables.update(kept)
         else:
             return self.inner(args, input=input, text=text, errors=errors, **kwargs)

@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import http.client
 import shutil
+import tarfile
 from pathlib import Path
 from typing import Any
 
-from .. import content, fishprobe, installlog, jsonio
+from .. import content, fishprobe, installlog, jsonio, pinning
 from .base import Command, ComponentFailed, Plan, read, sha
 
 FISH = "fish"
@@ -23,17 +24,24 @@ NOT_PINNED = "its files do not match the pinned release"
 BOOTSTRAP_SCRIPT = "source $argv[1]; and fisher install $argv[2]"
 FISHER_SCRIPT = "fisher $argv"
 # Replaces one Tide with another and keeps every universal tide_ variable: Tide's uninstall erases them and its
-# install sets its own defaults. argv: the plugin to remove ("" for none), then the one to install. The values
-# are put back even when the install fails, so a later run still has them.
+# install sets its own defaults. argv: the plugin to remove ("" for none), then the one to install ("" for none).
+# The values are put back even when the install fails, so a later run still has them.
 SWAP_SCRIPT = """\
 set -l names (set -U --names | string match 'tide_*')
 for name in $names
+    set -e -g $name  # a global of the same name (from config.fish) would shadow the universal one
     set -g __witchy_saved_$name $$name
     set -q -U -x $name; and set -g __witchy_exported_$name
 end
-test -n "$argv[1]"; and fisher remove $argv[1]
-fisher install $argv[2]
-set -l code $status
+set -l code 0
+if test -n "$argv[1]"
+    fisher remove $argv[1]
+    set code $status
+end
+if test -n "$argv[2]"
+    fisher install $argv[2]
+    set code $status
+end
 for name in $names
     set -l saved __witchy_saved_$name
     if set -q __witchy_exported_$name
@@ -52,6 +60,7 @@ def fisher_command(label: str, *args: str) -> Command:
 
 
 def swap_command(label: str, remove: str, install: str) -> Command:
+    """Remove ``remove`` and install ``install`` (either may be ``""``) with every tide_ variable kept."""
     return Command((FISH, "-c", SWAP_SCRIPT, "--", remove, install), label, "", timeout=FISHER_TIMEOUT)
 
 
@@ -62,17 +71,20 @@ def installed_name(found: fishprobe.Probe, plugin: str) -> str | None:
 
 def file_hashes(paths: list[str]) -> dict[str, str]:
     """The SHA-256 of each file fisher lists, by path below fisher's folder (``functions/tide.fish``); a listed
-    folder (``functions/tide``) counts with every file below it."""
+    folder (``functions/tide``) counts with every file below it. Raises ComponentFailed for an unreadable file."""
     hashes = {}
-    for listed in paths:
-        path = Path(listed)
-        key = "/".join(path.parts[-2:])
-        if path.is_dir():
-            for inner in sorted(path.rglob("*")):
-                if inner.is_file():
-                    hashes[f"{key}/{inner.relative_to(path).as_posix()}"] = sha(inner.read_bytes())
-        elif path.is_file():
-            hashes[key] = sha(path.read_bytes())
+    try:
+        for listed in paths:
+            path = Path(listed)
+            key = "/".join(path.parts[-2:])
+            if path.is_dir():
+                for inner in sorted(path.rglob("*")):
+                    if inner.is_file():
+                        hashes[f"{key}/{inner.relative_to(path).as_posix()}"] = sha(inner.read_bytes())
+            elif path.is_file():
+                hashes[key] = sha(path.read_bytes())
+    except OSError as exc:
+        raise ComponentFailed(f"could not read the files of a plugin ({exc})") from exc
     return hashes
 
 
@@ -109,35 +121,47 @@ class TideComponent:
             return Plan.skipped(str(exc))
         data: dict[str, Any] = {"entry": entry or {}, "error": None, "fisher": None, "tide": None, "replace": None}
         actions = []
-        fisher_name = installed_name(found, fishprobe.FISHER_PLUGIN)
-        if found.fisher is None:
-            data["fisher"] = "install"
-            cached = self._bootstrap_file(ctx)
-            bootstrap = self._pins()["bootstrap"]
-            source = (f"use {cached}" if sha(read(cached)) == bootstrap["sha256"]
-                      else f"download {bootstrap['url']} (sha256 {bootstrap['sha256'][:12]}…)")
-            actions += [f"tide: {source}", f"tide: fisher install {FISHER_SOURCE}"]
-        elif fisher_name == FISHER_SOURCE and mismatches(found, fishprobe.FISHER_PLUGIN, self._pinned(FISHER_SOURCE)):
-            # witchy's own fisher; a fisher the user installed is theirs and is left as it is.
-            data["fisher"] = "update"
-            actions.append(f"tide: fisher install {FISHER_SOURCE} ({NOT_PINNED})")
-        tide_name = installed_name(found, fishprobe.TIDE_PLUGIN)
-        if found.tide is not None and tide_name is None:
-            data["error"] = "Tide is installed without fisher, so witchy can neither check nor replace it; remove it"
-        elif tide_name is None:
-            data["tide"] = "install"
-            actions.append(f"tide: fisher install {TIDE_SOURCE}")
-        else:
-            reason = (f"Tide is {found.tide or 'of an unknown version'}" if found.tide != fishprobe.TIDE_VERSION
-                      else NOT_PINNED if mismatches(found, fishprobe.TIDE_PLUGIN, self._pinned(TIDE_SOURCE))
-                      else None)
-            if reason and tide_name == TIDE_SOURCE:
-                data["tide"] = "update"
-                actions.append(f"tide: fisher install {TIDE_SOURCE} ({reason})")
-            elif reason:
-                data["tide"], data["replace"] = "replace", tide_name
-                actions.append(f"tide: fisher remove {tide_name}, then fisher install {TIDE_SOURCE} ({reason}); "
-                               "the Tide variables keep their values")
+        try:
+            fisher_name = installed_name(found, fishprobe.FISHER_PLUGIN)
+            if found.fisher is None:
+                data["fisher"] = "install"
+                cached = self._bootstrap_file(ctx)
+                bootstrap = self._pins()["bootstrap"]
+                source = (f"use {cached}" if sha(read(cached)) == bootstrap["sha256"]
+                          else f"download {bootstrap['url']} (sha256 {bootstrap['sha256'][:12]}…)")
+                actions += [f"tide: {source}",
+                            f"tide: download {pinning.tarball_url(FISHER_SOURCE)} and check its files against the pins",
+                            f"tide: fisher install {FISHER_SOURCE}"]
+            elif fisher_name == FISHER_SOURCE and mismatches(found, fishprobe.FISHER_PLUGIN,
+                                                             self._pinned(FISHER_SOURCE)):
+                # witchy's own fisher; a fisher the user installed is theirs and is left as it is.
+                data["fisher"] = "update"
+                actions += [f"tide: download {pinning.tarball_url(FISHER_SOURCE)} and check its files against the pins",
+                            f"tide: fisher install {FISHER_SOURCE} ({NOT_PINNED})"]
+            tide_name = installed_name(found, fishprobe.TIDE_PLUGIN)
+            if found.tide is not None and tide_name is None:
+                data["error"] = ("Tide is installed without fisher, so witchy can neither check nor replace it; "
+                                 "remove it")
+            elif tide_name is None:
+                data["tide"] = "install"
+                actions += [f"tide: download {pinning.tarball_url(TIDE_SOURCE)} and check its files against the pins",
+                            f"tide: fisher install {TIDE_SOURCE}"]
+            else:
+                reason = (f"Tide is {found.tide or 'of an unknown version'}" if found.tide != fishprobe.TIDE_VERSION
+                          else NOT_PINNED if mismatches(found, fishprobe.TIDE_PLUGIN, self._pinned(TIDE_SOURCE))
+                          else None)
+                if reason and tide_name == TIDE_SOURCE:
+                    data["tide"] = "update"
+                    actions += [f"tide: download {pinning.tarball_url(TIDE_SOURCE)} and check its files "
+                                "against the pins", f"tide: fisher install {TIDE_SOURCE} ({reason})"]
+                elif reason:
+                    data["tide"], data["replace"] = "replace", tide_name
+                    actions += [f"tide: download {pinning.tarball_url(TIDE_SOURCE)} and check its files "
+                                "against the pins",
+                                f"tide: fisher remove {tide_name}, then fisher install {TIDE_SOURCE} ({reason}); "
+                                "the Tide variables keep their values"]
+        except ComponentFailed as exc:
+            data["error"] = str(exc)
         installs = data["fisher"] is not None or data["tide"] is not None
         if data["error"] is None and installs and not shutil.which("curl", path=ctx.env.get("PATH")):
             data["error"] = CURL_MISSING  # fisher downloads with curl; nothing is downloaded without it
@@ -164,10 +188,13 @@ class TideComponent:
             if data["fisher"] == "install":
                 self._install_fisher(ctx)
             elif data["fisher"] == "update":
+                self._check_release(ctx, FISHER_SOURCE)
                 self._run(ctx, fisher_command("update fisher", "install", FISHER_SOURCE))
             if data["fisher"] is not None:
                 self._verify(ctx, fishprobe.FISHER_PLUGIN, FISHER_SOURCE, "fisher")
                 entry["installed_fisher"] = entry["installed_fisher"] or data["fisher"] == "install"
+            if data["tide"] is not None:
+                self._check_release(ctx, TIDE_SOURCE)
             if data["tide"] == "replace":
                 # Recorded first: from here on the user's Tide may be gone, and uninstall must bring it back.
                 entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or data["replace"]
@@ -175,7 +202,13 @@ class TideComponent:
             elif data["tide"] is not None:
                 self._run(ctx, fisher_command("install Tide", "install", TIDE_SOURCE))
             if data["tide"] is not None:
-                found = self._verify(ctx, fishprobe.TIDE_PLUGIN, TIDE_SOURCE, "Tide")
+                try:
+                    found = self._verify(ctx, fishprobe.TIDE_PLUGIN, TIDE_SOURCE, "Tide",
+                                         data["replace"] if data["tide"] == "replace" else None)
+                except ComponentFailed as exc:
+                    if getattr(exc, "restored", False):
+                        entry["previous_tide_plugin"] = earlier.get("previous_tide_plugin")  # it is back in place
+                    raise
                 entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
                 reason = fishprobe.tide_ready(found)
                 if reason:
@@ -210,11 +243,35 @@ class TideComponent:
                 jsonio.write_atomic_bytes(cached, data)
             except OSError as exc:
                 raise ComponentFailed(f"could not keep fisher.fish in {cached.parent} ({exc})") from exc
+        self._check_release(ctx, FISHER_SOURCE)
         self._run(ctx, Command((FISH, "-c", BOOTSTRAP_SCRIPT, "--", str(cached), FISHER_SOURCE), "install fisher",
                                "", timeout=FISHER_TIMEOUT))
 
-    def _verify(self, ctx: Any, plugin: str, source: str, what: str) -> fishprobe.Probe:
-        """After a fisher install: the plugin is there, at the pinned version, file by file (spec D21)."""
+    def _check_release(self, ctx: Any, source: str) -> None:
+        """Before fisher installs ``source``: download the tarball it will fetch and hash every file it would copy.
+        Nothing of an unverified release is run (fisher sources a plugin's conf.d as soon as it installs it)."""
+        plugin, url = source.split("@", 1)[0], pinning.tarball_url(source)
+        try:
+            archive = ctx.fetch(url)
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            installlog.append(ctx, f"--- download {url}: {exc}")
+            raise ComponentFailed(f"could not download {plugin} to check it ({exc})") from exc
+        try:
+            files = pinning.plugin_files(archive)
+        except (ValueError, OSError, EOFError, tarfile.TarError) as exc:
+            installlog.append(ctx, f"--- download {url}: {len(archive)} bytes, not usable ({exc})")
+            files = None
+        else:
+            installlog.append(ctx, f"--- download {url}: {len(archive)} bytes, {len(files)} files, "
+                                   f"sha256 {sha(archive)}")
+        if files != self._pinned(source):
+            raise ComponentFailed(f"{plugin} release does not match the pinned files")
+
+    def _verify(self, ctx: Any, plugin: str, source: str, what: str, restore: str | None = None) -> fishprobe.Probe:
+        """After a fisher install: the plugin is there, at the pinned version, file by file (spec D21).
+
+        A mismatch takes the plugin out again with the Tide variables kept, and puts back ``restore``, the Tide it
+        replaced."""
         found = fishprobe.probe(ctx)
         version = found.fisher if plugin == fishprobe.FISHER_PLUGIN else found.tide
         wanted = FISHER_VERSION if plugin == fishprobe.FISHER_PLUGIN else fishprobe.TIDE_VERSION
@@ -222,6 +279,12 @@ class TideComponent:
         if name is None or version is None:
             raise ComponentFailed(f"{what} is still not installed (details: {installlog.shown(ctx)})")
         if version != wanted or mismatches(found, plugin, self._pinned(source)):
-            self._run(ctx, fisher_command(f"remove {name}", "remove", name))
-            raise ComponentFailed(f"{plugin} files do not match the pinned release")
+            if plugin == fishprobe.FISHER_PLUGIN:
+                self._run(ctx, fisher_command(f"remove {name}", "remove", name))
+            else:
+                self._run(ctx, swap_command(f"remove {name}" + (f" and install {restore} again" if restore else ""),
+                                            name, restore or ""))
+            error = ComponentFailed(f"{plugin} files do not match the pinned release")
+            error.restored = restore is not None
+            raise error
         return found
