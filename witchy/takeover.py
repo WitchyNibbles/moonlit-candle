@@ -18,6 +18,10 @@ from .components.base import Change
 PREFIX = b"# witchy-disabled: "
 STARSHIP = re.compile(r"\bstarship\s+init\s+fish\b")
 OH_MY_POSH = re.compile(r"\boh-my-posh\b.*(?:\binit\s+fish\b|--shell\s+fish\b)")
+# Functions the init lines define: a call left on once its init line is disabled fails at every shell start.
+HELPERS = {"enable_transience": "starship", "disable_transience": "starship",
+           "enable_poshtransientprompt": "oh-my-posh", "enable_poshtooltips": "oh-my-posh"}
+HELPER = re.compile(r"(?:^|[;|&]|\b(?:and|or|not)\s)\s*(" + "|".join(HELPERS) + r")\s*(?:$|[;|&])")
 SET = re.compile(r"\bset\s+((?:-[-\w]+\s+)+)(tide_\w+)")
 FUNCTION = re.compile(r"^\s*function\s+fish_prompt(?:\s|;|$)")
 NOT_A_SET = set("qenS")  # set -q, -e, -n, -S read or erase; they never give a value
@@ -33,7 +37,7 @@ class Line:
 
     path: Path
     number: int  # from 1
-    what: str  # "starship init", "oh-my-posh init" or "set -g tide_…"
+    what: str  # "starship init", "oh-my-posh init", "starship enable_transience" or "set -g tide_…"
 
 
 @dataclass
@@ -110,12 +114,17 @@ def _crosses_block(code: str) -> bool:
 
 
 def owner(line: str) -> str | None:
-    """What an active line does to the prompt, or None (a comment, already disabled, or unrelated)."""
+    """What an active line does to the prompt, or None (a comment, already disabled, or unrelated).
+
+    A call to a function an init line defines counts too: disabling the init line would leave it failing."""
     code = _code(line)
     if STARSHIP.search(code):
         return "starship init"
     if OH_MY_POSH.search(code):
         return "oh-my-posh init"
+    helper = HELPER.search(code)
+    if helper:
+        return f"{HELPERS[helper.group(1)]} {helper.group(1)}"
     return _global_set(code)
 
 

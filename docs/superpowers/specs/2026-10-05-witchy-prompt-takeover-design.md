@@ -114,7 +114,7 @@ Runs in `plan` (detection) and `apply` (changes). In `apply`, a hand-written `fi
 | :- | :- | :- |
 | A hand-written `functions/fish_prompt.fish` | The file exists and no fisher plugin lists it. | Moved to `fish_prompt.fish.bak-witchy-<stamp>` (a symlink is moved as a link; its target is not touched). |
 | Another fisher plugin that ships `fish_prompt.fish` (pure, hydro, bobthefish, …) | Its `_fisher_<plugin>_files` lists `fish_prompt.fish`. | `fisher remove <plugin>`; the plugin name is recorded. |
-| `starship init fish`, `oh-my-posh init fish`, `set -g`/`set -gx`/`set --global` of a `tide_*` name | A matching line in `config.fish` or in a `conf.d/*.fish` that is neither witchy's nor fisher-managed. | The file is backed up, then each matching line is prefixed with `# witchy-disabled: `. A file's first backup stays its record. |
+| `starship init fish`, `oh-my-posh init fish`, a call to a function those lines define (`enable_transience`, `disable_transience`, `enable_poshtransientprompt`, `enable_poshtooltips`), `set -g`/`set -gx`/`set --global` of a `tide_*` name | A matching line in `config.fish` or in a `conf.d/*.fish` that is neither witchy's nor fisher-managed. | The file is backed up, then each matching line is prefixed with `# witchy-disabled: `. A file's first backup stays its record. |
 | `function fish_prompt` inside `config.fish` or `conf.d` | Matching line. | Not edited: a multi-line block cannot be commented safely. `failed: config.fish defines fish_prompt at line N; remove that function`. |
 
 Every takeover prints one line, for example `tide: disabled starship init in ~/.config/fish/config.fish line 2 (backup: …)`.

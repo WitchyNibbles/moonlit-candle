@@ -14,6 +14,12 @@ class OwnerTest(unittest.TestCase):
             "if type -q starship; starship init fish | source; end": "starship init",
             "oh-my-posh init fish --config ~/theme.json | source": "oh-my-posh init",
             "oh-my-posh --init --shell fish --config ~/theme.json | source": "oh-my-posh init",
+            "enable_transience": "starship enable_transience",
+            "    enable_transience  # starship's transient prompt": "starship enable_transience",
+            "type -q starship; and enable_transience": "starship enable_transience",
+            "disable_transience": "starship disable_transience",
+            "enable_poshtransientprompt": "oh-my-posh enable_poshtransientprompt",
+            "enable_poshtooltips": "oh-my-posh enable_poshtooltips",
             "set -g tide_pwd_icon x": "set -g tide_pwd_icon",
             "set -gx tide_time_color 5F8787": "set -g tide_time_color",
             "set -xg tide_time_color 5F8787": "set -g tide_time_color",
@@ -33,7 +39,9 @@ class OwnerTest(unittest.TestCase):
                      "set -e -g tide_pwd_icon", "set --erase --global tide_pwd_icon", "set -g _tide_left_items",
                      "set -g fish_greeting", "echo starship", "set -g offset_tide_x 1", "",
                      "echo hi  # starship init fish", "abbr -a ss 'starship init fish | source'",
-                     'echo "set -g tide_x y"', "echo a#b; echo b # oh-my-posh init fish"):
+                     'echo "set -g tide_x y"', "echo a#b; echo b # oh-my-posh init fish", "# enable_transience",
+                     "echo enable_transience", "my_enable_transience", "function enable_transience_later",
+                     "echo 'enable_transience'"):
             with self.subTest(line=line):
                 self.assertIsNone(takeover.owner(line))
 
@@ -64,6 +72,15 @@ class ScanTest(unittest.TestCase):
                      b"# witchy-disabled: set -g tide_pwd_icon x\n"),
             (mine, b"# witchy-disabled: oh-my-posh init fish | source\n")])
         self.assertEqual(found.changes[0].before, config.read_bytes())
+
+    def test_a_call_to_a_function_the_init_line_defines_is_disabled_with_it(self):
+        # starship init fish defines enable_transience; with the init line disabled, the call fails at every start.
+        config = self.write("config.fish", b"starship init fish | source\nenable_transience\n")
+        found = takeover.scan(self.folder)
+        self.assertEqual(found.lines, [takeover.Line(config, 1, "starship init"),
+                                       takeover.Line(config, 2, "starship enable_transience")])
+        self.assertEqual(found.changes[0].after,
+                         b"# witchy-disabled: starship init fish | source\n# witchy-disabled: enable_transience\n")
 
     def test_a_second_run_finds_nothing(self):
         config = self.write("config.fish", b"starship init fish | source\n")
