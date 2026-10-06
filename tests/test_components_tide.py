@@ -85,6 +85,15 @@ class TideTestCase(unittest.TestCase):
     def log(self):
         return (self.home / ".cache" / "witchy" / "install.log").read_text(encoding="utf-8")
 
+    def write(self, name, data):
+        path = self.config / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def backups(self):
+        return sorted(path.name for path in self.config.rglob("*.bak-witchy-*"))
+
 
 class BootstrapTest(TideTestCase):
     def test_a_pc_with_fish_only_gets_fisher_and_tide(self):
@@ -383,15 +392,6 @@ PINNED = {"jorgebucaran/fisher": FISHER, "ilancosman/tide@v6.1.1": TIDE_FILES}
 
 
 class TakeoverTest(TideTestCase):
-    def write(self, name, data):
-        path = self.config / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        return path
-
-    def backups(self):
-        return sorted(path.name for path in self.config.rglob("*.bak-witchy-*"))
-
     def test_a_hand_written_prompt_is_moved_aside_before_tide_goes_in(self):
         prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
         self.fisher({"jorgebucaran/fisher": FISHER})
@@ -602,6 +602,153 @@ class TakeoverTest(TideTestCase):
         self.assertTrue(reprobe(FakeFisher(self.config, {"jorgebucaran/fisher": FISHER})))
         self.write("config.fish", b"starship init fish | source\n")
         self.assertFalse(reprobe(FakeFisher(self.config, PINNED)))
+
+
+class UninstallTest(TideTestCase):
+    def uninstall(self, stamp="20261005-130000", dry_run=False):
+        return runner.uninstall(self.ctx(stamp=stamp, dry_run=dry_run), [tide.TideComponent(fake_pins())])
+
+    def test_removes_the_tide_and_fisher_it_installed_in_that_order(self):
+        self.fisher()
+        self.install()
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", ""),
+                                               ("fisher", "remove", "jorgebucaran/fisher@4.4.5")])
+        self.assertEqual(self.fake.plugins, {})
+        self.assertFalse((self.home / ".claude" / "witchy" / "state.json").exists())
+
+    def test_removing_the_tide_it_installed_keeps_the_tide_variables(self):
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertNotIn("ilancosman/tide@v6.1.1", self.fake.plugins)
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+
+    def test_puts_back_the_tide_that_was_there_and_leaves_the_users_fisher(self):
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE},
+                    served={**RELEASES, "ilancosman/tide": OLD_TIDE})
+        self.install()
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", "ilancosman/tide")])
+        self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide", "jorgebucaran/fisher"])
+
+    def test_puts_back_a_removed_prompt_plugin_after_tide_is_gone(self):
+        self.fisher({"jorgebucaran/fisher": FISHER, "pure-fish/pure": PURE},
+                    served={**RELEASES, "pure-fish/pure": PURE})
+        self.install()
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", ""),
+                                               ("fisher", "install", "pure-fish/pure")])
+        self.assertEqual((self.config / "functions" / "fish_prompt.fish").read_bytes(),
+                         PURE["functions/fish_prompt.fish"])
+
+    def test_a_retry_after_a_failed_command_does_not_repeat_what_worked(self):
+        self.fisher({"jorgebucaran/fisher": FISHER, "pure-fish/pure": PURE},
+                    served={**RELEASES, "pure-fish/pure": PURE})
+        self.install()
+        del self.fake.served["pure-fish/pure"]  # offline now
+        self.assertEqual(self.uninstall(), 2)
+        self.assertIn("tide: could not put back pure-fish/pure (exit 1); run uninstall again.", self.out.getvalue())
+        self.assertIn("tide", self.state()["components"])
+        self.fake.served["pure-fish/pure"] = PURE
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall("20261005-140000"), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("fisher", "install", "pure-fish/pure")])
+
+    def test_disabled_lines_come_back_byte_for_byte(self):
+        original = b"echo \xff\r\nstarship init fish | source\r\nset -g tide_x y\r\n"
+        config = self.write("config.fish", original)
+        self.fisher(PINNED)
+        self.install()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(config.read_bytes(), original)
+        self.assertEqual(self.backups(), ["config.fish.bak-witchy-20261005-120000"])
+
+    def test_the_users_later_edits_stay_and_the_edited_file_is_kept_as_a_backup(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher(PINNED)
+        self.install()
+        config.write_bytes(config.read_bytes() + b"alias ll 'ls -l'\n")
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\nalias ll 'ls -l'\n")
+        self.assertEqual(self.backups(), ["config.fish.bak-witchy-20261005-120000",
+                                          "config.fish.bak-witchy-20261005-130000"])
+
+    def test_a_file_that_became_a_symlink_is_left_with_a_warning(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher(PINNED)
+        self.install()
+        dotfiles = self.root / "dotfiles.fish"
+        dotfiles.write_bytes(config.read_bytes())
+        config.unlink()
+        config.symlink_to(dotfiles)
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(dotfiles.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
+        self.assertIn("tide: ~/.config/fish/config.fish is a symlink now and is not edited; remove "
+                      "'# witchy-disabled: ' from its lines yourself.", self.out.getvalue())
+
+    def test_a_moved_prompt_comes_back_once_tide_is_gone(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(prompt.read_bytes(), b"function fish_prompt\n    echo mine\nend\n")
+        self.assertEqual(self.backups(), [])
+
+    def test_a_moved_prompt_whose_place_is_taken_stays_aside(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.fake.run(["fish", "-c", tide.FISHER_SCRIPT, "--", "remove", "ilancosman/tide@v6.1.1"])
+        prompt.write_bytes(b"function fish_prompt\n    echo newer\nend\n")
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(prompt.read_bytes(), b"function fish_prompt\n    echo newer\nend\n")
+        self.assertIn("tide: ~/.config/fish/functions/fish_prompt.fish is not witchy's to replace; your fish_prompt "
+                      "stays at ~/.config/fish/functions/fish_prompt.fish.bak-witchy-20261005-120000.",
+                      self.out.getvalue())
+
+    def test_a_moved_prompt_whose_backup_is_gone_is_a_warning(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\nend\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        prompt.with_name("fish_prompt.fish.bak-witchy-20261005-120000").unlink()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertFalse(prompt.exists())
+        self.assertIn("so your fish_prompt cannot come back.", self.out.getvalue())
+
+    def test_a_tide_the_user_removed_is_not_removed_again(self):
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.fake.run(["fish", "-c", tide.FISHER_SCRIPT, "--", "remove", "ilancosman/tide@v6.1.1"])
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [])
+
+    def test_without_fish_the_lines_still_come_back(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.fake.missing = True
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(config.read_bytes(), b"starship init fish | source\n")
+        self.assertIn("tide: fish not found, so fisher, Tide and the prompt plugins stay as they are.",
+                      self.out.getvalue())
+
+    def test_dry_run_lists_every_step_and_changes_nothing(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher({"pure-fish/pure": PURE}, served={**RELEASES, "pure-fish/pure": PURE})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(dry_run=True), 0)
+        self.assertIn("tide: remove Tide (ilancosman/tide@v6.1.1)\ntide: put back pure-fish/pure\n"
+                      "tide: remove fisher (jorgebucaran/fisher@4.4.5)\n", self.out.getvalue())
+        self.assertIn("-# witchy-disabled: starship init fish | source", self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [])
+        self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
 
 
 class PinsTest(unittest.TestCase):

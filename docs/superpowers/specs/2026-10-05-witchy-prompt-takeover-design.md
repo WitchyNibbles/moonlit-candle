@@ -266,13 +266,15 @@ Exit codes stay 0 / 1 / 2.
 
 ## 10. Uninstall
 
-Reverse order: `fish` (variables, files), then `tide`:
+Reverse order: `fish` (variables, files), then `tide`. `tide` asks fish which plugins are installed now, so a retry after a failed step only runs what is left, in this order:
 
-1. Put back each file it commented out, from its backup (existing `restore_copy` rule: leave a file the user changed since).
-2. Move back a hand-written `fish_prompt.fish` it moved aside, after Tide is removed.
-3. `fisher install <plugin>` for each prompt plugin it removed.
-4. If `previous_tide_plugin` is set: `fisher install <that>`. Else if `installed_tide`: `fisher remove ilancosman/tide`.
-5. If `installed_fisher`: `fisher remove jorgebucaran/fisher`.
+1. If `previous_tide_plugin` is set: `fisher remove` witchy's Tide and `fisher install <that>`, keeping every universal `tide_*` variable as `fish` just restored it (Tide's uninstall erases them and its install sets its defaults). Else if `installed_tide`: `fisher remove` witchy's Tide through the same swap, so every `tide_*` variable stays as well.
+2. `fisher install <plugin>` for each prompt plugin it removed (after Tide is gone: both ship `fish_prompt.fish`).
+3. If `installed_fisher`: `fisher remove` witchy's fisher.
+4. Each file it commented out gets its `# witchy-disabled: ` prefixes taken away, which gives back the original bytes and keeps any later edit of the user's. A file the user changed since is backed up first; one that became a symlink is left, with a warning (D22).
+5. A hand-written `fish_prompt.fish` it moved aside goes back, once Tide's is gone. If something else holds that place, or the moved file is gone, a warning says so.
+
+Without fish, steps 1–3 are skipped with a warning; 4 and 5 still run.
 
 On this PC (Tide and fisher were already there) uninstall restores the recorded variables, which are the pastel ones (D4).
 

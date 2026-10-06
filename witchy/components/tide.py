@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import build, content, fishprobe, installlog, jsonio, pinning, takeover
-from .base import Command, ComponentFailed, Plan, read, sha, tilde
+from .base import Change, Command, ComponentFailed, Plan, read, sha, tilde
 from .fish import config_dir
 
 FISH = "fish"
@@ -381,3 +381,71 @@ class TideComponent:
             error.restored = restore is not None
             raise error
         return found
+
+    def restore(self, ctx: Any, entry: dict) -> Plan:
+        """Uninstall (spec 10): Tide goes or the earlier Tide comes back, then the removed prompt plugins, then
+        fisher if witchy installed it; after those commands, the disabled lines and a moved fish_prompt come back."""
+        warnings: list[str] = []
+        commands: list[Command] = []
+        changes = self._enable_lines(ctx, entry, warnings)
+        found = None
+        if entry["installed_fisher"] or entry["installed_tide"] or entry["previous_tide_plugin"] or \
+                entry["removed_plugins"]:
+            try:
+                found = fishprobe.probe(ctx)
+            except ComponentFailed as exc:
+                if not isinstance(exc.__cause__, FileNotFoundError):
+                    raise  # fish is there but did not answer: keep the component and retry later
+                warnings.append("tide: fish not found, so fisher, Tide and the prompt plugins stay as they are.")
+        removes_tide = False
+        if found is not None:
+            tide_name = installed_name(found, fishprobe.TIDE_PLUGIN)
+            previous = entry["previous_tide_plugin"]
+            if previous and (tide_name or "").lower() != previous.lower():
+                commands.append(swap_command(f"put back {previous} in place of Tide {fishprobe.TIDE_VERSION}",
+                                             tide_name or "", previous))
+            elif not previous and entry["installed_tide"] and tide_name:
+                # Through the swap: Tide's uninstall erases every tide_ variable, the ones fish just restored too.
+                commands.append(swap_command(f"remove Tide ({tide_name})", tide_name, ""))
+                removes_tide = True
+            for plugin in entry["removed_plugins"]:
+                if installed_name(found, plugin.lower().split("@", 1)[0]) is None:
+                    commands.append(fisher_command(f"put back {plugin}", "install", plugin))
+            fisher_name = installed_name(found, fishprobe.FISHER_PLUGIN)
+            if entry["installed_fisher"] and fisher_name:
+                commands.append(fisher_command(f"remove fisher ({fisher_name})", "remove", fisher_name))
+        changes += self._prompt_back(ctx, entry.get("moved_prompt"), found, removes_tide, warnings)
+        return Plan(changes=changes, commands=commands, warnings=warnings)
+
+    def _enable_lines(self, ctx: Any, entry: dict, warnings: list[str]) -> list[Change]:
+        """Each disabled line back as it was; the user's other edits to the file stay."""
+        changes = []
+        for record in entry["disabled_files"]:
+            path = Path(record["path"])
+            if path.is_symlink():
+                warnings.append(f"tide: {tilde(ctx, path)} is a symlink now and is not edited; remove "
+                                f"'{takeover.PREFIX.decode()}' from its lines yourself.")
+                continue
+            current = read(path)
+            after = None if current is None else takeover.enable(current)
+            if after != current:
+                changes.append(Change(path, current, after, backup=sha(current) != record["installed_sha256"]))
+        return changes
+
+    def _prompt_back(self, ctx: Any, moved: dict | None, found: fishprobe.Probe | None, removes_tide: bool,
+                     warnings: list[str]) -> list[Change]:
+        """The fish_prompt.fish witchy moved aside, back in its place once Tide's is gone."""
+        if not moved:
+            return []
+        path, backup = Path(moved["path"]), Path(moved["backup"])
+        data, current = read(backup), read(path)
+        tides = found is not None and str(path) in (fishprobe.plugin_files(found, fishprobe.TIDE_PLUGIN) or [])
+        if data is None:
+            warnings.append(f"tide: {tilde(ctx, backup)} is gone, so your fish_prompt cannot come back.")
+            return []
+        if current is not None and not (tides and removes_tide):
+            warnings.append(f"tide: {tilde(ctx, path)} is not witchy's to replace; your fish_prompt stays at "
+                            f"{tilde(ctx, backup)}.")
+            return []
+        # Runs after the commands: by then Tide's file is gone.
+        return [Change(path, current, data, backup=False), Change(backup, data, None, backup=False)]
