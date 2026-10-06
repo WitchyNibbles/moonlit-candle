@@ -303,7 +303,7 @@ class TideComponent:
             except ComponentFailed as exc:
                 if getattr(exc, "restored", False):
                     entry["previous_tide_plugin"] = earlier.get("previous_tide_plugin")  # it is back in place
-                if getattr(exc, "removed", False):
+                elif getattr(exc, "removed", False):
                     entry["installed_tide"] = earlier.get("installed_tide", False)  # taken out again
                 elif data["tide"] == "update" and not entry["installed_tide"]:
                     # The user's Tide was (or may be) removed: uninstall puts it back.
