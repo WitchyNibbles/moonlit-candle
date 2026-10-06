@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import build, components, runner, validate
+from . import build, components, fresh, runner, validate
 from .context import Context
 
 
@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> int:
     install_parser.add_argument("--wt-settings", type=Path, help="path to Windows Terminal settings.json")
     install_parser.add_argument("--only", action="append", choices=components.NAMES, metavar="NAME",
                                 help=f"install only this component (repeatable): {', '.join(components.NAMES)}")
+    install_parser.add_argument("--fresh", action="store_true",
+                                help="first install what a new WSL box lacks (fish, curl, eza) with sudo and offer "
+                                     "fish as the login shell; asks before each")
     uninstall_parser = commands.add_parser("uninstall", help="give back everything install changed")
     uninstall_parser.add_argument("--dry-run", action="store_true", help="show the changes without writing anything")
     uninstall_parser.add_argument("--only", action="append", choices=components.NAMES, metavar="NAME",
@@ -51,7 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     ctx = Context(home=Path.home(), env=os.environ, out=sys.stdout, dry_run=getattr(args, "dry_run", False),
                   wt_settings=getattr(args, "wt_settings", None), only=tuple(getattr(args, "only", None) or ()))
     if args.command == "install":
-        return runner.install(ctx)
+        code = fresh.prepare(ctx) if args.fresh else None  # before validation and the lock (spec 15.1)
+        return runner.install(ctx) if code is None else code
     if args.command == "uninstall":
         return runner.uninstall(ctx)
     if args.command == "doctor":

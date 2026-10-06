@@ -324,11 +324,11 @@ On this PC (Tide and fisher were already there) uninstall restores the recorded 
 Runs before validation and the lock, and only with `--fresh`:
 
 1. Lists which of `fish`, `curl`, `eza` are missing (`shutil.which`).
-2. If any are, asks once: `sudo apt install fish curl eza? [y/N]` (only the missing ones). Yes runs `sudo apt-get install -y <packages>` with the terminal attached so sudo can ask for the password. No or a failed command → exit 1, nothing else runs.
-3. If the login shell (`getent passwd $USER`) is not fish, asks `make fish your login shell (chsh -s <fish>)? [y/N]` and runs `chsh` on yes. A refusal is not an error.
+2. If any are, asks once: `sudo apt install fish curl eza? [y/N]` (only the missing ones). Yes runs `sudo apt-get update`, then `sudo apt-get install -y` with the missing `fish` and `curl`, then the same for `eza` on its own, each with the terminal attached so sudo can ask for the password. A fresh WSL image has no package lists, so `install` alone would fail; `eza` is optional (`ll` and `lt` fall back to `ls`, and older Ubuntu releases do not package it), so its failure is a note. No, or a failed `update` or `fish`/`curl` install → exit 1, nothing else runs.
+3. If the login shell (`getent passwd $USER`) is not fish, or cannot be read, asks `make fish your login shell (chsh -s <fish>)? [y/N]` and runs `chsh` on yes. A refusal is not an error; a failed `chsh` is a note.
 4. Continues into the normal install.
 
-Without a terminal on stdin, `--fresh` exits 1 with `--fresh needs a terminal to ask before using sudo`. `--fresh --dry-run` lists what it would ask and runs nothing.
+Without a terminal on stdin, `--fresh` exits 1 with `--fresh needs a terminal to ask before using sudo`, unless it has nothing to ask. `--fresh --dry-run` lists what it would ask and runs nothing.
 
 ### 15.2 `preview` (D16)
 
