@@ -13,6 +13,7 @@ DIST = ROOT / "dist"
 STATUSLINE_SOURCE = Path(__file__).resolve().parent / "statusline.py"
 RITUAL_SOURCE = Path(__file__).resolve().parent / "ritual"
 FISH_SOURCE = content.CONTENT_DIR / "fish"
+TIDE_DEFAULTS = content.CONTENT_DIR / content.TIDE_DEFAULTS
 PALETTE_BLOCK = re.compile(r"(# BEGIN PALETTE\n)(.*?)(# END PALETTE\n)", re.DOTALL)
 
 THEME = "claude/themes/moonlit-candle.json"
@@ -76,6 +77,12 @@ def eza_colors(colours: dict[str, str]) -> str:
         red, green, blue = (int(colours[role][i:i + 2], 16) for i in (1, 3, 5))
         parts += [f"{code}=38;2;{red};{green};{blue}" for code in codes]
     return ":".join(parts)
+
+
+def tide(variant: str = palette.DEFAULT_VARIANT,
+         content_dir: Path = content.CONTENT_DIR) -> dict[str, str | tuple[str, ...]]:
+    """Every Tide variable witchy sets: Tide 6.1.1's defaults with the variant's overrides on top (spec 6.1)."""
+    return {**content.load_tide_defaults(content_dir), **palette.VARIANTS[variant].tide}
 
 
 def fish_quote(text: str) -> str:

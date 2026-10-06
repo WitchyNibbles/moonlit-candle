@@ -221,6 +221,9 @@ TIDE: dict[str, str | tuple[str, ...]] = {
     "tide_time_color": "A99AB9",
 }
 
+# Variables of witchy's own prompt items, which Tide does not define: the moon item's colours (spec 5.1).
+TIDE_OWN: tuple[str, ...] = ("tide_moon_bg_color", "tide_moon_color")
+
 # eza (spec 7): build.eza_colors turns these into EZA_COLORS. Git status uses Tide's three git colours,
 # taken from TIDE (which has no "#").
 EZA: dict[str, str] = {

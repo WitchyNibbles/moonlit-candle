@@ -3,9 +3,10 @@ from unittest import mock
 
 from witchy import build, palette, validate
 
-# `fish -c 'set -U | string match -r "^tide_\S+"'` on Tide 6.1.1 (2026-10-03), the version the spec targets.
+# The 156 names of Tide's v6.1.1 release tag (its icons.fish and configs/rainbow.fish), the version the spec
+# targets. Tide's development branch, which also calls itself 6.1.1, adds tide_bun_bg_color, _color and _icon.
 TIDE_6_1_1_VARIABLES = frozenset("""
-tide_aws_bg_color tide_aws_color tide_aws_icon tide_bun_bg_color tide_bun_color tide_bun_icon tide_character_color
+tide_aws_bg_color tide_aws_color tide_aws_icon tide_character_color
 tide_character_color_failure tide_character_icon tide_character_vi_icon_default tide_character_vi_icon_replace
 tide_character_vi_icon_visual tide_cmd_duration_bg_color tide_cmd_duration_color tide_cmd_duration_decimals
 tide_cmd_duration_icon tide_cmd_duration_threshold tide_context_always_display tide_context_bg_color
@@ -39,9 +40,9 @@ tide_vi_mode_bg_color_replace tide_vi_mode_bg_color_visual tide_vi_mode_color_de
 tide_vi_mode_color_replace tide_vi_mode_color_visual tide_vi_mode_icon_default tide_vi_mode_icon_insert
 tide_vi_mode_icon_replace tide_vi_mode_icon_visual tide_zig_bg_color tide_zig_color tide_zig_icon
 """.split())
-# Tide 6.1.1's prompt items: its _tide_item_* functions, plus pwd and newline from _tide_2_line_prompt.
+# The release's prompt items: its _tide_item_* functions, plus pwd and newline from _tide_2_line_prompt.
 TIDE_6_1_1_ITEMS = frozenset("""
-aws bun character cmd_duration context crystal direnv distrobox docker elixir gcloud git go java jobs kubectl
+aws character cmd_duration context crystal direnv distrobox docker elixir gcloud git go java jobs kubectl
 nix_shell node os php private_mode pulumi python ruby rustc shlvl status terraform time toolbox vi_mode zig pwd newline
 """.split())
 # The moon item is witchy's own; _tide_print_item reads tide_<item>_bg_color and tide_<item>_color.

@@ -11,7 +11,7 @@
 On a second PC (WSL Ubuntu, fish), `python3 -m witchy install` themed Windows Terminal and the greeting, but the prompt kept its old look. On this PC the prompt still shows the old "pastel princess" icons. Causes found in the code and on this machine:
 
 1. witchy does not install Tide. Without it, the fish component records `skipped: Tide not found` and the run exits 2. The only signal is one line in the summary. The second PC has no Tide.
-2. witchy sets only Tide's colours and item lists (`palette.TIDE`, 31 variables). Tide has 161 universal variables. The icons, caps, separators, time format and the colours of unused items come from `~/change_this_bitch.sh` (🎀 🏰 🌷 💖 ✨ 🍰 and round caps), and witchy never touches them.
+2. witchy sets only Tide's colours and item lists (`palette.TIDE`, 31 variables). This PC has 161 universal `tide_*` variables (its Tide is a development build that still calls itself 6.1.1; the 6.1.1 release defines 156, and witchy's moon item adds 2). The icons, caps, separators, time format and the colours of unused items come from `~/change_this_bitch.sh` (🎀 🏰 🌷 💖 ✨ 🍰 and round caps), and witchy never touches them.
 3. doctor checks the 31 variables only. It does not check that Tide's `fish_prompt` is the active one, and its snapshot erases globals in its own process, so a `set -g tide_*` in `config.fish` or a starship init line would pass as ✓.
 4. Windows Terminal keeps `PastelOneDark` as `profiles.defaults` scheme and on the PowerShell and cmd profiles.
 
@@ -130,11 +130,11 @@ Edge cases:
 
 ### 6.1 Every variable
 
-witchy now sets every universal variable Tide 6.1.1 defines (161 names on this PC). Defaults and taste are kept apart (D23):
+witchy now sets every universal variable the Tide 6.1.1 release defines (156 names) and the moon item's two (`tide_moon_bg_color`, `tide_moon_color`): 158 names. Defaults and taste are kept apart (D23):
 
-- `content/tide-6.1.1-defaults.json` holds Tide 6.1.1's Rainbow-preset values, generated once by `scripts/tide_defaults.py` from Tide's `functions/tide/configure/configs/rainbow.fish` and `icons.fish`, and checked in.
+- `content/tide-6.1.1-defaults.json` holds Tide 6.1.1's Rainbow-preset values, generated once by `scripts/tide_defaults.py` from Tide's `functions/tide/configure/configs/rainbow.fish` and `icons.fish` in the v6.1.1 release tag, and checked in. The generator refuses any other tree, including a development build that also prints `tide, version 6.1.1` (it pins the SHA-256 of both files). Tide's own colour names (`$_tide_color_green`, …) are resolved from `_tide_sub_configure.fish`. The OS branding differs per machine, so the file records Tide's generic Linux branding; witchy overrides all three `tide_os_*` anyway.
 - `palette.TIDE` holds only witchy's overrides (sections 6.2–6.4 and the colours from ritual 5.2).
-- `build.tide(variant)` merges them. A test checks the merge has exactly the names in the defaults file and every override names one of them.
+- `build.tide(variant)` merges them. A test checks the merge has exactly the names in the defaults file plus the moon item's (`palette.TIDE_OWN`), and every override names one of those.
 - A variable this spec does not name keeps the default (for example `tide_pwd_markers`, `tide_git_truncation_length`, `tide_prompt_min_cols`).
 - witchy also sets the universal `fish_emoji_width` to `2`, which is how Windows Terminal draws emoji. Without it fish guesses per terminal. It is recorded and restored like a Tide variable.
 - A universal `tide_*` variable that is not in Tide 6.1.1's list is erased and recorded, so uninstall can give it back. Tide's private `_tide_*` variables are never touched.
