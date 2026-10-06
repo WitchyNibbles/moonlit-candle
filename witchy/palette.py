@@ -182,17 +182,69 @@ WT_PROFILE: dict[str, Any] = {
 }
 
 
-# The Tide prompt (spec 5.2): fish universal variables. Colours are written without "#"; item lists are tuples
-# (fish lists). Text on each segment reads at 4.5:1 on its background (spec 11.3).
+# Every icon witchy draws, defined once (spec 7). The prompt takes its icons from here; build.py writes the
+# table into the status line's and the greeting's GLYPHS blocks. Prompt icons are one emoji code point each,
+# with no variation selector (spec D5), so the candle stays out of the prompt.
+GLYPHS: dict[str, str] = {
+    "candle": "\U0001F56F\uFE0F",  # status line model, greeting sabbat day; never in the prompt
+    "scroll": "📜",  # status line repo
+    "branch": "🌿",  # status line branch, Tide git icon
+    "dirty": "✦",
+    "separator": "⋆",
+    "cwd": "🧹",
+    "home": "🔮",
+    "unwritable": "🪦",
+    "ok": "🧪",
+    "fail": "💀",
+    "duration": "🔥",
+    "jobs": "🐈",
+    "time": "🦉",
+    "caret": "❯",
+}
+
+# Items the prompt does not show (spec 6.4), with their icons. Turned on, they still look witchy: each wears the
+# muted pair, A99AB9 on 1D1230.
+UNUSED_ICONS: dict[str, str] = {
+    "aws": "🏺", "crystal": "💠", "direnv": "🍃", "distrobox": "📦", "docker": "🐳", "elixir": "💧",
+    "gcloud": "⛅", "go": "🐹", "java": "☕", "kubectl": "🎡", "nix_shell": "🧊", "node": "🍄", "os": "🐧",
+    "php": "🐘", "private_mode": "🎭", "pulumi": "🧬", "python": "🐍", "ruby": "💎", "rustc": "🦀", "shlvl": "🌀",
+    "terraform": "🧱", "toolbox": "🧰", "zig": "⚡",
+}
+VI_MODES = ("default", "insert", "replace", "visual")
+
+# The Tide prompt (spec 5.2, 6): witchy's overrides of Tide 6.1.1's defaults; build.tide merges the two, and
+# every other Tide variable keeps its default. fish universal variables: colours are written without "#", lists
+# are tuples. Text on each segment reads at 4.5:1 on its background (spec 11.3).
 TIDE: dict[str, str | tuple[str, ...]] = {
+    # Shape (spec 6.2): two lines in a frame, Tide's Slanted caps and separators, a transient prompt.
     "tide_left_prompt_items": ("moon", "pwd", "git", "newline", "character"),
-    "tide_right_prompt_items": ("status", "cmd_duration", "time"),
+    "tide_right_prompt_items": ("status", "cmd_duration", "jobs", "time"),
+    "tide_left_prompt_prefix": "\ue0ba",  # Slanted tail
+    "tide_left_prompt_suffix": "\ue0bc",  # Slanted head
+    "tide_right_prompt_prefix": "\ue0ba",  # Slanted head
+    "tide_right_prompt_suffix": "\ue0bc",  # Slanted tail
+    "tide_left_prompt_separator_diff_color": "\ue0bc",
+    "tide_right_prompt_separator_diff_color": "\ue0ba",
+    "tide_left_prompt_frame_enabled": "true",
+    "tide_right_prompt_frame_enabled": "true",
+    "tide_prompt_transient_enabled": "true",
+    "tide_prompt_add_newline_before": "true",
+    "tide_prompt_icon_connection": "·",
+    "tide_prompt_color_frame_and_connection": "6E5A80",
+    # Drawn between segments that share a background, so no single background exists to test it on: it is
+    # in no contrast pair in validate.py, only format-checked.
+    "tide_prompt_color_separator_same_color": "A99AB9",
+    # The visible items (spec 6.3)
     "tide_moon_bg_color": "1D1230",
     "tide_moon_color": "FFD477",
+    "tide_pwd_icon": GLYPHS["cwd"],
+    "tide_pwd_icon_home": GLYPHS["home"],
+    "tide_pwd_icon_unwritable": GLYPHS["unwritable"],
     "tide_pwd_bg_color": "B99AFF",
     "tide_pwd_color_anchors": "0D0916",
     "tide_pwd_color_dirs": "1D1230",
     "tide_pwd_color_truncated_dirs": "38234D",
+    "tide_git_icon": GLYPHS["branch"],
     "tide_git_bg_color": "FFD477",
     "tide_git_bg_color_unstable": "FFB86B",
     "tide_git_bg_color_urgent": "FF6B9F",
@@ -204,22 +256,45 @@ TIDE: dict[str, str | tuple[str, ...]] = {
     "tide_git_color_stash": "0D0916",
     "tide_git_color_untracked": "0D0916",
     "tide_git_color_upstream": "0D0916",
-    "tide_character_color": "FF67B7",
+    "tide_character_icon": GLYPHS["caret"],
+    "tide_character_vi_icon_default": "❮",
+    "tide_character_vi_icon_replace": "▶",
+    "tide_character_vi_icon_visual": "V",
+    "tide_character_color": "FFD477",
     "tide_character_color_failure": "FF6B9F",
-    "tide_prompt_color_frame_and_connection": "6E5A80",
-    # Drawn between segments that share a background, so no single background exists to test it on: it is
-    # in no contrast pair in validate.py, only format-checked.
-    "tide_prompt_color_separator_same_color": "A99AB9",
+    "tide_status_icon": GLYPHS["ok"],
+    "tide_status_icon_failure": GLYPHS["fail"],
     "tide_status_bg_color": "1D1230",
     "tide_status_color": "74E8B8",
     "tide_status_bg_color_failure": "1D1230",
     "tide_status_color_failure": "FF6B9F",
+    "tide_cmd_duration_icon": GLYPHS["duration"],
     "tide_cmd_duration_bg_color": "1D1230",
     "tide_cmd_duration_color": "A99AB9",
     "tide_cmd_duration_threshold": "3000",
+    "tide_jobs_icon": GLYPHS["jobs"],
+    "tide_jobs_bg_color": "1D1230",
+    "tide_jobs_color": "A99AB9",
+    "tide_time_format": "%H:%M " + GLYPHS["time"],
     "tide_time_bg_color": "1D1230",
     "tide_time_color": "A99AB9",
+    # The items witchy does not show (spec 6.4). context and vi_mode keep Tide's text; a denied direnv and a
+    # root or ssh context are rose-red.
+    **{f"tide_{item}_{key}": value for item, icon in UNUSED_ICONS.items()
+       for key, value in (("icon", icon), ("bg_color", "1D1230"), ("color", "A99AB9"))},
+    "tide_direnv_bg_color_denied": "1D1230",
+    "tide_direnv_color_denied": "FF6B9F",
+    "tide_context_bg_color": "1D1230",
+    "tide_context_color_default": "A99AB9",
+    "tide_context_color_root": "FF6B9F",
+    "tide_context_color_ssh": "FF6B9F",
+    **{f"tide_vi_mode_bg_color_{mode}": "1D1230" for mode in VI_MODES},
+    **{f"tide_vi_mode_color_{mode}": "A99AB9" for mode in VI_MODES},
 }
+
+# fish's own universal variables that witchy sets and records like Tide's (spec 6.1): emoji are two cells wide,
+# as Windows Terminal draws them.
+FISH: dict[str, str] = {"fish_emoji_width": "2"}
 
 # Variables of witchy's own prompt items, which Tide does not define: the moon item's colours (spec 5.1).
 TIDE_OWN: tuple[str, ...] = ("tide_moon_bg_color", "tide_moon_color")

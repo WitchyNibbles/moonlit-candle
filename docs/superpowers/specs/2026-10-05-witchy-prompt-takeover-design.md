@@ -155,7 +155,7 @@ witchy now sets every universal variable the Tide 6.1.1 release defines (156 nam
 | `tide_left_prompt_frame_enabled`, `tide_right_prompt_frame_enabled` | `true` |
 | `tide_prompt_transient_enabled`, `tide_prompt_add_newline_before` | `true` |
 | `tide_prompt_icon_connection` | `·` |
-| `tide_prompt_color_frame_and_connection` | `38234D` (deep violet) |
+| `tide_prompt_color_frame_and_connection` | `6E5A80` (unchanged: the deep violet `38234D` is 1.42:1 on `#0D0916`, below the 3:1 rule for the frame in ritual 11.3) |
 
 ### 6.3 Glyph map (visible items)
 
@@ -174,7 +174,7 @@ witchy now sets every universal variable the Tide 6.1.1 release defines (156 nam
 | caret | `tide_character_icon` | `❯` |
 | vi modes | `tide_character_vi_icon_default` / `_replace` / `_visual` | `❮` / `▶` / `V` |
 
-Caret colours: `tide_character_color` `FFD477`, `tide_character_color_failure` `FF6B9F`. The other visible colours stay as in ritual 5.2.
+Caret colours: `tide_character_color` `FFD477`, `tide_character_color_failure` `FF6B9F`. `jobs` wears the muted pair of section 6.4 (`A99AB9` on `1D1230`). The other visible colours stay as in ritual 5.2.
 
 ### 6.4 Unused items
 
@@ -183,13 +183,15 @@ All unused items use background `1D1230` and text `A99AB9` (muted, already a val
 | Item | Icon | Item | Icon | Item | Icon |
 | :- | :- | :- | :- | :- | :- |
 | aws | 🏺 | gcloud | ⛅ | private_mode | 🎭 |
-| bun | 🥟 | go | 🐹 | pulumi | 🧬 |
-| crystal | 💠 | java | ☕ | python | 🐍 |
-| direnv | 🍃 | kubectl | 🎡 | ruby | 💎 |
-| distrobox | 📦 | nix_shell | 🧊 | rustc | 🦀 |
-| docker | 🐳 | node | 🍄 | shlvl | 🌀 |
-| elixir | 💧 | os | 🐧 | terraform | 🧱 |
-| php | 🐘 | toolbox | 🧰 | zig | ⚡ |
+| crystal | 💠 | go | 🐹 | pulumi | 🧬 |
+| direnv | 🍃 | java | ☕ | python | 🐍 |
+| distrobox | 📦 | kubectl | 🎡 | ruby | 💎 |
+| docker | 🐳 | nix_shell | 🧊 | rustc | 🦀 |
+| elixir | 💧 | node | 🍄 | shlvl | 🌀 |
+| php | 🐘 | os | 🐧 | terraform | 🧱 |
+| | | toolbox | 🧰 | zig | ⚡ |
+
+The Tide 6.1.1 release has no `bun` item (only Tide's development branch does), so witchy sets no `tide_bun_*` variable.
 
 `context` and `vi_mode` have no emoji: `context` keeps Tide's text, `vi_mode` keeps Tide's letters, both in palette colours. `tide_direnv_*_denied` and the `context` root/ssh colours use rose-red `FF6B9F` text on `1D1230`.
 
@@ -276,7 +278,7 @@ On this PC (Tide and fisher were already there) uninstall restores the recorded 
 1. **Prompt glyphs:** every `*_icon` value and `tide_time_format` in TIDE holds at most one emoji; none contains U+FE0F, U+200D or U+1F3FB–U+1F3FF. Text glyphs (`❯`, `·`, Nerd Font private-use caps) are allowed.
 2. **Completeness:** every key in `palette.TIDE` is a name in `content/tide-6.1.1-defaults.json` (a typo fails validation instead of creating a stray variable).
 3. **No pastel:** no TIDE value and no `WT_SCHEME` value is one of the recorded pastel hex values (`FFB7C5`, `F8A4C9`, `FF6EC7`, `FBAED2`, `F5C6E0`, `FFC8DD`, …) or one of the pastel icons (🎀 🏰 🌷 💖 💔 ✨ 🍰 🌸). The list lives in `validate.py` as `PASTEL`.
-4. **Contrast:** each new visible pair (caret on the terminal background, muted on `1D1230` for unused items, frame `38234D` against `0D0916` as non-text ≥ 1.5:1) joins the existing pairs.
+4. **Contrast:** each new visible pair (caret on the terminal background, muted on `1D1230` for `jobs` and the unused items, rose-red on `1D1230` for the denied direnv and the root and ssh context) joins the existing pairs. The frame keeps its 3:1 rule on `0D0916` (ritual 11.3).
 5. **Width:** every emoji in `GLYPHS` is in `ritual/layout.WIDE` or East-Asian-Wide.
 
 ## 12. Tests

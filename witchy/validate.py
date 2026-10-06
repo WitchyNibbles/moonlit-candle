@@ -79,6 +79,17 @@ TIDE_TEXT_PAIRS: tuple[tuple[str, str | None], ...] = (
     ("tide_character_color", None),
     ("tide_character_color_failure", None),
 )
+# The items witchy does not show (spec 6.4) and jobs: each one's text on its own background.
+TIDE_ITEMS = ("aws", "crystal", "direnv", "distrobox", "docker", "elixir", "gcloud", "go", "java", "jobs",
+              "kubectl", "nix_shell", "node", "os", "php", "private_mode", "pulumi", "python", "ruby", "rustc",
+              "shlvl", "terraform", "toolbox", "zig")
+VI_MODES = ("default", "insert", "replace", "visual")
+TIDE_ITEM_PAIRS: tuple[tuple[str, str | None], ...] = (
+    *((f"tide_{item}_color", f"tide_{item}_bg_color") for item in TIDE_ITEMS),
+    ("tide_direnv_color_denied", "tide_direnv_bg_color_denied"),
+    *((f"tide_context_color_{kind}", "tide_context_bg_color") for kind in ("default", "root", "ssh")),
+    *((f"tide_vi_mode_color_{mode}", f"tide_vi_mode_bg_color_{mode}") for mode in VI_MODES),
+)
 TIDE_SECONDARY_PAIRS: tuple[tuple[str, str | None], ...] = (
     ("tide_pwd_color_truncated_dirs", "tide_pwd_bg_color"),
     ("tide_prompt_color_frame_and_connection", None),
@@ -284,9 +295,14 @@ def validate_ritual_palette(colours: Mapping[str, Any], background: str = palett
     return failures
 
 
+# Tide names these with the word "color", but they hold the glyph drawn between two segments (spec 6.2).
+TIDE_SEPARATOR_GLYPHS = frozenset({"tide_left_prompt_separator_diff_color", "tide_left_prompt_separator_same_color",
+                                   "tide_right_prompt_separator_diff_color", "tide_right_prompt_separator_same_color"})
+
+
 def is_tide_colour(key: str) -> bool:
     """Tide names a colour variable with the word ``color``: ``tide_pwd_bg_color``, ``tide_git_color_branch``."""
-    return "color" in key.split("_")
+    return "color" in key.split("_") and key not in TIDE_SEPARATOR_GLYPHS
 
 
 def validate_sky(sky: Mapping[str, Any]) -> list[Failure]:
@@ -316,7 +332,7 @@ def validate_tide(tide: Mapping[str, Any], background: str = palette.BACKGROUND)
         elif not colour and not (isinstance(value, str) or
                                  (isinstance(value, tuple) and all(isinstance(v, str) for v in value))):
             failures.append(Failure("format", f"tide.{key}", str(value), "must be a string or a tuple of strings"))
-    for pairs, rule, minimum in ((TIDE_TEXT_PAIRS, "text-contrast", TEXT_MIN),
+    for pairs, rule, minimum in ((TIDE_TEXT_PAIRS + TIDE_ITEM_PAIRS, "text-contrast", TEXT_MIN),
                                  (TIDE_SECONDARY_PAIRS, "secondary-contrast", SECONDARY_MIN)):
         for text, on in pairs:
             if text not in tide or text in bad or (on is not None and (on not in tide or on in bad)):

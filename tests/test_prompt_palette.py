@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from witchy import build, palette, validate
+from witchy import build, content, palette, validate
 
 # The 156 names of Tide's v6.1.1 release tag (its icons.fish and configs/rainbow.fish), the version the spec
 # targets. Tide's development branch, which also calls itself 6.1.1, adds tide_bun_bg_color, _color and _icon.
@@ -58,31 +58,120 @@ class TideNamesTest(unittest.TestCase):
         self.assertEqual(set(palette.TIDE) - MOON_VARIABLES - TIDE_6_1_1_VARIABLES, set())
         self.assertTrue(MOON_VARIABLES <= set(palette.TIDE))
 
-    def test_the_spec_variables_are_all_there(self):
-        self.assertEqual(len(palette.TIDE), 32)
-        self.assertEqual(palette.TIDE["tide_left_prompt_items"], ("moon", "pwd", "git", "newline", "character"))
-        self.assertEqual(palette.TIDE["tide_right_prompt_items"], ("status", "cmd_duration", "time"))
-        self.assertEqual(palette.TIDE["tide_cmd_duration_threshold"], "3000")
-
     def test_items_are_tide_items_or_the_moon(self):
         items = set(palette.TIDE["tide_left_prompt_items"]) | set(palette.TIDE["tide_right_prompt_items"])
         self.assertEqual(items - TIDE_6_1_1_ITEMS, {"moon"})
 
     def test_every_tide_colour_is_validated_for_contrast_or_exempt(self):
-        checked = {name for pair in validate.TIDE_TEXT_PAIRS + validate.TIDE_SECONDARY_PAIRS for name in pair if name}
+        checked = {name for pair in validate.TIDE_TEXT_PAIRS + validate.TIDE_ITEM_PAIRS + validate.TIDE_SECONDARY_PAIRS
+                   for name in pair if name}
         colours = {key for key in palette.TIDE if validate.is_tide_colour(key)}
         # It sits between segments that share a background, so no single background exists to test it on.
         self.assertEqual(colours - checked, {"tide_prompt_color_separator_same_color"})
 
     def test_colour_keys_are_the_ones_with_a_colour_word(self):
         for key in ("tide_pwd_bg_color", "tide_git_color_branch", "tide_context_color_default",
-                    "tide_left_prompt_separator_diff_color"):
+                    "tide_prompt_color_separator_same_color"):
             self.assertTrue(validate.is_tide_colour(key), key)
         for key in ("tide_left_prompt_items", "tide_cmd_duration_threshold", "tide_colorful_icon", "tide_pwd_decolor"):
             self.assertFalse(validate.is_tide_colour(key), key)
-        self.assertEqual({key for key in palette.TIDE if validate.is_tide_colour(key)},
-                         {key for key in palette.TIDE if key not in (
-                             "tide_left_prompt_items", "tide_right_prompt_items", "tide_cmd_duration_threshold")})
+
+    def test_the_separator_glyphs_are_not_colours(self):
+        # Tide names them with "color", but they hold the glyph drawn between two segments.
+        for key in ("tide_left_prompt_separator_diff_color", "tide_left_prompt_separator_same_color",
+                    "tide_right_prompt_separator_diff_color", "tide_right_prompt_separator_same_color"):
+            self.assertFalse(validate.is_tide_colour(key), key)
+        self.assertEqual(validate.validate_tide(dict(palette.TIDE, tide_left_prompt_separator_diff_color="\ue0bc")),
+                         [])
+
+
+# The unused items of spec 6.4 and their icons.
+UNUSED_ICONS = {
+    "aws": "🏺", "crystal": "💠", "direnv": "🍃", "distrobox": "📦", "docker": "🐳", "elixir": "💧",
+    "gcloud": "⛅", "go": "🐹", "java": "☕", "kubectl": "🎡", "nix_shell": "🧊", "node": "🍄", "os": "🐧",
+    "php": "🐘", "private_mode": "🎭", "pulumi": "🧬", "python": "🐍", "ruby": "💎", "rustc": "🦀", "shlvl": "🌀",
+    "terraform": "🧱", "toolbox": "🧰", "zig": "⚡",
+}
+
+
+class TideLookTest(unittest.TestCase):
+    """The prompt the spec draws (spec 6.2-6.4)."""
+
+    def test_two_framed_lines_with_slanted_caps(self):
+        expected = {
+            "tide_left_prompt_items": ("moon", "pwd", "git", "newline", "character"),
+            "tide_right_prompt_items": ("status", "cmd_duration", "jobs", "time"),
+            "tide_left_prompt_prefix": "\ue0ba", "tide_left_prompt_suffix": "\ue0bc",
+            "tide_right_prompt_prefix": "\ue0ba", "tide_right_prompt_suffix": "\ue0bc",
+            "tide_left_prompt_separator_diff_color": "\ue0bc", "tide_right_prompt_separator_diff_color": "\ue0ba",
+            "tide_left_prompt_frame_enabled": "true", "tide_right_prompt_frame_enabled": "true",
+            "tide_prompt_transient_enabled": "true", "tide_prompt_add_newline_before": "true",
+            "tide_prompt_icon_connection": "·", "tide_prompt_color_frame_and_connection": "6E5A80",
+            "tide_cmd_duration_threshold": "3000",
+        }
+        self.assertEqual({name: palette.TIDE[name] for name in expected}, expected)
+
+    def test_same_colour_separators_keep_tides_rainbow_default(self):
+        defaults = content.load_tide_defaults()
+        for name in ("tide_left_prompt_separator_same_color", "tide_right_prompt_separator_same_color"):
+            self.assertNotIn(name, palette.TIDE)
+            self.assertEqual(build.tide()[name], defaults[name])
+
+    def test_the_glyph_map(self):
+        expected = {
+            "tide_pwd_icon": "🧹", "tide_pwd_icon_home": "🔮", "tide_pwd_icon_unwritable": "🪦", "tide_git_icon": "🌿",
+            "tide_status_icon": "🧪", "tide_status_icon_failure": "💀", "tide_cmd_duration_icon": "🔥",
+            "tide_jobs_icon": "🐈", "tide_time_format": "%H:%M 🦉", "tide_character_icon": "❯",
+            "tide_character_vi_icon_default": "❮", "tide_character_vi_icon_replace": "▶",
+            "tide_character_vi_icon_visual": "V",
+        }
+        self.assertEqual({name: palette.TIDE[name] for name in expected}, expected)
+
+    def test_prompt_icons_come_from_the_shared_table(self):
+        uses = {"tide_pwd_icon": "cwd", "tide_pwd_icon_home": "home", "tide_pwd_icon_unwritable": "unwritable",
+                "tide_git_icon": "branch", "tide_status_icon": "ok", "tide_status_icon_failure": "fail",
+                "tide_cmd_duration_icon": "duration", "tide_jobs_icon": "jobs", "tide_character_icon": "caret"}
+        for name, key in uses.items():
+            self.assertEqual(palette.TIDE[name], palette.GLYPHS[key], name)
+        self.assertEqual(palette.TIDE["tide_time_format"], "%H:%M " + palette.GLYPHS["time"])
+
+    def test_the_caret_is_candle_gold_and_rose_red_on_failure(self):
+        self.assertEqual((palette.TIDE["tide_character_color"], palette.TIDE["tide_character_color_failure"]),
+                         ("FFD477", "FF6B9F"))
+
+    def test_jobs_and_unused_items_wear_witchy_icons_on_the_muted_pair(self):
+        self.assertEqual((palette.TIDE["tide_jobs_bg_color"], palette.TIDE["tide_jobs_color"]), ("1D1230", "A99AB9"))
+        for item, icon in UNUSED_ICONS.items():
+            with self.subTest(item=item):
+                self.assertEqual((palette.TIDE[f"tide_{item}_icon"], palette.TIDE[f"tide_{item}_bg_color"],
+                                  palette.TIDE[f"tide_{item}_color"]), (icon, "1D1230", "A99AB9"))
+
+    def test_context_and_vi_mode_keep_tides_text_in_palette_colours(self):
+        self.assertNotIn("tide_vi_mode_icon_default", palette.TIDE)
+        expected = {
+            "tide_context_bg_color": "1D1230", "tide_context_color_default": "A99AB9",
+            "tide_context_color_root": "FF6B9F", "tide_context_color_ssh": "FF6B9F",
+            "tide_direnv_bg_color_denied": "1D1230", "tide_direnv_color_denied": "FF6B9F",
+            **{f"tide_vi_mode_bg_color_{mode}": "1D1230" for mode in ("default", "insert", "replace", "visual")},
+            **{f"tide_vi_mode_color_{mode}": "A99AB9" for mode in ("default", "insert", "replace", "visual")},
+        }
+        self.assertEqual({name: palette.TIDE[name] for name in expected}, expected)
+
+    def test_every_colour_tide_defines_is_a_palette_colour(self):
+        colours = {name for name in content.load_tide_defaults() if validate.is_tide_colour(name)}
+        self.assertEqual(colours - set(palette.TIDE), set())
+
+
+class SharedTablesTest(unittest.TestCase):
+    def test_the_glyph_table(self):
+        self.assertEqual(palette.GLYPHS, {
+            "candle": "\U0001F56F\uFE0F", "scroll": "📜", "branch": "🌿", "dirty": "✦", "separator": "⋆",
+            "cwd": "🧹", "home": "🔮", "unwritable": "🪦", "ok": "🧪", "fail": "💀", "duration": "🔥", "jobs": "🐈",
+            "time": "🦉", "caret": "❯",
+        })
+
+    def test_fish_draws_emoji_two_cells_wide(self):
+        self.assertEqual(palette.FISH, {"fish_emoji_width": "2"})
 
 
 class TideValidateTest(unittest.TestCase):
@@ -119,6 +208,17 @@ class TideValidateTest(unittest.TestCase):
         self.assertEqual(validate.validate_tide(lenient), [])
         found = pairs(validate.validate_tide(dict(palette.TIDE, tide_prompt_color_frame_and_connection="3A2E47")))
         self.assertIn(("secondary-contrast", "tide.tide_prompt_color_frame_and_connection on background"), found)
+
+    def test_unused_items_and_jobs_read_on_their_background(self):
+        dark = "2A1F3D"
+        tide = dict(palette.TIDE, tide_aws_color=dark, tide_jobs_color=dark, tide_direnv_color_denied=dark,
+                    tide_context_color_root=dark, tide_vi_mode_color_insert=dark)
+        self.assertLessEqual({("text-contrast", "tide.tide_aws_color on tide_aws_bg_color"),
+                              ("text-contrast", "tide.tide_jobs_color on tide_jobs_bg_color"),
+                              ("text-contrast", "tide.tide_direnv_color_denied on tide_direnv_bg_color_denied"),
+                              ("text-contrast", "tide.tide_context_color_root on tide_context_bg_color"),
+                              ("text-contrast", "tide.tide_vi_mode_color_insert on tide_vi_mode_bg_color_insert")},
+                             pairs(validate.validate_tide(tide)))
 
     def test_a_missing_variable_is_reported(self):
         tide = {key: value for key, value in palette.TIDE.items() if key != "tide_moon_color"}
