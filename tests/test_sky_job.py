@@ -10,7 +10,7 @@ from unittest import mock
 
 from witchy import wt
 from witchy.components import windows_terminal
-from witchy.ritual import log, moon, sky
+from witchy.ritual import caret, log, moon, sky
 
 GUID = "{51855cb2-8cce-5362-8f54-464b92b32386}"
 FULL_MOON = datetime(2026, 10, 26, 8, 0, tzinfo=timezone(timedelta(hours=1)))  # phase bin 4
@@ -191,6 +191,33 @@ class SkyJobTest(unittest.TestCase):
         (self.home / sky.CONFIG).unlink()
         self.run_job()
         self.assertTrue((self.cache / sky.FAIL).is_file())
+
+    def test_writes_the_caret_cache_for_today_and_tomorrow(self):
+        eve = datetime(2026, 10, 30, 8, 0, tzinfo=timezone(timedelta(hours=1)))
+        self.run_job(eve)
+        self.assertEqual((self.cache / caret.NAME).read_text(encoding="utf-8"),
+                         "2026-10-30 FFB86B samhain\n2026-10-31 FFB86B samhain\n")
+        self.assertEqual(self.background(), wt.SKY_VALUES[moon.phase_bin(eve)])
+
+    def test_the_caret_alone_needs_no_config_and_leaves_the_sky(self):
+        (self.home / sky.CONFIG).unlink()
+        self.assertEqual(sky.run(self.home, FULL_MOON, move_sky=False), 0)
+        self.assertEqual((self.cache / caret.NAME).read_text(encoding="utf-8"), "2026-10-26\n2026-10-27\n")
+        self.assertEqual(self.background(), wt.SKY_VALUES[1])
+        self.assertEqual(sorted(path.name for path in self.cache.iterdir()), [caret.NAME])
+
+    def test_a_caret_that_cannot_be_written_is_logged_and_the_sky_still_moves(self):
+        (self.cache / caret.NAME).mkdir(parents=True)
+        self.run_job()
+        self.assertEqual(self.background(), wt.SKY_VALUES[4])
+        self.assertIn("sky: could not write the caret cache", log.last(self.cache / log.NAME))
+        self.assertEqual((self.cache / sky.FAIL).read_text(encoding="utf-8"), "2026-10-26\n")
+
+    def test_after_a_failure_today_the_caret_waits_for_tomorrow_too(self):
+        self.cache.mkdir(parents=True)
+        (self.cache / sky.FAIL).write_text("2026-10-26\n", encoding="utf-8")
+        sky.run(self.home, FULL_MOON, move_sky=False)
+        self.assertFalse((self.cache / caret.NAME).exists())
 
     def test_shares_names_with_the_installer(self):
         self.assertEqual(sky.LOCK, windows_terminal.WT_LOCK)

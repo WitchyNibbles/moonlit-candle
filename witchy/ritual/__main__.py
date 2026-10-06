@@ -1,4 +1,4 @@
-"""python3 -I -B ~/.claude/witchy/ritual [--full | --omen | --sky] [--debug] [--date YYYY-MM-DD]"""
+"""python3 -I -B ~/.claude/witchy/ritual [--full | --omen | --sky | --caret] [--debug] [--date YYYY-MM-DD]"""
 import signal
 import sys
 from pathlib import Path

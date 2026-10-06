@@ -336,9 +336,9 @@ Without a terminal on stdin, `--fresh` exits 1 with `--fresh needs a terminal to
 
 ### 15.3 Seasonal caret (D17)
 
-- The daily sky job (ritual 4.5) also writes `~/.cache/witchy/caret`: `<YYYY-MM-DD> <HEX> <sabbat>` when today or tomorrow is a sabbat, else `<YYYY-MM-DD>` alone. Colours come from `palette.RITUAL` (the sabbat colours, already contrast-checked against the background).
+- The sky job (ritual 4.5) also writes `~/.cache/witchy/caret`, two lines: one for today and one for tomorrow, each `<YYYY-MM-DD> <HEX> <sabbat>` when that day or the next is a sabbat, else `<YYYY-MM-DD>` alone (on 2026-10-31: `2026-10-31 FFB86B samhain`, then `2026-11-01`). Tomorrow's line lets the first shell of a day show the right caret before the job has run that day. Colours come from `palette.RITUAL` (the sabbat colours, already contrast-checked against the background), upper case and without `#`. `ritual --caret` writes the file and leaves the sky alone; `ritual --sky` writes it, then moves the sky.
 - `conf.d/witchy.fish` reads that file with `read` (no Python) and, only if its date is today and it holds a colour, runs `set -g tide_character_color <HEX>`. The universal value stays gold. The failure colour is not changed.
-- A missing, stale or damaged file leaves the caret gold. A write failure goes to `ritual.log` like other sky-job errors.
+- A missing, stale or damaged file leaves the caret gold. A write failure goes to `ritual.log` as a `sky:` line and marks the day failed (`sky-fail`), like other sky-job errors; the sky step still runs.
 - doctor: the global-shadow check (9.1) accepts `tide_character_color` when its global equals the colour in today's caret file. doctor shows one line: `caret: gold` or `caret: samhain FFB86B (today's cache)`, and ⚠ when the cache is older than today.
 
 ### 15.4 `doctor --fix` (D18)

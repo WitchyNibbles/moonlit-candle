@@ -195,8 +195,14 @@ class SkyModeTest(CliTestCase):
         self.assertIn("greeting: OSError('disk full')", self.log.read_text(encoding="utf-8"))
         self.assertFalse(self.stamp.exists())
 
+    def test_caret_runs_the_job_without_the_sky_on_now(self):
+        with mock.patch.object(sky, "run", return_value=0) as run:
+            self.assertEqual(self.run_cli(["--caret", "--date", "2026-12-24"]), "")
+        run.assert_called_once_with(self.home, SAMHAIN_NIGHT, move_sky=False)
+        self.assertFalse(self.stamp.exists())
+
     def test_sky_and_another_mode_is_an_argument_error(self):
-        for mode in ("--full", "--omen"):
+        for mode in ("--full", "--omen", "--caret"):
             with self.subTest(mode), mock.patch.object(sky, "run") as run:
                 self.assertIn(f"argument {mode}: not allowed with argument --sky", self.bad_arguments(["--sky", mode]))
                 run.assert_not_called()
