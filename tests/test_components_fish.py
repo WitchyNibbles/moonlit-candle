@@ -392,7 +392,8 @@ class UninstallTest(FishTestCase):
         self.calls.clear()
         self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
         output = self.out.getvalue()
-        self.assertIn("fish: Tide's variables are gone (was Tide removed?); nothing to restore.", output)
+        self.assertIn("fish: the Tide variables witchy set are gone (was Tide removed?), so those are not restored; "
+                      "fish_emoji_width and the tide_ variables witchy erased are given back.", output)
         self.assertNotIn("changed after install", output)
         self.assertEqual(self.set_calls(), ["fish_emoji_width\0erase\0" "0\0"])  # fish's own goes back
         self.assertEqual(self.variables, {})

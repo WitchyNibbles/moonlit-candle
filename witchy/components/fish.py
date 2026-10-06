@@ -410,7 +410,8 @@ class FishComponent:
             ours = [name for name, record in variables.items()
                     if name.startswith("tide_") and record["installed"] is not None]
             if current and ours and all(current[name].get("absent") for name in ours):
-                warnings.append("fish: Tide's variables are gone (was Tide removed?); nothing to restore.")
+                warnings.append("fish: the Tide variables witchy set are gone (was Tide removed?), so those are not "
+                                "restored; fish_emoji_width and the tide_ variables witchy erased are given back.")
                 current = {name: found for name, found in current.items() if name not in ours}
             undo = []
             for name, record in variables.items():
