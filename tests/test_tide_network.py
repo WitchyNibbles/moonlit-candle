@@ -55,6 +55,7 @@ class WorkflowTest(unittest.TestCase):
     def test_ci_runs_this_file_weekly_and_on_demand(self):
         text = (ROOT / ".github" / "workflows" / "network.yml").read_text(encoding="utf-8")
         for line in ("  schedule:", '    - cron: "17 6 * * 1"  # Mondays', "  workflow_dispatch:",
+                     "\npermissions:\n  contents: read", "    timeout-minutes: 10",
                      '          WITCHY_NETWORK_TESTS: "1"',
                      "        run: python -m unittest tests.test_tide_network -v"):
             self.assertIn(line + "\n", text)
