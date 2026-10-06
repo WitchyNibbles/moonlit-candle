@@ -16,6 +16,7 @@ MEMBERS = ("MapleMono-NF-Regular.ttf", "MapleMono-NF-Italic.ttf", "MapleMono-NF-
            "MapleMono-NF-BoldItalic.ttf")
 MEMBER_LIMIT = 20 * 1024 * 1024
 DOWNLOAD_LIMIT = 64 * 1024 * 1024
+DOWNLOAD_TIMEOUT = 120  # seconds (spec D20)
 FAMILY = "Maple Mono NF"
 STYLES = ("Regular", "Italic", "Bold", "Bold Italic")
 REGISTRY_KEY = r"HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts"
@@ -26,7 +27,7 @@ class FontArchiveError(ValueError):
     """The release archive or a font in it is not usable; nothing is installed."""
 
 
-def fetch_url(url: str, timeout: float = 60) -> bytes:
+def fetch_url(url: str, timeout: float = DOWNLOAD_TIMEOUT) -> bytes:
     """Download over HTTPS; urllib checks the certificate against the system's trust store."""
     with urllib.request.urlopen(url, timeout=timeout) as response:
         data = response.read(DOWNLOAD_LIMIT + 1)
