@@ -7,7 +7,7 @@ It installs:
 - The `moonlit-candle` Claude Code theme (`~/.claude/themes/`)
 - Maple Mono NF for your Windows user (no admin rights needed; it stays installed after uninstall)
 - On your WSL profile in Windows Terminal: the "Moonlit Candle" colour scheme, Maple Mono NF, a box cursor, a 🌙 tab titled "witchyterm", and a starfield whose moon shows the current phase
-- Windows Terminal's default colour scheme becomes "Moonlit Candle" when it was `PastelOneDark`; that old scheme is removed from every profile and from `schemes` (uninstall gives it back)
+- Windows Terminal's default colour scheme becomes "Moonlit Candle" when it was `PastelOneDark`; that old scheme is removed from every profile and from `schemes` (uninstall gives it back); a profile without a `guid` is left alone, and while one still names it the scheme stays defined
 - Spinner verbs and tips (`spinnerVerbs`, `spinnerTipsOverride`)
 - The "WitchyNibbles" output style, which only changes the tone of chat replies
 - A status line with moon phases for context used, 5 h / 7 d limits, and git
@@ -71,6 +71,7 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by what fix
 | `✗ windows-terminal  profile keys changed: …` | a profile setting no longer holds the witchy value | `python3 -m witchy install --only windows-terminal`, or keep your change |
 | `✗ windows-terminal  changed or missing: …` | a sky image or `ritual-config.json` was edited or deleted | `python3 -m witchy install --only windows-terminal` |
 | `✗ windows-terminal  PastelOneDark is still in settings.json: …` | an old scheme is still defined, the default, or set on a profile | `python3 -m witchy install --only windows-terminal` (uninstall gives it back) |
+| `⚠ windows-terminal  PastelOneDark is kept in settings.json: profile '…' has no guid, …` | a profile without a `guid` still names the old scheme; witchy never edits such a profile, so the scheme stays defined for it | give that profile another `colorScheme`, then `python3 -m witchy install --only windows-terminal` |
 | `⚠ …  backup … is missing` | a backup was deleted | uninstall still works, key by key |
 | `✗ fish  changed or missing: …` | a fish function, `conf.d/witchy.fish` or a greeting file was edited or deleted | `python3 -m witchy install --only fish` |
 | `✗ fish  prompt variables changed: …` | a Tide variable no longer holds the witchy value (for example after `tide configure`) | `python3 -m witchy install --only fish`, or `doctor --fix` |

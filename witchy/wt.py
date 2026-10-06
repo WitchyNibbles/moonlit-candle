@@ -183,12 +183,18 @@ def _defaults(data: Any) -> dict | None:
     return defaults if isinstance(defaults, dict) else None
 
 
+def _guidless(profile: Any) -> bool:
+    """A profile without a GUID: it could not be found again on uninstall, so the purge leaves it alone."""
+    return isinstance(profile, dict) and not isinstance(profile.get("guid"), str)
+
+
 def purge_schemes(data: dict, names: Iterable[str], replacement: str, recorded: dict | None) -> tuple[dict, dict]:
     """Take the ``names`` schemes out of settings.json (spec 8).
 
     profiles.defaults gets ``replacement`` when it names one, a profile that names one loses its colorScheme so
-    it inherits the default, and their definitions are deleted. What each held is recorded; a reinstall keeps
-    the first record of each and adds the new ones.
+    it inherits the default, and their definitions are deleted, except one a profile without a GUID still names
+    (that profile is left alone, and must not name a scheme that is gone). What each held is recorded; a
+    reinstall keeps the first record of each and adds the new ones.
     """
     names = tuple(names)
     result = copy.deepcopy(data)
@@ -202,7 +208,7 @@ def purge_schemes(data: dict, names: Iterable[str], replacement: str, recorded: 
             record["defaults"] = {"previous": snapshot(defaults, "colorScheme"), "installed": replacement}
         defaults["colorScheme"] = replacement
     for profile in _profiles(result) or []:
-        if not (isinstance(profile, dict) and isinstance(profile.get("guid"), str)):
+        if not isinstance(profile, dict) or _guidless(profile):
             continue  # a profile without a GUID could not be found again on uninstall
         if _names(profile.get("colorScheme"), names):
             if not any(guid.lower() == profile["guid"].lower() for guid in record["profiles"]):
@@ -211,8 +217,9 @@ def purge_schemes(data: dict, names: Iterable[str], replacement: str, recorded: 
     schemes = result.get("schemes")
     if isinstance(schemes, list):
         known = {item["value"].get("name") for item in record["schemes"]}
+        kept = {name for name in names if kept_uses(result, name)}
         purged = [index for index, scheme in enumerate(schemes)
-                  if isinstance(scheme, dict) and scheme.get("name") in names]
+                  if isinstance(scheme, dict) and scheme.get("name") in names and scheme.get("name") not in kept]
         record["schemes"] += [{"index": index, "value": copy.deepcopy(schemes[index])} for index in purged
                               if schemes[index].get("name") not in known]
         result["schemes"] = [scheme for index, scheme in enumerate(schemes) if index not in purged]
@@ -266,17 +273,27 @@ def restore_purged(data: dict, record: dict | None) -> tuple[dict, list[str]]:
     return result, warnings
 
 
+def kept_uses(data: Any, name: str) -> list[str]:
+    """The profiles without a GUID that name the scheme ``name``: the purge leaves them, and keeps the definition."""
+    return [f"profile {profile['name']!r}" if isinstance(profile.get("name"), str) else "a profile without a name"
+            for profile in _profiles(data) or []
+            if _guidless(profile) and _names(profile.get("colorScheme"), (name,))]
+
+
 def purged_uses(data: Any, name: str) -> list[str]:
-    """Where settings.json still defines or uses the scheme ``name``: "schemes", "profiles.defaults", profiles."""
+    """Where settings.json still defines or uses the scheme ``name`` that the purge would take it out of:
+    "schemes" (unless a profile without a GUID keeps it), "profiles.defaults", profiles with a GUID."""
     places = []
     schemes = data.get("schemes") if isinstance(data, dict) else None
-    if isinstance(schemes, list) and any(isinstance(s, dict) and s.get("name") == name for s in schemes):
+    if isinstance(schemes, list) and any(isinstance(s, dict) and s.get("name") == name for s in schemes) \
+            and not kept_uses(data, name):
         places.append("schemes")
     defaults = _defaults(data)
     if defaults is not None and _names(defaults.get("colorScheme"), (name,)):
         places.append("profiles.defaults")
     places += [f"profile {profile.get('name', profile.get('guid'))!r}" for profile in _profiles(data) or []
-               if isinstance(profile, dict) and _names(profile.get("colorScheme"), (name,))]
+               if isinstance(profile, dict) and not _guidless(profile)
+               and _names(profile.get("colorScheme"), (name,))]
     return places
 
 

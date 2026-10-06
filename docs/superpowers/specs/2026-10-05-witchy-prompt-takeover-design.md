@@ -227,6 +227,8 @@ GLYPHS = {
 2. Removes `colorScheme` from every profile whose value is a purged scheme, so it inherits the default.
 3. Deletes the purged scheme definitions from `schemes`.
 
+A profile without a GUID is left alone (uninstall could not find it again to give its value back). While such a profile still names a purged scheme, that scheme's definition is kept, so the profile never names a scheme Windows Terminal cannot find; doctor shows `⚠ windows-terminal PastelOneDark is kept in settings.json: profile '<name>' has no guid, so witchy leaves it naming PastelOneDark` with the fix `give profile '<name>' another colorScheme, then run: python3 -m witchy install --only windows-terminal`. Its ✗ for the scheme (`… is still in settings.json: …`) leaves out what such a profile keeps, so `doctor --fix` never loops on it.
+
 Each previous value (defaults key, each profile's key by GUID, each scheme object) is recorded in the component entry with the first-install-wins rule. Uninstall puts them back, and leaves alone anything the user changed since (same rule as `restore_scheme`). The backup of `settings.json` is the one the component already takes.
 
 ## 9. Proof

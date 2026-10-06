@@ -133,6 +133,20 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         self.assertEqual(fails, [("PastelOneDark is still in settings.json: schemes, profiles.defaults",
                                   "python3 -m witchy install --only windows-terminal")])
 
+    def test_a_profile_without_a_guid_that_keeps_a_purged_scheme_is_a_warning_with_a_fix_by_hand(self):
+        data = json.loads(json.dumps(WT))
+        data["profiles"]["list"].append({"name": "Dev", "colorScheme": "PastelOneDark"})
+        data["schemes"] = [{"name": "PastelOneDark", "background": "#282C34"}]
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        ctx, entry = self.install()
+        after = json.loads(self.wt.read_text(encoding="utf-8"))
+        self.assertEqual([scheme["name"] for scheme in after["schemes"]], ["PastelOneDark", "Moonlit Candle"])
+        checks = [(c.level, c.message, c.fix) for c in self.component.check(ctx, entry) if c.level != "ok"]
+        self.assertEqual(checks, [(
+            "warn", "PastelOneDark is kept in settings.json: profile 'Dev' has no guid, so witchy leaves it naming "
+                    "PastelOneDark",
+            "give profile 'Dev' another colorScheme, then run: python3 -m witchy install --only windows-terminal")])
+
     def test_install_purges_pastel_one_dark_and_uninstall_gives_it_back(self):
         data = json.loads(json.dumps(WT))
         data["profiles"]["defaults"]["colorScheme"] = "PastelOneDark"

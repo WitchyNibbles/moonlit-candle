@@ -193,6 +193,14 @@ class WindowsTerminalComponent:
             if places:
                 checks.append(Check("fail", self.name, f"{purged} is still in {path.name}: " + ", ".join(places),
                                     fix))
+            kept = wt.kept_uses(data, purged)
+            if kept:
+                # install cannot fix this one: a profile without a GUID is never edited, so its scheme stays defined.
+                profiles = ", ".join(kept)
+                checks.append(Check("warn", self.name, f"{purged} is kept in {path.name}: {profiles} "
+                                    f"{'has' if len(kept) == 1 else 'have'} no guid, so witchy leaves "
+                                    f"{'it' if len(kept) == 1 else 'them'} naming {purged}",
+                                    f"give {profiles} another colorScheme, then run: {fix}"))
         records = entry.get("files") or []
         if records:
             changed = [record["path"] for record in records

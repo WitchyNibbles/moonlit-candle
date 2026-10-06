@@ -306,6 +306,19 @@ class PurgeTest(unittest.TestCase):
     def test_the_witchy_scheme_is_never_purged(self):
         self.assertNotIn(palette.WT_SCHEME["name"], palette.PURGED_SCHEMES)
 
+    def test_a_profile_without_a_guid_keeps_the_definition_it_names(self):
+        # Such a profile could not be found again on uninstall, so it keeps its colorScheme; deleting the definition
+        # would leave it naming a scheme Windows Terminal cannot find.
+        data = pastel_settings()
+        data["profiles"]["list"].append({"name": "Dev", "colorScheme": "PastelOneDark"})
+        result, record = installed(data)
+        self.assertEqual(result["profiles"]["list"][-1], {"name": "Dev", "colorScheme": "PastelOneDark"})
+        self.assertEqual(result["schemes"], [PASTEL, CAMPBELL, palette.WT_SCHEME])
+        self.assertEqual(record["purged"]["schemes"], [])
+        self.assertEqual(wt.purged_uses(result, "PastelOneDark"), [])
+        self.assertEqual(wt.kept_uses(result, "PastelOneDark"), ["profile 'Dev'"])
+        self.assertEqual(uninstalled(result, record), (data, []))
+
     def test_purged_uses_names_every_place(self):
         data = pastel_settings()
         self.assertEqual(wt.purged_uses(data, "PastelOneDark"),
@@ -313,6 +326,11 @@ class PurgeTest(unittest.TestCase):
                           "profile 'Símbolo del sistema'"])
         self.assertEqual(wt.purged_uses(data, "Campbell"), ["schemes"])
         self.assertEqual(wt.purged_uses({"profiles": "odd", "schemes": {}}, "PastelOneDark"), [])
+        self.assertEqual(wt.kept_uses(data, "PastelOneDark"), [])
+        data["profiles"]["list"].append({"colorScheme": {"dark": "PastelOneDark"}})
+        self.assertEqual(wt.purged_uses(data, "PastelOneDark"),
+                         ["profiles.defaults", "profile 'Windows PowerShell'", "profile 'Símbolo del sistema'"])
+        self.assertEqual(wt.kept_uses(data, "PastelOneDark"), ["a profile without a name"])
 
 
 
