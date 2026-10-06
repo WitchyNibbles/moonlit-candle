@@ -1,9 +1,12 @@
 """Stand-ins for the Windows side and for fish, so no test runs cmd.exe or reg.exe or needs a real Tide."""
+import hashlib
 import io
+import re
 import shutil
 import struct
 import subprocess
 import zipfile
+from pathlib import Path
 
 
 def fake_windows(echo=None, reg_query="", reg_query_code=0, reg_add_code=0, calls=None):
@@ -168,3 +171,140 @@ def fake_tide(fish_config, env):
                     "set -U _fisher_ilancosman_2F_tide_files $argv", "--",
                     str(functions / "tide.fish"), str(functions / "fish_prompt.fish")],
                    env=env, check=True, timeout=20, capture_output=True)
+
+
+# What `fisher install` fetches in tests: fisher 4.4.5 and a cut-down Tide 6.1.1, as files below fisher's folder.
+FISHER_FILE = b"function fisher\n    echo 'fisher, version 4.4.5'\nend\n"
+TIDE_FILES = {"functions/tide.fish": b"function tide\n    echo 'tide, version 6.1.1'\nend\n",
+              "functions/fish_prompt.fish": b"function fish_prompt\n    echo '> '\nend\n",
+              "functions/tide/configure/icons.fish": b"tide_pwd_icon x\n",
+              "conf.d/_tide_init.fish": b"function _tide_init_install --on-event _tide_init_install\nend\n"}
+RELEASES = {"jorgebucaran/fisher@4.4.5": {"functions/fisher.fish": FISHER_FILE,
+                                          "completions/fisher.fish": b"complete -c fisher\n"},
+            "ilancosman/tide@v6.1.1": TIDE_FILES}
+
+
+def fake_pins(releases=None, bootstrap=FISHER_FILE):
+    """content/pins.json for ``releases``: the bootstrap file's hash and each plugin's file hashes."""
+    def digest(data):
+        return hashlib.sha256(data).hexdigest()
+
+    return {"bootstrap": {"url": "https://example.invalid/fisher.fish", "sha256": digest(bootstrap)},
+            "plugins": {name: {path: digest(data) for path, data in files.items()}
+                        for name, files in (RELEASES if releases is None else releases).items()}}
+
+
+class FakeFisher:
+    """fish with fisher, whose plugins are real files in ``config`` (a temporary fish folder), so witchy can hash
+    them.
+
+    ``installed`` maps the plugins there at the start (by fisher's name, such as ``ilancosman/tide``) to their files;
+    ``served`` is what `fisher install` can fetch, by ``owner/repo@ref``. fisher is a function when
+    functions/fisher.fish exists or while a bootstrap script runs; `fisher --version` and `tide --version` print the
+    version their file holds, and fish_prompt comes from functions/fish_prompt.fish. Like the real fisher, install
+    refuses a file that is already there (unless it updates that plugin), remove deletes the plugin's files, and
+    removing Tide erases every universal tide_ variable. Other fish calls go to fake_fish with ``variables``.
+    ``calls`` gets each command.
+    """
+
+    VERSION = re.compile(rb"version (\S+)'")
+
+    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False):
+        self.config, self.missing, self.bootstrapping = config, missing, False
+        self.served = RELEASES if served is None else served
+        self.variables = {} if variables is None else variables
+        self.calls = [] if calls is None else calls
+        self.plugins = {}
+        for name, files in (installed or {}).items():
+            self._write(name, files)
+        self.inner = fake_fish(self.variables)
+
+    def _write(self, name, files):
+        tops = set()
+        for relative, data in files.items():
+            path = self.config / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            tops.add("/".join(relative.split("/")[:2]))
+        self.plugins[name] = sorted(tops)
+
+    def _version(self, relative):
+        path = self.config / relative
+        if not path.is_file():
+            return None
+        match = self.VERSION.search(path.read_bytes())
+        return match.group(1).decode() if match else ""
+
+    def probe(self):
+        fisher, tide = self._version("functions/fisher.fish"), self._version("functions/tide.fish")
+        prompt = self.config / "functions" / "fish_prompt.fish"
+        fields = ["fisher", f"fisher, version {fisher}"] if fisher is not None else ["no-fisher"]
+        fields += ["tide", f"tide, version {tide}"] if tide is not None else ["no-tide"]
+        fields.append(str(prompt) if prompt.is_file() else "n/a")
+        for name, tops in self.plugins.items():
+            fields += [name, str(len(tops)), *(str(self.config / top) for top in tops)]
+        return fields
+
+    def fisher(self, command, names):
+        if not self.bootstrapping and not (self.config / "functions" / "fisher.fish").is_file():
+            return 127, "", "fish: Unknown command: fisher\n"
+        done, errors = 0, ""
+        for name in names:
+            key = name.lower()
+            if command == "remove":
+                if key not in self.plugins:
+                    errors += f'fisher: Plugin not installed: "{key}"\n'
+                    continue
+                for top in self.plugins.pop(key):
+                    path = self.config / top
+                    shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
+                if key.split("@")[0] == "ilancosman/tide":
+                    for variable in [variable for variable in self.variables if variable.startswith("tide_")]:
+                        del self.variables[variable]
+                done += 1
+                continue
+            if key not in self.served:
+                errors += f'fisher: Invalid plugin name or host unavailable: "{key}"\n'
+                continue
+            files = self.served[key]
+            tops = sorted({"/".join(relative.split("/")[:2]) for relative in files})
+            conflicts = [] if key in self.plugins else [top for top in tops if (self.config / top).exists()]
+            if conflicts:
+                errors += (f'fisher: Cannot install "{key}": please remove or move conflicting files first:\n'
+                           + "".join(f"        {self.config / top}\n" for top in conflicts))
+                continue
+            self._write(key, files)
+            done += 1
+        return (0 if done else 1), f"fisher {command} version 4.4.5\n", errors
+
+    def run(self, args, input=None, text=False, errors="strict", **kwargs):
+        from witchy import fishprobe
+        from witchy.components import tide
+
+        args = list(args)
+        self.calls.append(args)
+        if self.missing:
+            raise FileNotFoundError(2, "No such file or directory", "fish")
+        if args == ["fish", "-c", fishprobe.PROBE_SCRIPT]:
+            stdout = "".join(f"{field}\0" for field in [fishprobe.SENTINEL, *self.probe()]).encode("utf-8")
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr=b"")
+        if args[:4] == ["fish", "-c", tide.FISHER_SCRIPT, "--"]:
+            code, out, err = self.fisher(args[4], args[5:])
+        elif args[:4] == ["fish", "-c", tide.BOOTSTRAP_SCRIPT, "--"]:
+            if b"function fisher" not in Path(args[4]).read_bytes():
+                code, out, err = 127, "", "fish: Unknown command: fisher\n"
+            else:
+                self.bootstrapping = True
+                code, out, err = self.fisher("install", args[5:])
+                self.bootstrapping = False
+        elif args[:4] == ["fish", "-c", tide.SWAP_SCRIPT, "--"]:
+            kept = {name: value for name, value in self.variables.items() if name.startswith("tide_")}
+            if args[4]:
+                self.fisher("remove", [args[4]])
+            code, out, err = self.fisher("install", [args[5]])
+            self.variables.update(kept)
+        else:
+            return self.inner(args, input=input, text=text, errors=errors, **kwargs)
+        if not text:
+            out, err = out.encode("utf-8"), err.encode("utf-8")
+        return subprocess.CompletedProcess(args, code, stdout=out, stderr=err)
