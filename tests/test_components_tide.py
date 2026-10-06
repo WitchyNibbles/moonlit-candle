@@ -202,15 +202,15 @@ class BootstrapTest(TideTestCase):
         self.assertEqual(self.install(), 2)
         self.assertEqual(self.result(), "failed: ilancosman/tide files do not match the pinned release")
         self.assertEqual(self.fisher_calls(), [("fisher", "install", "ilancosman/tide@v6.1.1"),
-                                               ("swap", "ilancosman/tide@v6.1.1", "")])
+                                               ("fisher", "remove", "ilancosman/tide@v6.1.1")])
         self.assertFalse((self.config / "functions" / "tide.fish").exists())
         self.assertNotIn("tide", self.state()["components"])
 
-    def test_a_removed_tide_that_did_not_match_keeps_the_tide_variables(self):
+    def test_a_fresh_tide_that_did_not_match_takes_its_variables_with_it(self):
         self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
         self.fisher({"jorgebucaran/fisher": FISHER}, served=self.tampered_tide())
         self.assertEqual(self.install(), 2)
-        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.assertEqual(self.variables, {})  # no Tide was there before, so none of its variables stays
 
     def tampered_tide(self, **more):
         bad = {**TIDE_FILES, "functions/tide.fish": b"function tide\n    echo 'tide, version 6.1.1'; evil\nend\n"}
@@ -613,27 +613,30 @@ class UninstallTest(TideTestCase):
         self.install()
         self.fake.calls.clear()
         self.assertEqual(self.uninstall(), 0, self.out.getvalue())
-        self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", ""),
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "ilancosman/tide@v6.1.1"),
                                                ("fisher", "remove", "jorgebucaran/fisher@4.4.5")])
         self.assertEqual(self.fake.plugins, {})
         self.assertFalse((self.home / ".claude" / "witchy" / "state.json").exists())
 
-    def test_removing_the_tide_it_installed_keeps_the_tide_variables(self):
+    def test_removing_the_tide_it_installed_takes_its_variables_with_it(self):
         self.fisher({"jorgebucaran/fisher": FISHER})
         self.install()
         self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.fake.calls.clear()
         self.assertEqual(self.uninstall(), 0, self.out.getvalue())
-        self.assertNotIn("ilancosman/tide@v6.1.1", self.fake.plugins)
-        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "ilancosman/tide@v6.1.1")])
+        self.assertEqual(self.variables, {})
 
     def test_puts_back_the_tide_that_was_there_and_leaves_the_users_fisher(self):
         self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE},
                     served={**RELEASES, "ilancosman/tide": OLD_TIDE})
         self.install()
         self.fake.calls.clear()
+        self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
         self.assertEqual(self.uninstall(), 0, self.out.getvalue())
         self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", "ilancosman/tide")])
         self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide", "jorgebucaran/fisher"])
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
 
     def test_puts_back_a_removed_prompt_plugin_after_tide_is_gone(self):
         self.fisher({"jorgebucaran/fisher": FISHER, "pure-fish/pure": PURE},
@@ -641,7 +644,7 @@ class UninstallTest(TideTestCase):
         self.install()
         self.fake.calls.clear()
         self.assertEqual(self.uninstall(), 0, self.out.getvalue())
-        self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", ""),
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "ilancosman/tide@v6.1.1"),
                                                ("fisher", "install", "pure-fish/pure")])
         self.assertEqual((self.config / "functions" / "fish_prompt.fish").read_bytes(),
                          PURE["functions/fish_prompt.fish"])

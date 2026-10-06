@@ -363,8 +363,8 @@ class TideComponent:
     def _verify(self, ctx: Any, plugin: str, source: str, what: str, restore: str | None = None) -> fishprobe.Probe:
         """After a fisher install: the plugin is there, at the pinned version, file by file (spec D21).
 
-        A mismatch takes the plugin out again with the Tide variables kept, and puts back ``restore``, the Tide it
-        replaced."""
+        A mismatch takes the plugin out again; a Tide that replaced ``restore`` is swapped back to it with the Tide
+        variables kept."""
         found = fishprobe.probe(ctx)
         version = found.fisher if plugin == fishprobe.FISHER_PLUGIN else found.tide
         wanted = FISHER_VERSION if plugin == fishprobe.FISHER_PLUGIN else fishprobe.TIDE_VERSION
@@ -372,11 +372,11 @@ class TideComponent:
         if name is None or version is None:
             raise ComponentFailed(f"{what} is still not installed (details: {installlog.shown(ctx)})")
         if version != wanted or mismatches(found, plugin, self._pinned(source)):
-            if plugin == fishprobe.FISHER_PLUGIN:
-                self._run(ctx, fisher_command(f"remove {name}", "remove", name))
+            if restore:
+                self._run(ctx, swap_command(f"remove {name} and install {restore} again", name, restore))
             else:
-                self._run(ctx, swap_command(f"remove {name}" + (f" and install {restore} again" if restore else ""),
-                                            name, restore or ""))
+                # A plain remove: a fresh Tide's uninstall takes its own variables with it (D13).
+                self._run(ctx, fisher_command(f"remove {name}", "remove", name))
             error = ComponentFailed(f"{plugin} files do not match the pinned release")
             error.restored = restore is not None
             raise error
@@ -405,8 +405,8 @@ class TideComponent:
                 commands.append(swap_command(f"put back {previous} in place of Tide {fishprobe.TIDE_VERSION}",
                                              tide_name or "", previous))
             elif not previous and entry["installed_tide"] and tide_name:
-                # Through the swap: Tide's uninstall erases every tide_ variable, the ones fish just restored too.
-                commands.append(swap_command(f"remove Tide ({tide_name})", tide_name, ""))
+                # A plain remove: no Tide was there before, so Tide's uninstall takes its variables with it (D13).
+                commands.append(fisher_command(f"remove Tide ({tide_name})", "remove", tide_name))
                 removes_tide = True
             for plugin in entry["removed_plugins"]:
                 if installed_name(found, plugin.lower().split("@", 1)[0]) is None:
