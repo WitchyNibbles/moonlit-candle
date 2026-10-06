@@ -31,7 +31,9 @@ class OwnerTest(unittest.TestCase):
                      "# witchy-disabled: starship init fish | source", "set -U tide_pwd_icon x",
                      "set -l tide_pwd_icon x", "set tide_pwd_icon x", "set -q -g tide_pwd_icon",
                      "set -e -g tide_pwd_icon", "set --erase --global tide_pwd_icon", "set -g _tide_left_items",
-                     "set -g fish_greeting", "echo starship", "set -g offset_tide_x 1", ""):
+                     "set -g fish_greeting", "echo starship", "set -g offset_tide_x 1", "",
+                     "echo hi  # starship init fish", "abbr -a ss 'starship init fish | source'",
+                     'echo "set -g tide_x y"', "echo a#b; echo b # oh-my-posh init fish"):
             with self.subTest(line=line):
                 self.assertIsNone(takeover.owner(line))
 
@@ -121,6 +123,73 @@ class ScanTest(unittest.TestCase):
         fisher = self.write("conf.d/_tide_init.fish", b"set -g tide_x y\n")
         self.write("conf.d/notes.txt", b"starship init fish | source\n")
         self.assertEqual(takeover.scan(self.folder, {witchy, fisher}), takeover.Scan())
+
+    def blockers(self, data, name="config.fish"):
+        self.write(name, data)
+        found = takeover.scan(self.folder)
+        self.assertEqual(found.changes, [])
+        return found.blockers
+
+    def test_a_line_that_opens_or_closes_a_block_blocks_the_takeover(self):
+        message = "config.fish line {} opens or closes a block; disable it yourself"
+        for data, number in ((b"if status is-interactive\n    starship init fish | source; end\n", 2),
+                             (b"if command -q starship; starship init fish | source\nend\n", 1),
+                             (b"if x\n  echo a\nelse; set -g tide_x y\nend\n", 3),
+                             (b"for i in 1\n  set -g tide_x $i; end\n", 2)):
+            with self.subTest(data=data):
+                self.assertEqual(self.blockers(data), [message.format(number)])
+
+    def test_a_balanced_one_line_block_is_disabled_whole(self):
+        self.write("config.fish", b"if type -q starship; starship init fish | source; end\n")
+        found = takeover.scan(self.folder)
+        self.assertEqual(found.blockers, [])
+        self.assertEqual(found.changes[0].after,
+                         b"# witchy-disabled: if type -q starship; starship init fish | source; end\n")
+
+    def test_a_command_chained_over_lines_blocks_the_takeover(self):
+        self.assertEqual(self.blockers(b"type -q starship &&\n    starship init fish | source\necho after\n"),
+                         ["config.fish line 2 is continued over several lines; disable it yourself"])
+        for ending in (b"\\", b"&&", b"||", b"|", b"&& \r"):
+            with self.subTest(ending=ending):
+                self.assertEqual(self.blockers(b"starship init fish | source " + ending + b"\necho after\n"),
+                                 ["config.fish line 1 is continued over several lines; disable it yourself"])
+
+    def test_a_comment_ending_in_an_operator_does_not_continue(self):
+        self.write("config.fish", b"echo a # b &&\nstarship init fish | source\n")
+        self.assertEqual(len(takeover.scan(self.folder).changes), 1)
+
+    def test_a_symlinked_folder_is_never_edited(self):
+        elsewhere = Path(self.folder.parent) / "dotfiles"
+        (elsewhere / "conf.d").mkdir(parents=True)
+        (elsewhere / "config.fish").write_bytes(b"starship init fish | source\n")
+        (elsewhere / "conf.d" / "mine.fish").write_bytes(b"set -g tide_x y\n")
+        link = Path(self.folder.parent) / "link"
+        os.symlink(elsewhere, link)
+        found = takeover.scan(link)
+        self.assertEqual(found.blockers, [
+            f"config.fish is a symlink to {elsewhere.resolve() / 'config.fish'}; disable line 1 there yourself",
+            f"conf.d/mine.fish is a symlink to {elsewhere.resolve() / 'conf.d' / 'mine.fish'}; "
+            "disable line 1 there yourself"])
+        self.assertEqual(found.changes, [])
+
+    def test_a_symlinked_conf_d_is_never_edited(self):
+        elsewhere = Path(self.folder.parent) / "confd"
+        elsewhere.mkdir()
+        (elsewhere / "mine.fish").write_bytes(b"set -g tide_x y\n")
+        (self.folder / "conf.d").rmdir()
+        os.symlink(elsewhere, self.folder / "conf.d")
+        found = takeover.scan(self.folder)
+        self.assertEqual(found.blockers, [f"conf.d/mine.fish is a symlink to {elsewhere.resolve() / 'mine.fish'}; "
+                                          "disable line 1 there yourself"])
+        self.assertEqual(found.changes, [])
+
+    def test_skipped_files_are_matched_by_resolved_path(self):
+        self.write("conf.d/witchy.fish", b"set -g tide_character_color FFB86B\n")
+        alias = Path(self.folder.parent) / "alias"
+        os.symlink(self.folder, alias)
+        self.assertEqual(takeover.scan(self.folder, {alias / "conf.d" / "witchy.fish"}), takeover.Scan())
+        self.assertEqual(takeover.scan(self.folder, {alias / "conf.d" / "other.fish"}).changes[0].path.name,
+                         "witchy.fish")
 
     def test_enable_takes_back_only_what_witchy_added(self):
         self.assertEqual(takeover.enable(b"# witchy-disabled: a\n# a comment\n  # witchy-disabled: b\n"),

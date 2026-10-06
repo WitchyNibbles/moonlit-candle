@@ -5,7 +5,6 @@ exactly as they were; disabling a line puts ``# witchy-disabled: `` in front of 
 """
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +18,9 @@ SET = re.compile(r"\bset\s+((?:-[-\w]+\s+)+)(tide_\w+)")
 FUNCTION = re.compile(r"^\s*function\s+fish_prompt(?:\s|;|$)")
 NOT_A_SET = set("qenS")  # set -q, -e, -n, -S read or erase; they never give a value
 NOT_A_SET_LONG = {"--query", "--erase", "--names", "--show"}
+OPENERS = {"if", "while", "for", "function", "begin", "switch"}
+MODIFIERS = {"and", "or", "not", "time"}
+SEPARATORS = re.compile(r";|\|\||&&|\||&")
 
 
 @dataclass(frozen=True)
@@ -50,26 +52,84 @@ def _global_set(line: str) -> str | None:
     return None
 
 
+def _code(text: str) -> str:
+    """The part of a line that runs: no comment, and quoted strings emptied (``'a b'`` becomes ``''``)."""
+    out = []
+    quote = ""
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\" and i + 1 < len(text) and (quote == '"' or text[i + 1] in "\\'"):
+                i += 2
+                continue
+            if char == quote:
+                quote = ""
+                out.append(char)
+        elif char == "\\":
+            out.append("_" if i + 1 < len(text) else char)
+            i += 2
+            continue
+        elif char in "'\"":
+            quote = char
+            out.append(char)
+        elif char == "#" and (i == 0 or text[i - 1].isspace() or text[i - 1] == ";"):
+            break
+        else:
+            out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def _continues(code: str) -> bool:
+    """Whether the next line belongs to this command (a trailing backslash, ``&&``, ``||`` or ``|``)."""
+    return code.rstrip().endswith(("\\", "&&", "||", "|"))
+
+
+def _crosses_block(code: str) -> bool:
+    """Whether a line opens a block it does not close, or closes (or continues) one it did not open."""
+    depth = 0
+    for segment in SEPARATORS.split(code):
+        words = segment.split()
+        while words and words[0] in MODIFIERS:
+            words.pop(0)
+        word = words[0] if words else ""
+        if word in OPENERS:
+            depth += 1
+        elif word == "end":
+            depth -= 1
+            if depth < 0:
+                return True
+        elif word in ("else", "case") and depth == 0:
+            return True
+    return depth != 0
+
+
 def owner(line: str) -> str | None:
     """What an active line does to the prompt, or None (a comment, already disabled, or unrelated)."""
-    if line.lstrip().startswith("#"):
-        return None
-    if STARSHIP.search(line):
+    code = _code(line)
+    if STARSHIP.search(code):
         return "starship init"
-    if OH_MY_POSH.search(line):
+    if OH_MY_POSH.search(code):
         return "oh-my-posh init"
-    return _global_set(line)
+    return _global_set(code)
 
 
 def config_files(folder: Path, skip: set[Path]) -> list[Path]:
     """config.fish, then each conf.d/*.fish by name, leaving out ``skip`` (witchy's own and fisher's files)."""
     conf_d = folder / "conf.d"
     found = [folder / "config.fish"] + (sorted(conf_d.glob("*.fish")) if conf_d.is_dir() else [])
-    return [path for path in found if (path.is_file() or path.is_symlink()) and path not in skip]
+    left = {path.resolve() for path in skip}
+    return [path for path in found if (path.is_file() or path.is_symlink()) and path.resolve() not in left]
 
 
 def _numbers(numbers: list[int]) -> str:
     return f"line {numbers[0]}" if len(numbers) == 1 else "lines " + ", ".join(map(str, numbers))
+
+
+def _linked(folder: Path, path: Path) -> bool:
+    """Whether the file, its conf.d folder or fish's config folder itself is a symlink."""
+    return folder.is_symlink() or path.parent.is_symlink() or path.is_symlink()
 
 
 def scan(folder: Path, skip: set[Path] = frozenset()) -> Scan:
@@ -83,6 +143,7 @@ def scan(folder: Path, skip: set[Path] = frozenset()) -> Scan:
             found.blockers.append(f"cannot read {name} ({exc.strerror or exc})")
             continue
         raw = data.split(b"\n")
+        codes = [_code(line.decode("utf-8", "surrogateescape").rstrip("\r")) for line in raw]
         numbers = []
         for index, line in enumerate(raw):
             text = line.decode("utf-8", "surrogateescape").rstrip("\r")
@@ -92,16 +153,18 @@ def scan(folder: Path, skip: set[Path] = frozenset()) -> Scan:
             what = owner(text)
             if what is None:
                 continue
-            continued = index > 0 and raw[index - 1].rstrip(b"\r").endswith(b"\\")
-            if text.endswith("\\") or continued:
+            if _continues(codes[index]) or (index > 0 and _continues(codes[index - 1])):
                 found.blockers.append(f"{name} line {index + 1} is continued over several lines; "
                                       "disable it yourself")
                 continue
+            if _crosses_block(codes[index]):
+                found.blockers.append(f"{name} line {index + 1} opens or closes a block; disable it yourself")
+                continue
             numbers.append(index + 1)
             found.lines.append(Line(path, index + 1, what))
-        if numbers and path.is_symlink():
+        if numbers and _linked(folder, path):
             # A file that lives elsewhere (a dotfiles repository) is never edited (spec D22).
-            found.blockers.append(f"{name} is a symlink to {os.readlink(path)}; disable {_numbers(numbers)} there "
+            found.blockers.append(f"{name} is a symlink to {path.resolve()}; disable {_numbers(numbers)} there "
                                   "yourself")
         elif numbers:
             found.changes.append(Change(path, data, disable(data, numbers)))
