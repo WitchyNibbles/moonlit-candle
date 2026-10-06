@@ -1,7 +1,10 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from witchy import build, content, palette, validate
+from witchy.ritual import layout
 
 # The 156 names of Tide's v6.1.1 release tag (its icons.fish and configs/rainbow.fish), the version the spec
 # targets. Tide's development branch, which also calls itself 6.1.1, adds tide_bun_bg_color, _color and _icon.
@@ -65,7 +68,7 @@ class TideNamesTest(unittest.TestCase):
     def test_every_tide_colour_is_validated_for_contrast_or_exempt(self):
         checked = {name for pair in validate.TIDE_TEXT_PAIRS + validate.TIDE_ITEM_PAIRS + validate.TIDE_SECONDARY_PAIRS
                    for name in pair if name}
-        colours = {key for key in palette.TIDE if validate.is_tide_colour(key)}
+        colours = {key for key in build.tide() if validate.is_tide_colour(key)}
         # It sits between segments that share a background, so no single background exists to test it on.
         self.assertEqual(colours - checked, {"tide_prompt_color_separator_same_color"})
 
@@ -180,7 +183,7 @@ class TideValidateTest(unittest.TestCase):
 
     def test_a_name_that_only_contains_color_is_not_a_colour(self):
         found = pairs(validate.validate_tide(dict(palette.TIDE, tide_colorful_icon="x")))
-        self.assertEqual(found, set())
+        self.assertEqual(found, {("unknown-variable", "tide.tide_colorful_icon")})
 
     def test_the_exempt_separator_colour_is_still_format_checked(self):
         found = pairs(validate.validate_tide(dict(palette.TIDE, tide_prompt_color_separator_same_color="grey")))
@@ -256,6 +259,81 @@ class EzaValidateTest(unittest.TestCase):
         self.assertIn(("missing-token", "eza.symlink"), pairs(validate.validate_eza(eza)))
 
 
+class PromptGlyphRuleTest(unittest.TestCase):
+    """Spec 11.1: a prompt icon is at most one emoji, one code point, no selector, joiner or skin tone."""
+
+    def test_a_variation_selector_a_joiner_or_a_skin_tone_fails(self):
+        for bad in ("\U0001F56F\uFE0F", "\U0001F9D9\u200D\u2640", "\U0001F44D\U0001F3FD"):
+            with self.subTest(bad=bad):
+                found = pairs(validate.validate_tide(dict(palette.TIDE, tide_pwd_icon=bad)))
+                self.assertIn(("prompt-glyph", "tide.tide_pwd_icon"), found)
+
+    def test_two_emoji_fail_and_text_glyphs_pass(self):
+        found = pairs(validate.validate_tide(dict(palette.TIDE, tide_time_format="%H:%M 🦉🦉")))
+        self.assertIn(("prompt-glyph", "tide.tide_time_format"), found)
+        fine = dict(palette.TIDE, tide_character_icon="❯", tide_prompt_icon_connection="·", tide_pwd_icon="\uf07c")
+        self.assertEqual(validate.validate_tide(fine), [])
+
+    def test_tides_own_icons_are_checked_too(self):
+        defaults = dict(content.load_tide_defaults(), tide_vi_mode_icon_insert="🐍🐍")
+        found = pairs(validate.validate_tide(palette.TIDE, defaults=defaults))
+        self.assertIn(("prompt-glyph", "tide.tide_vi_mode_icon_insert"), found)
+
+
+class CompletenessRuleTest(unittest.TestCase):
+    """Spec 11.2: every override names a Tide 6.1.1 variable or one of witchy's own."""
+
+    def test_a_typo_is_an_unknown_variable(self):
+        found = pairs(validate.validate_tide(dict(palette.TIDE, tide_pwd_bg_colour="B99AFF")))
+        self.assertIn(("unknown-variable", "tide.tide_pwd_bg_colour"), found)
+
+    def test_the_moon_items_variables_are_witchys_own(self):
+        self.assertEqual(validate.validate_tide({**palette.TIDE, "tide_moon_color": "FFD477"}), [])
+
+
+class PastelRuleTest(unittest.TestCase):
+    """Spec 11.3: no value of the old pastel prompt comes back."""
+
+    def test_the_list_holds_the_recorded_values(self):
+        self.assertLessEqual({"FFB7C5", "F8A4C9", "FF6EC7", "FBAED2", "F5C6E0", "FFC8DD",
+                              "🎀", "🏰", "🌷", "💖", "💔", "✨", "🍰", "🌸"}, validate.PASTEL)
+
+    def test_no_witchy_glyph_is_on_the_list(self):
+        used = set("".join(palette.GLYPHS.values())) | set("".join(palette.UNUSED_ICONS.values()))
+        self.assertEqual(used & validate.PASTEL, set())
+
+    def test_a_pastel_colour_or_icon_in_the_prompt_fails(self):
+        found = pairs(validate.validate_tide(dict(palette.TIDE, tide_pwd_bg_color="FFB7C5", tide_git_icon="🌷",
+                                                  tide_time_format="%H:%M 🍰")))
+        self.assertLessEqual({("pastel", "tide.tide_pwd_bg_color"), ("pastel", "tide.tide_git_icon"),
+                              ("pastel", "tide.tide_time_format")}, found)
+
+    def test_a_pastel_tide_default_fails(self):
+        defaults = dict(content.load_tide_defaults(), tide_vi_mode_icon_insert="🎀")
+        found = pairs(validate.validate_tide(palette.TIDE, defaults=defaults))
+        self.assertIn(("pastel", "tide.tide_vi_mode_icon_insert"), found)
+
+    def test_a_pastel_terminal_colour_fails(self):
+        found = pairs(validate.validate_palette(scheme=dict(palette.WT_SCHEME, brightPurple="#FBAED2")))
+        self.assertIn(("pastel", "wt.brightPurple"), found)
+
+
+class WidthRuleTest(unittest.TestCase):
+    """Spec 11.5: the greeting measures every emoji of the glyph table two cells wide."""
+
+    def test_the_real_table_passes(self):
+        self.assertEqual(validate.validate_glyphs(palette.GLYPHS), [])
+
+    def test_an_emoji_unicode_calls_narrow_must_be_in_wide(self):
+        with mock.patch.object(layout, "WIDE", frozenset()):
+            found = pairs(validate.validate_glyphs(palette.GLYPHS))
+        # 🕯 is narrow in Unicode; every other emoji of the table is East Asian Wide.
+        self.assertEqual(found, {("width", "glyphs.candle")})
+
+    def test_text_glyphs_are_not_emoji(self):
+        self.assertEqual(validate.validate_glyphs({"dirty": "✦", "caret": "❯", "separator": "⋆"}), [])
+
+
 class VariantPromptTest(unittest.TestCase):
     def test_validate_all_checks_every_variant_prompt_and_eza(self):
         midnight = palette.VARIANTS["midnight"]
@@ -266,6 +344,23 @@ class VariantPromptTest(unittest.TestCase):
             found = pairs(validate.validate_all())
         self.assertIn(("text-contrast", "tide.tide_moon_color on tide_moon_bg_color"), found)
         self.assertIn(("text-contrast", "eza.size"), found)
+
+    def test_validate_all_checks_the_merged_prompt_and_the_glyph_table(self):
+        midnight = palette.VARIANTS["midnight"]
+        broken = palette.Variant(**{**midnight.__dict__, "name": "broken",
+                                    "tide": dict(midnight.tide, tide_pwd_bg_colour="B99AFF")})
+        with mock.patch.dict(palette.VARIANTS, {"broken": broken}), mock.patch.object(layout, "WIDE", frozenset()):
+            found = pairs(validate.validate_all())
+        self.assertIn(("unknown-variable", "tide.tide_pwd_bg_colour"), found)
+        self.assertIn(("width", "glyphs.candle"), found)
+
+    def test_validate_all_reports_defaults_it_cannot_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in (content.SPINNER, content.OUTPUT_STYLE, content.RITUAL):
+                (Path(tmp) / name).write_bytes((content.CONTENT_DIR / name).read_bytes())
+            failures = validate.validate_all(Path(tmp))
+        self.assertEqual([(f.rule, f.item) for f in failures],
+                         [("content", str(Path(tmp) / content.TIDE_DEFAULTS))])
 
 
 if __name__ == "__main__":

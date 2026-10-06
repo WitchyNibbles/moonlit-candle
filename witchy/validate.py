@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
 from . import content, palette, sky_render, tokens
 from .contrast import contrast_ratio
+from .ritual import layout
 
 HEX = re.compile(r"^#[0-9A-F]{6}$")
 TIDE_HEX = re.compile(r"^[0-9A-F]{6}$")  # Tide colours carry no "#"
@@ -96,6 +98,21 @@ TIDE_SECONDARY_PAIRS: tuple[tuple[str, str | None], ...] = (
 )
 
 
+# Every colour and icon of the old "pastel princess" prompt (~/change_this_bitch.sh), so none comes back
+# (spec 11.3). Icons witchy uses on purpose (🔮 🐍 💎 🦀 ☕ 🐳) are left off; icons are stored without U+FE0F.
+PASTEL = frozenset({
+    "012A4A", "034078", "05386B", "1C0035", "1F0322", "280659", "2B061E", "2D132C", "371B58", "3A0F29", "3E005D",
+    "490B3D", "4B1139", "52052E", "541C1D", "5A4500", "5C3A21", "5D1E41", "780116", "A2D2FF", "BDE0FE", "BEE3DB",
+    "CBC3E3", "D4E6FB", "D8B4FE", "E0AAFF", "E2CFEA", "E7C6FF", "E8CFF8", "F4978E", "F4ACB7", "F5C6E0", "F8A4C9",
+    "FBAED2", "FCD5CE", "FDE68A", "FF3E96", "FF6B6B", "FF6EC7", "FFAAA5", "FFAFCC", "FFB7C5", "FFC8DD", "FFD1DC",
+    "FFD6E0", "FFDAC1", "FFDFD3", "FFE5B4", "FFF5C2",
+    "🎀", "🏰", "🌷", "💖", "💔", "✨", "🍰", "🌸", "🔒", "⏳", "🪡", "🍬", "🐬", "🦄", "☸", "☁", "🍯", "🌼",
+    "🕶", "🧁", "🖋", "🎨", "🩹", "👑",
+})
+# Spec 11.1 (D5): a prompt icon is one code point. These would join or restyle the emoji before them.
+PROMPT_GLYPH_MARKS = frozenset({"\uFE0F", "\u200D", *map(chr, range(0x1F3FB, 0x1F400))})
+
+
 @dataclass(frozen=True)
 class Failure:
     rule: str
@@ -168,6 +185,9 @@ def validate_palette(
     for key, expected in (("background", background), ("foreground", foreground)):
         if key in scheme and scheme[key] != expected:
             failures.append(Failure("consistency", f"wt.{key}", str(scheme[key]), f"must equal the palette {key} {expected}"))
+    for key, value in scheme.items():
+        if key != "name" and isinstance(value, str) and is_pastel(value):
+            failures.append(Failure("pastel", f"wt.{key}", value, "is a colour of the old pastel theme"))
     for key in WT_TEXT:
         if usable("wt", scheme, key):
             _contrast(failures, "text-contrast", f"wt.{key}", scheme[key], background, TEXT_MIN, scheme[key])
@@ -305,6 +325,38 @@ def is_tide_colour(key: str) -> bool:
     return "color" in key.split("_") and key not in TIDE_SEPARATOR_GLYPHS
 
 
+def is_emoji(char: str) -> bool:
+    """A pictograph a terminal draws as an emoji: a symbol that is East Asian Wide, or one past U+1F000 (🕯 is
+    narrow in Unicode). Text symbols such as ❯, ✦ or Nerd Font glyphs are not emoji."""
+    return unicodedata.category(char) == "So" and (unicodedata.east_asian_width(char) in ("W", "F")
+                                                    or ord(char) >= 0x1F000)
+
+
+def is_pastel(value: str) -> bool:
+    """``value`` is a colour of the old pastel theme (with or without "#"), or holds one of its icons."""
+    return value.lstrip("#").upper() in PASTEL or any(char in PASTEL for char in value)
+
+
+def _prompt_glyph(failures: list[Failure], key: str, text: str) -> None:
+    if any(char in PROMPT_GLYPH_MARKS for char in text):
+        failures.append(Failure("prompt-glyph", f"tide.{key}", text,
+                                "holds a variation selector, a joiner or a skin tone; use one plain code point"))
+    elif sum(map(is_emoji, text)) > 1:
+        failures.append(Failure("prompt-glyph", f"tide.{key}", text, "holds more than one emoji"))
+
+
+def validate_glyphs(glyphs: Mapping[str, str]) -> list[Failure]:
+    """Spec 11.5: the greeting measures every emoji of the glyph table two cells wide."""
+    failures: list[Failure] = []
+    for key, glyph in glyphs.items():
+        narrow = [char for char in glyph if is_emoji(char) and char not in layout.WIDE
+                  and unicodedata.east_asian_width(char) not in ("W", "F")]
+        if narrow:
+            failures.append(Failure("width", f"glyphs.{key}", glyph,
+                                    "is an emoji the greeting would measure one cell wide; add it to ritual/layout.WIDE"))
+    return failures
+
+
 def validate_sky(sky: Mapping[str, Any]) -> list[Failure]:
     """Every colour the sky renderer reads is present and #RRGGBB. The sky is decorative: no contrast rule."""
     failures: list[Failure] = []
@@ -317,14 +369,31 @@ def validate_sky(sky: Mapping[str, Any]) -> list[Failure]:
     return failures
 
 
-def validate_tide(tide: Mapping[str, Any], background: str = palette.BACKGROUND) -> list[Failure]:
-    """Every Tide variable is present; colours are RRGGBB without "#"; segment text reads on its background."""
+def validate_tide(overrides: Mapping[str, Any], background: str = palette.BACKGROUND,
+                  defaults: Mapping[str, Any] | None = None) -> list[Failure]:
+    """A variant's Tide overrides, and the whole prompt they make with Tide's ``defaults`` (spec 11).
+
+    Every override of palette.TIDE is present and names a Tide 6.1.1 variable or one of witchy's own; in the
+    merged prompt, colours are RRGGBB without "#", segment text reads on its background, each icon is one plain
+    emoji at most, and no value comes from the old pastel theme.
+    """
+    if defaults is None:
+        defaults = content.load_tide_defaults()
     failures: list[Failure] = []
     for key in palette.TIDE:
-        if key not in tide:
+        if key not in overrides:
             failures.append(Failure("missing-token", f"tide.{key}", "-", "is missing from the Tide variables"))
+    for key, value in overrides.items():
+        if key not in defaults and key not in palette.TIDE_OWN:
+            failures.append(Failure("unknown-variable", f"tide.{key}", str(value), "is not a Tide 6.1.1 variable"))
+    tide = {**defaults, **overrides}
     bad = set()
     for key, value in tide.items():
+        texts = [value] if isinstance(value, str) else list(value) if isinstance(value, tuple) else []
+        if "icon" in key.split("_") or key == "tide_time_format":
+            _prompt_glyph(failures, key, "".join(text for text in texts if isinstance(text, str)))
+        if any(isinstance(text, str) and is_pastel(text) for text in texts):
+            failures.append(Failure("pastel", f"tide.{key}", str(value), "comes from the old pastel theme"))
         colour = is_tide_colour(key)
         if colour and not (isinstance(value, str) and TIDE_HEX.match(value)):
             failures.append(Failure("format", f"tide.{key}", str(value), "is not RRGGBB in uppercase, without #"))
@@ -367,13 +436,20 @@ def validate_content(spinner: Mapping[str, Any], output_style: str) -> list[Fail
 
 def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
     failures: list[Failure] = []
+    try:
+        defaults = content.load_tide_defaults(content_dir)
+    except (OSError, ValueError) as exc:
+        defaults = None
+        failures.append(Failure("content", str(content_dir / content.TIDE_DEFAULTS), "-", f"cannot be read: {exc}"))
     for variant in palette.VARIANTS.values():
         failures += validate_palette(variant.claude_overrides, variant.wt_scheme, variant.statusline,
                                      variant.background, variant.foreground)
         failures += validate_sky(variant.sky)
         failures += validate_ritual_palette(variant.ritual, variant.background)
-        failures += validate_tide(variant.tide, variant.background)
+        if defaults is not None:
+            failures += validate_tide(variant.tide, variant.background, defaults)
         failures += validate_eza(variant.eza, variant.background)
+    failures += validate_glyphs(palette.GLYPHS)
     try:
         spinner = content.load_spinner(content_dir)
         style = content.read_output_style(content_dir)

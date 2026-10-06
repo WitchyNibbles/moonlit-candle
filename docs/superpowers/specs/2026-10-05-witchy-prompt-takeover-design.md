@@ -275,9 +275,9 @@ On this PC (Tide and fisher were already there) uninstall restores the recorded 
 
 ## 11. Validation additions (`validate.py`)
 
-1. **Prompt glyphs:** every `*_icon` value and `tide_time_format` in TIDE holds at most one emoji; none contains U+FE0F, U+200D or U+1F3FB–U+1F3FF. Text glyphs (`❯`, `·`, Nerd Font private-use caps) are allowed.
+1. **Prompt glyphs:** every `*_icon` value and `tide_time_format` in the merged prompt (`build.tide`) holds at most one emoji; none contains U+FE0F, U+200D or U+1F3FB–U+1F3FF. Text glyphs (`❯`, `·`, Nerd Font private-use caps) are allowed. An emoji is a symbol (category So) that is East Asian Wide or lies past U+1F000.
 2. **Completeness:** every key in `palette.TIDE` is a name in `content/tide-6.1.1-defaults.json` (a typo fails validation instead of creating a stray variable).
-3. **No pastel:** no TIDE value and no `WT_SCHEME` value is one of the recorded pastel hex values (`FFB7C5`, `F8A4C9`, `FF6EC7`, `FBAED2`, `F5C6E0`, `FFC8DD`, …) or one of the pastel icons (🎀 🏰 🌷 💖 💔 ✨ 🍰 🌸). The list lives in `validate.py` as `PASTEL`.
+3. **No pastel:** no value of the merged prompt and no `WT_SCHEME` value is one of the recorded pastel hex values (`FFB7C5`, `F8A4C9`, `FF6EC7`, `FBAED2`, `F5C6E0`, `FFC8DD`, …) or holds one of the pastel icons (🎀 🏰 🌷 💖 💔 ✨ 🍰 🌸, …). The list lives in `validate.py` as `PASTEL`: every colour and icon of `~/change_this_bitch.sh`, except the icons witchy uses on purpose (🔮 🐍 💎 🦀 ☕ 🐳).
 4. **Contrast:** each new visible pair (caret on the terminal background, muted on `1D1230` for `jobs` and the unused items, rose-red on `1D1230` for the denied direnv and the root and ssh context) joins the existing pairs. The frame keeps its 3:1 rule on `0D0916` (ritual 11.3).
 5. **Width:** every emoji in `GLYPHS` is in `ritual/layout.WIDE` or East-Asian-Wide.
 
