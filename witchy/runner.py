@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fcntl
+import os
 from contextlib import contextmanager, nullcontext
 from typing import Any, Iterator, Sequence
 
@@ -179,6 +180,15 @@ def _save_or_remove(ctx: Any, state: dict) -> None:
         witchy_dir.rmdir()
 
 
+def _apply_moves(ctx: Any, moves: list) -> None:
+    """Each file moved aside back in its place, as it was (a link stays a link, a file keeps its mode)."""
+    for source, target in moves:
+        if target.exists() or target.is_symlink():
+            raise ComponentFailed(f"{target} is taken, so {source} was not moved back")
+        os.replace(source, target)
+        ctx.say(f"moved {source} to {target}")
+
+
 def _uninstall(ctx: Any, components: list) -> int:
     state = statefile.load(ctx.state_path)
     if state is None:
@@ -205,6 +215,8 @@ def _uninstall(ctx: Any, components: list) -> int:
         for component, plan in plans:
             for command in plan.commands:
                 ctx.say(f"{component.name}: {command.label}")
+            for source, target in plan.moves:
+                ctx.say(f"{component.name}: move {source} to {target}")
             for directory in plan.prune:
                 ctx.say(f"{component.name}: remove {directory} if empty")
         for warning in warnings:
@@ -222,6 +234,7 @@ def _uninstall(ctx: Any, components: list) -> int:
                 for command in plan.commands:
                     run_command(ctx, command)
                 apply_changes(ctx, plan.changes)
+                _apply_moves(ctx, plan.moves)
         except (OSError, ComponentFailed) as exc:
             reason = f"could not write ({exc})" if isinstance(exc, OSError) else str(exc)
             ctx.say(f"{component.name}: {reason}; run uninstall again.")

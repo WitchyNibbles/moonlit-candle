@@ -273,7 +273,7 @@ Reverse order: `fish` (variables, files), then `tide`. `tide` asks fish which pl
 2. `fisher install <plugin>` for each prompt plugin it removed (after Tide is gone: both ship `fish_prompt.fish`).
 3. If `installed_fisher`: `fisher remove` witchy's fisher.
 4. Each file it commented out gets its `# witchy-disabled: ` prefixes taken away, which gives back the original bytes and keeps any later edit of the user's. A file the user changed since is backed up first; one that became a symlink is left, with a warning (D22).
-5. A hand-written `fish_prompt.fish` it moved aside goes back, once Tide's is gone. If something else holds that place, or the moved file is gone, a warning says so.
+5. A hand-written `fish_prompt.fish` it moved aside goes back, once Tide's is gone: it is renamed back, so a symlink (even one that points nowhere) comes back as the same link and a file keeps its mode. If something else holds that place (a file or a link), or the moved file is gone, a warning says so; a place taken between the plan and the move keeps the component installed (run uninstall again).
 
 Without fish, steps 1–3 are skipped with a warning; 4 and 5 still run.
 

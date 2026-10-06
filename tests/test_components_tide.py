@@ -784,6 +784,52 @@ class UninstallTest(TideTestCase):
         self.assertEqual(prompt.read_bytes(), b"function fish_prompt\n    echo mine\nend\n")
         self.assertEqual(self.backups(), [])
 
+    def test_a_moved_prompt_comes_back_as_it_was_with_its_mode(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        prompt.chmod(0o754)
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(prompt.stat().st_mode & 0o777, 0o754)
+        self.assertIn(f"moved {prompt.with_name('fish_prompt.fish.bak-witchy-20261005-120000')} to {prompt}",
+                      self.out.getvalue())
+
+    def test_a_moved_symlinked_prompt_comes_back_as_the_same_link(self):
+        target = self.root / "dotfiles" / "fish_prompt.fish"
+        target.parent.mkdir()
+        target.write_bytes(b"function fish_prompt\n    echo dotfiles\nend\n")
+        prompt = self.config / "functions" / "fish_prompt.fish"
+        prompt.parent.mkdir()
+        prompt.symlink_to(target)
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual((prompt.is_symlink(), os.readlink(prompt)), (True, str(target)))
+        self.assertEqual(target.read_bytes(), b"function fish_prompt\n    echo dotfiles\nend\n")
+        self.assertEqual(self.backups(), [])
+
+    def test_a_moved_dangling_link_comes_back_as_the_same_dangling_link(self):
+        prompt = self.config / "functions" / "fish_prompt.fish"
+        prompt.parent.mkdir()
+        prompt.symlink_to(self.root / "gone.fish")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.assertEqual(self.install(), 0, self.out.getvalue())
+        self.assertTrue(prompt.with_name("fish_prompt.fish.bak-witchy-20261005-120000").is_symlink())
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual((prompt.is_symlink(), os.readlink(prompt)), (True, str(self.root / "gone.fish")))
+        self.assertEqual(self.backups(), [])
+        self.assertNotIn("is gone", self.out.getvalue())
+
+    def test_a_moved_prompt_whose_place_holds_a_dangling_link_stays_aside(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        self.fake.run(["fish", "-c", tide.FISHER_SCRIPT, "--", "remove", "ilancosman/tide@v6.1.1"])
+        prompt.symlink_to(self.root / "elsewhere.fish")
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(os.readlink(prompt), str(self.root / "elsewhere.fish"))
+        self.assertIn("is not witchy's to replace", self.out.getvalue())
+
     def test_a_moved_prompt_whose_place_is_taken_stays_aside(self):
         prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
         self.fisher({"jorgebucaran/fisher": FISHER})
@@ -835,6 +881,15 @@ class UninstallTest(TideTestCase):
         self.assertEqual(self.fisher_calls(), [])
         self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
 
+
+    def test_dry_run_lists_the_moved_prompt_and_moves_nothing(self):
+        prompt = self.write("functions/fish_prompt.fish", b"function fish_prompt\n    echo mine\nend\n")
+        self.fisher({"jorgebucaran/fisher": FISHER})
+        self.install()
+        moved = prompt.with_name("fish_prompt.fish.bak-witchy-20261005-120000")
+        self.assertEqual(self.uninstall(dry_run=True), 0)
+        self.assertIn(f"tide: move {moved} to {prompt}\n", self.out.getvalue())
+        self.assertEqual(moved.read_bytes(), b"function fish_prompt\n    echo mine\nend\n")
 
 class CheckTest(TideTestCase):
     def doctor(self):

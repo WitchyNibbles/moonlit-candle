@@ -1,5 +1,6 @@
 import fcntl
 import io
+import os
 import json
 import subprocess
 import tempfile
@@ -450,6 +451,45 @@ class RestoreCommandsTest(RunnerTestCase):
         self.assertEqual(runner.uninstall(self.ctx(run=self.runs(error=missing)), [a]), 2)
         self.assertTrue(self.target.exists())
         self.assertIn("could not restore 2 Tide variables", self.out.getvalue())
+
+    def moving(self, ctx):
+        """A command that removes the target, then a move of a link back into its place."""
+        self.aside.symlink_to(self.root / "dotfiles.fish")
+        return Plan(commands=[Command(("fish", "-c", "restore"), "remove the target")],
+                    moves=[(self.aside, self.target)])
+
+    def test_a_move_runs_after_the_commands_and_keeps_a_link_a_link(self):
+        self.aside = self.target.with_name("cli.py.bak")
+
+        def run(args, **kwargs):
+            self.target.unlink()
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        a = Restoring("a", self.log, self.moving)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=run), [a]), 0, self.out.getvalue())
+        self.assertEqual(os.readlink(self.target), str(self.root / "dotfiles.fish"))
+        self.assertFalse(self.aside.is_symlink())
+        self.assertIn(f"moved {self.aside} to {self.target}", self.out.getvalue())
+
+    def test_a_move_whose_place_is_taken_keeps_the_component(self):
+        self.aside = self.target.with_name("cli.py.bak")
+        a = Restoring("a", self.log, self.moving)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=self.runs()), [a]), 2)
+        self.assertEqual(self.target.read_bytes(), b"ours")
+        self.assertTrue(self.aside.is_symlink())
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertIn(f"a: {self.target} is taken, so {self.aside} was not moved back; run uninstall again.",
+                      self.out.getvalue())
+
+    def test_dry_run_lists_a_move_and_moves_nothing(self):
+        self.aside = self.target.with_name("cli.py.bak")
+        a = Restoring("a", self.log, self.moving)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(dry_run=True, run=self.runs()), [a]), 0)
+        self.assertIn(f"a: move {self.aside} to {self.target}", self.out.getvalue())
+        self.assertTrue(self.aside.is_symlink())
 
     def test_dry_run_lists_the_commands_and_runs_nothing(self):
         a = Restoring("a", self.log, self.plan)

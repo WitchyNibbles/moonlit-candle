@@ -448,8 +448,8 @@ class TideComponent:
             fisher_name = installed_name(found, fishprobe.FISHER_PLUGIN)
             if entry["installed_fisher"] and fisher_name:
                 commands.append(fisher_command(f"remove fisher ({fisher_name})", "remove", fisher_name))
-        changes += self._prompt_back(ctx, entry.get("moved_prompt"), found, removes_tide, warnings)
-        return Plan(changes=changes, commands=commands, warnings=warnings)
+        moves = self._prompt_back(ctx, entry.get("moved_prompt"), found, removes_tide, warnings)
+        return Plan(changes=changes, commands=commands, warnings=warnings, moves=moves)
 
     def _enable_lines(self, ctx: Any, entry: dict, warnings: list[str]) -> list[Change]:
         """Each disabled line back as it was; the user's other edits to the file stay."""
@@ -467,22 +467,21 @@ class TideComponent:
         return changes
 
     def _prompt_back(self, ctx: Any, moved: dict | None, found: fishprobe.Probe | None, removes_tide: bool,
-                     warnings: list[str]) -> list[Change]:
-        """The fish_prompt.fish witchy moved aside, back in its place once Tide's is gone."""
+                     warnings: list[str]) -> list[tuple[Path, Path]]:
+        """The fish_prompt.fish witchy moved aside, moved back once Tide's is gone: renamed, so a symlink (even
+        one that points nowhere) comes back as the same link and a file with its mode."""
         if not moved:
             return []
         path, backup = Path(moved["path"]), Path(moved["backup"])
-        data, current = read(backup), read(path)
         tides = found is not None and str(path) in (fishprobe.plugin_files(found, fishprobe.TIDE_PLUGIN) or [])
-        if data is None:
+        if not (backup.exists() or backup.is_symlink()):
             warnings.append(f"tide: {tilde(ctx, backup)} is gone, so your fish_prompt cannot come back.")
             return []
-        if current is not None and not (tides and removes_tide):
+        if (path.exists() or path.is_symlink()) and not (tides and removes_tide):
             warnings.append(f"tide: {tilde(ctx, path)} is not witchy's to replace; your fish_prompt stays at "
                             f"{tilde(ctx, backup)}.")
             return []
-        # Runs after the commands: by then Tide's file is gone.
-        return [Change(path, current, data, backup=False), Change(backup, data, None, backup=False)]
+        return [(backup, path)]  # moved after the commands: by then Tide's file is gone
 
     def check(self, ctx: Any, entry: dict) -> list[Check]:
         """doctor (spec 9.1): fisher, Tide 6.1.1, the pins, Tide's fish_prompt, no other owner, a glyph test."""
