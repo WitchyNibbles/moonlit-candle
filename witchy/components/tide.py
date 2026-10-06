@@ -5,11 +5,13 @@ import copy
 import http.client
 import shutil
 import tarfile
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .. import build, content, fishprobe, installlog, jsonio, palette, pinning, takeover
-from .base import Change, Check, Command, ComponentFailed, Plan, backup_checks, fix_command, read, sha, tilde
+from .base import (Change, Check, Command, ComponentFailed, Plan, backup_checks, fix_command, read, run_command, sha,
+                   tilde)
 from .fish import config_dir
 
 FISH = "fish"
@@ -116,6 +118,24 @@ def located(path: Path) -> Path:
     return path.parent.resolve() / path.name
 
 
+def fish_parses(ctx: Any) -> Callable[[bytes], bool]:
+    """Whether fish can read a file's bytes: ``fish --no-execute`` on a copy, with HOME and the XDG folders in a
+    throwaway folder, so fish touches nothing of the user's. True when fish is missing (the other checks stand)."""
+    def parses(data: bytes) -> bool:
+        with tempfile.TemporaryDirectory(prefix="witchy-check-") as folder:
+            script = Path(folder) / "check.fish"
+            script.write_bytes(data)
+            env = {"HOME": folder, **{name: str(Path(folder) / part) for name, part in (
+                ("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache"))}}
+            command = Command((FISH, "--no-execute", str(script)), "check a config file with fish", exact=True,
+                              env=env)
+            try:
+                return run_command(ctx, command, check=False).returncode == 0
+            except ComponentFailed as exc:
+                return isinstance(exc.__cause__, FileNotFoundError)
+    return parses
+
+
 def owners(ctx: Any, found: fishprobe.Probe) -> tuple[Path | None, list[str], takeover.Scan]:
     """Every other prompt owner (spec 5.2): a fish_prompt.fish no plugin installed, the other fisher plugins that
     ship one, and the lines of config.fish and conf.d that start one or set a global tide_ variable."""
@@ -129,7 +149,7 @@ def owners(ctx: Any, found: fishprobe.Probe) -> tuple[Path | None, list[str], ta
     plugins = [name for name, files in found.plugins.items()
                if name.lower().split("@", 1)[0] != fishprobe.TIDE_PLUGIN
                and where in {located(Path(path)) for path in files}]
-    return hand_written, plugins, takeover.scan(folder, listed | ours)
+    return hand_written, plugins, takeover.scan(folder, listed | ours, fish_parses(ctx))
 
 
 class TideComponent:

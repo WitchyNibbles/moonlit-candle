@@ -2,12 +2,16 @@
 
 Files are read and written as bytes and split on ``\\n`` only, so line endings and bytes that are not UTF-8 stay
 exactly as they were; disabling a line puts ``# witchy-disabled: `` in front of it, and enabling takes it away.
+A command or string that goes on over several lines is caught by cheap checks (a trailing backslash or operator, a
+block opened or closed) and, when a ``parses`` check is given (fish itself, ``fish --no-execute``), by asking whether
+fish can still read the file with the lines disabled.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .components.base import Change
 
@@ -132,8 +136,21 @@ def _linked(folder: Path, path: Path) -> bool:
     return folder.is_symlink() or path.parent.is_symlink() or path.is_symlink()
 
 
-def scan(folder: Path, skip: set[Path] = frozenset()) -> Scan:
-    """Every other prompt owner in ``folder`` (fish's config folder), and the changes that disable them."""
+def _unreadable(data: bytes, numbers: list[int], parses: Callable[[bytes], bool] | None) -> list[int]:
+    """The lines whose disabling leaves a file fish cannot read (a ``(`` or a quote whose end is on another line).
+
+    One check when the file reads fine; only a file fish read before is blamed on the disabled lines."""
+    if parses is None or parses(disable(data, numbers)) or not parses(data):
+        return []
+    alone = [number for number in numbers if not parses(disable(data, [number]))]
+    return alone or numbers
+
+
+def scan(folder: Path, skip: set[Path] = frozenset(), parses: Callable[[bytes], bool] | None = None) -> Scan:
+    """Every other prompt owner in ``folder`` (fish's config folder), and the changes that disable them.
+
+    ``parses`` tells whether fish can read a file's bytes; each file with lines to disable is checked with them
+    disabled, and a line that makes it unreadable is a blocker."""
     found = Scan()
     for path in config_files(folder, skip):
         name = path.relative_to(folder).as_posix()
@@ -167,7 +184,14 @@ def scan(folder: Path, skip: set[Path] = frozenset()) -> Scan:
             found.blockers.append(f"{name} is a symlink to {path.resolve()}; disable {_numbers(numbers)} there "
                                   "yourself")
         elif numbers:
-            found.changes.append(Change(path, data, disable(data, numbers)))
+            broken = _unreadable(data, numbers, parses)
+            for number in broken:
+                found.blockers.append(f"{name} line {number} is part of a command or string over several lines "
+                                      "(fish could not read the file with it disabled); disable it yourself")
+            found.lines = [line for line in found.lines if line.path != path or line.number not in broken]
+            numbers = [number for number in numbers if number not in broken]
+            if numbers:
+                found.changes.append(Change(path, data, disable(data, numbers)))
     return found
 
 

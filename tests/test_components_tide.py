@@ -401,6 +401,7 @@ class BootstrapTest(TideTestCase):
 PURE = {"functions/fish_prompt.fish": b"function fish_prompt\n    echo pure\nend\n",
         "conf.d/pure.fish": b"set -g pure_symbol x\n"}
 PINNED = {"jorgebucaran/fisher": FISHER, "ilancosman/tide@v6.1.1": TIDE_FILES}
+UNREADABLE = "{} is part of a command or string over several lines (fish could not read the file with it disabled)"
 
 
 class TakeoverTest(TideTestCase):
@@ -596,6 +597,15 @@ class TakeoverTest(TideTestCase):
         self.assertEqual(self.install(), 2)
         self.assertEqual(self.result(), "failed: conf.d/mine.fish line 1 is continued over several lines; "
                                         "disable it yourself")
+
+    def test_a_line_fish_cannot_read_once_disabled_fails_naming_file_and_line(self):
+        data = b"set -g tide_pwd_color (\n    echo 123\n)\n"
+        config = self.write("config.fish", data)
+        self.fisher(PINNED, parses=lambda text: b"# witchy-disabled: set -g tide_pwd_color (" not in text)
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), f"failed: {UNREADABLE.format('config.fish line 1')}; disable it yourself")
+        self.assertEqual(config.read_bytes(), data)
+        self.assertEqual((self.fetched, self.fisher_calls()), ([], []))
 
     def test_crlf_and_bytes_that_are_not_utf8_are_kept(self):
         config = self.write("config.fish", b"echo \xff\r\nstarship init fish | source\r\n")
@@ -893,6 +903,15 @@ class CheckTest(TideTestCase):
         self.assertIn("✗ tide              config.fish defines fish_prompt at line 2", lines)
         self.assertIn("    fix: remove that function", lines)
 
+    def test_a_line_fish_cannot_read_once_disabled_names_what_to_do_by_hand(self):
+        self.fisher(PINNED, parses=lambda text: b"# witchy-disabled: set -g tide_x (" not in text)
+        self.install()
+        self.write("conf.d/mine.fish", b"set -g tide_x (\n    echo 1\n)\n")
+        code, lines = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn(f"✗ tide              {UNREADABLE.format('conf.d/mine.fish line 1')}", lines)
+        self.assertIn("    fix: disable it yourself", lines)
+
     def test_a_fisher_the_user_installed_at_another_version_is_a_warning(self):
         older = {"functions/fisher.fish": b"function fisher\n    echo 'fisher, version 4.3.0'\nend\n"}
         self.fisher({"jorgebucaran/fisher": older, "ilancosman/tide@v6.1.1": TIDE_FILES})
@@ -997,6 +1016,35 @@ class FreshPcTest(TideTestCase):
         self.assertEqual(self.run_install(), 0, self.out.getvalue())
         probes = [args for args in self.fake.calls if args[2:3] == [fishprobe.PROBE_SCRIPT]]
         self.assertEqual(len(probes), 2)  # one for tide, one for fish
+
+
+class SyntaxCheckTest(TideTestCase):
+    """fish_parses: `fish --no-execute` on the bytes witchy would write, in a throwaway HOME."""
+
+    def check(self, data, returncode=127, raises=None):
+        def run(args, input=None, env=None, **kwargs):
+            self.seen.append((args, Path(args[2]).read_bytes(), env))
+            if raises is not None:
+                raise raises
+            return subprocess.CompletedProcess(args, returncode, stdout=b"", stderr=b"")
+
+        self.seen = []
+        return tide.fish_parses(self.ctx(fake=mock.Mock(run=run)))(data)
+
+    def test_fish_reads_the_bytes_without_the_users_home(self):
+        self.assertFalse(self.check(b"set -g tide_x (\n"))
+        self.assertTrue(self.check(b"set -g tide_x y\n", returncode=0))
+        args, data, env = self.seen[0]
+        self.assertEqual((args[:2], len(args), data), (["fish", "--no-execute"], 3, b"set -g tide_x y\n"))
+        self.assertEqual(env["PATH"], str(self.bin))
+        throwaway = Path(env["HOME"])
+        self.assertNotIn(self.home, [throwaway, *throwaway.parents])
+        for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+            self.assertIn(throwaway, [Path(env[name]), *Path(env[name]).parents])
+        self.assertFalse(throwaway.exists())  # removed once fish answered
+
+    def test_without_fish_every_file_passes(self):
+        self.assertTrue(self.check(b"set -g tide_x (\n", raises=FileNotFoundError(2, "No such file", "fish")))
 
 
 class PinsTest(unittest.TestCase):

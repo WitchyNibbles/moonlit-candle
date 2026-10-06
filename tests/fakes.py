@@ -66,7 +66,7 @@ FAKE_TIDE_FILES = [FAKE_PROMPT, f"{FAKE_FUNCTIONS}/tide.fish", f"{FAKE_FUNCTIONS
 
 
 def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="", calls=None, fisher="4.4.5",
-              prompt=FAKE_PROMPT, plugins=None, globals=None):
+              prompt=FAKE_PROMPT, plugins=None, globals=None, parses=None):
     """A ``run`` that answers witchy's fish scripts the way fish would, byte for byte.
 
     ``variables`` maps names to ``{"value": [...], "exported": bool}`` and is changed in place by the set
@@ -83,6 +83,9 @@ def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="
 
     A new interactive shell (doctor's read) sees ``globals``: names set with ``set -g`` by config.fish or conf.d,
     each with its value.
+
+    ``fish --no-execute <file>`` (the syntax check of a file witchy would edit) passes unless ``parses``, given the
+    file's bytes, says False.
     """
     from witchy import fishprobe
     from witchy.components import fish
@@ -136,6 +139,8 @@ def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="
             return 0, done
         if args == ["fish", "-c", fish.REFRESH_SCRIPT]:
             return 0, None
+        if args[:2] == ["fish", "--no-execute"] and len(args) == 3:
+            return (0 if parses is None or parses(Path(args[2]).read_bytes()) else 127), None
         raise AssertionError(f"unexpected command in a test: {args}")
 
     def run(args, input=None, text=False, errors="strict", **kwargs):
@@ -218,13 +223,14 @@ class FakeFisher:
     fake does not read `if status is-interactive` guards (`fish -c` skips what they hold), so tests that want such a
     line to define fish_prompt write it unguarded. Like the real fisher, install
     refuses a file that is already there (unless it updates that plugin), remove deletes the plugin's files, and
-    removing Tide erases every universal tide_ variable. Other fish calls go to fake_fish with ``variables``.
+    removing Tide erases every universal tide_ variable. Other fish calls go to fake_fish with ``variables`` (and
+    ``parses``, for the syntax check).
     ``calls`` gets each command.
     """
 
     VERSION = re.compile(rb"version (\S+)'")
 
-    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False):
+    def __init__(self, config, installed=None, served=None, variables=None, calls=None, missing=False, parses=None):
         self.config, self.missing, self.bootstrapping = config, missing, False
         self.served = RELEASES if served is None else served
         self.variables = {} if variables is None else variables
@@ -232,7 +238,7 @@ class FakeFisher:
         self.plugins = {}
         for name, files in (installed or {}).items():
             self._write(name, files)
-        self.inner = fake_fish(self.variables)
+        self.inner = fake_fish(self.variables, parses=parses)
 
     def _write(self, name, files):
         tops = set()

@@ -83,6 +83,23 @@ class RealFishTideTest(unittest.TestCase):
         self.assertEqual(runner.uninstall(self.ctx("20261005-130000"), self.components()), 0, self.out.getvalue())
         self.assertEqual((self.config / "config.fish").read_bytes(), original)
 
+    def assert_never_cut_in_half(self, data):
+        """A prompt line whose command or string goes on over the next lines: fish could not read the file with
+        that line disabled, so the takeover stops and names it."""
+        config = self.config / "config.fish"
+        config.write_bytes(data)
+        self.assertEqual(runner.install(self.ctx("20261005-120000"), self.components()), 2, self.out.getvalue())
+        self.assertIn("tide: config.fish line 1 is part of a command or string over several lines (fish could not "
+                      "read the file with it disabled); disable it yourself", self.out.getvalue())
+        self.assertEqual(config.read_bytes(), data)
+        self.assertEqual(self.fish("functions -q fisher; or echo no fisher"), "no fisher\n")
+
+    def test_a_command_substitution_over_several_lines_is_never_cut_in_half(self):
+        self.assert_never_cut_in_half(b"set -g tide_pwd_color (\n    echo 123\n)\n")
+
+    def test_a_string_over_several_lines_is_never_cut_in_half(self):
+        self.assert_never_cut_in_half(b'set -g tide_pwd_color "5F\n8787"\n')
+
     def test_another_tide_is_replaced_and_comes_back_with_the_users_values(self):
         self.fish("source $WITCHY_FAKE_PLUGINS/jorgebucaran_2F_fisher_40_34_2E_34_2E_35_/functions/fisher.fish; "
                   "fisher install jorgebucaran/fisher@4.4.5 ilancosman/tide >/dev/null; "

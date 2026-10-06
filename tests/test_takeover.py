@@ -191,6 +191,43 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(takeover.scan(self.folder, {alias / "conf.d" / "other.fish"}).changes[0].path.name,
                          "witchy.fish")
 
+    def test_a_line_fish_cannot_read_once_disabled_blocks_the_takeover(self):
+        # A stand-in for `fish --no-execute`: an open "(" left without its line no longer parses.
+        def parses(data):
+            checked.append(data)
+            return b"# witchy-disabled: set -g tide_pwd_color (" not in data
+
+        checked = []
+        self.write("config.fish", b"starship init fish | source\nset -g tide_pwd_color (\n    echo 123\n)\n")
+        found = takeover.scan(self.folder, parses=parses)
+        self.assertEqual(found.blockers, [
+            "config.fish line 2 is part of a command or string over several lines (fish could not read the file "
+            "with it disabled); disable it yourself"])
+        self.assertEqual(found.lines, [takeover.Line(self.folder / "config.fish", 1, "starship init")])
+        self.assertEqual(checked[:2], [b"# witchy-disabled: starship init fish | source\n"
+                                       b"# witchy-disabled: set -g tide_pwd_color (\n    echo 123\n)\n",
+                                       b"starship init fish | source\nset -g tide_pwd_color (\n    echo 123\n)\n"])
+
+    def test_a_file_fish_reads_once_disabled_is_checked_once(self):
+        checked = []
+        self.write("config.fish", b"starship init fish | source\n")
+        found = takeover.scan(self.folder, parses=lambda data: checked.append(data) or True)
+        self.assertEqual((found.blockers, len(found.changes)), ([], 1))
+        self.assertEqual(checked, [b"# witchy-disabled: starship init fish | source\n"])
+
+    def test_a_file_fish_could_not_read_before_is_left_to_the_other_checks(self):
+        self.write("config.fish", b"starship init fish | source\nend\n")
+        found = takeover.scan(self.folder, parses=lambda data: False)
+        self.assertEqual((found.blockers, len(found.changes)), ([], 1))
+
+    def test_lines_that_break_the_file_only_together_are_each_named(self):
+        self.write("config.fish", b"set -g tide_x y\nset -g tide_z w\n")
+        found = takeover.scan(self.folder, parses=lambda data: data.count(takeover.PREFIX) != 2)
+        self.assertEqual(found.blockers, [
+            f"config.fish line {number} is part of a command or string over several lines (fish could not read "
+            "the file with it disabled); disable it yourself" for number in (1, 2)])
+        self.assertEqual(found.lines, [])
+
     def test_enable_takes_back_only_what_witchy_added(self):
         self.assertEqual(takeover.enable(b"# witchy-disabled: a\n# a comment\n  # witchy-disabled: b\n"),
                          b"a\n# a comment\n  # witchy-disabled: b\n")
