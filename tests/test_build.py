@@ -39,6 +39,28 @@ class BuildTest(unittest.TestCase):
     def test_generated_statusline_compiles(self):
         compile(self.outputs[build.STATUSLINE], "statusline.py", "exec")
 
+    def test_source_glyph_block_matches_the_table(self):
+        source = build.STATUSLINE_SOURCE.read_text(encoding="utf-8")
+        self.assertIn(build.dict_block("GLYPHS", palette.GLYPHS), source)
+
+    def test_glyph_block_is_rewritten(self):
+        source = build.statusline_source(glyphs=dict(palette.GLYPHS, branch="Y"))
+        self.assertIn('    "branch": "Y",\n', source)
+        self.assertIn('    "model": "#FFD477",\n', source)
+
+    def test_generated_statusline_draws_the_table_glyphs(self):
+        namespace = {}
+        exec(compile(build.statusline_source(glyphs=dict(palette.GLYPHS, candle="C")), "statusline.py", "exec"),
+             namespace)
+        self.assertTrue(namespace["render"]({}).startswith(" \x1b[1m\x1b[38;2;255;212;119mC --"))
+
+    def test_missing_glyph_block_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "statusline.py"
+            source.write_text("# BEGIN PALETTE\nPALETTE = {}\n# END PALETTE\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "exactly one GLYPHS block, found 0"):
+                build.statusline_source(source=source)
+
     def test_missing_palette_block_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "statusline.py"

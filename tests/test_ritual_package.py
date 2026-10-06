@@ -27,6 +27,11 @@ class PackageTest(unittest.TestCase):
             text = build.ritual_package("dawn")["palette.py"].decode("utf-8")
         self.assertIn('"salutation": "#FFE3A3",', text)
 
+    def test_glyphs_come_from_the_table(self):
+        with mock.patch.dict(palette.GLYPHS, {"candle": "C"}):
+            text = build.ritual_package()["palette.py"].decode("utf-8")
+        self.assertIn('    "candle": "C",\n', text)
+
     def test_imports_nothing_from_witchy(self):
         for name, data in build.ritual_package().items():
             if name.endswith(".py"):

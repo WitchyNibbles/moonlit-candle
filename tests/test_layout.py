@@ -12,6 +12,10 @@ class WidthTest(unittest.TestCase):
             with self.subTest(text):
                 self.assertEqual(layout.cell_width(text), width)
 
+    def test_every_emoji_of_the_glyph_table_is_two_cells(self):
+        self.assertLessEqual(set("🕯📜🌿🧹🔮🪦🧪💀🔥🐈🦉"), layout.WIDE)
+        self.assertEqual(layout.cell_width("🪦 🦉"), 5)
+
     def test_fit_cuts_with_an_ellipsis(self):
         line = [("🌕 Full", "gold", False), (" · ✦ The Star", "muted", False)]
         self.assertIs(layout.fit(line, 40), line)

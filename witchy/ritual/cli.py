@@ -41,7 +41,8 @@ def salutation(hour: int) -> str:
 
 
 def _countdown(name: str, days: int) -> str:
-    return f"⋆ {name} tomorrow" if days == 1 else f"⋆ {name} in {days} days"
+    star = palette.GLYPHS["separator"]
+    return f"{star} {name} tomorrow" if days == 1 else f"{star} {name} in {days} days"
 
 
 def info_lines(now: datetime, data: dict, fetched: list[tuple[str, str]], width: int) -> list[layout.Line]:
@@ -53,15 +54,15 @@ def info_lines(now: datetime, data: dict, fetched: list[tuple[str, str]], width:
                sabbat[0].lower() if on_sabbat else "salutation", True)]]
     if sabbat:
         name, days = sabbat
-        text = f"🕯️ {name} — {data['sabbats'][name]}" if days == 0 else _countdown(name, days)
+        text = f"{palette.GLYPHS['candle']} {name} — {data['sabbats'][name]}" if days == 0 else _countdown(name, days)
         lines.append([(text, name.lower(), False)])
     for event in moon.lunar_events(day, tz):
         glyph, label = LUNAR[event]
         lines.append([(f"{glyph} {label} — {data['lunar'][event]}", "moon", False)])
     phase = moon.phase_bin(now)
-    lines.append([(f"⋆ {moon.NAMES[phase]}  {moon.illumination(now)}%", "moon", False)])
+    lines.append([(f"{palette.GLYPHS['separator']} {moon.NAMES[phase]}  {moon.illumination(now)}%", "moon", False)])
     card, reversed_ = tarot.card_of(day, data["tarot"])
-    title = [(f"✦ {tarot.NUMERALS[card['number']]} · {card['name']}", "tarot", False)]
+    title = [(f"{palette.GLYPHS['dirty']} {tarot.NUMERALS[card['number']]} · {card['name']}", "tarot", False)]
     lines.append(title + ([(" (reversed)", "muted", False)] if reversed_ else []))
     meaning = card["reversed"] if reversed_ else card["upright"]
     lines += [[("  " + part, "muted", False)] for part in textwrap.wrap(meaning, max(10, width - 2))]
@@ -74,13 +75,14 @@ def omen_line(now: datetime, data: dict, width: int) -> layout.Line:
     phase = moon.phase_bin(now)
     card, reversed_ = tarot.card_of(now.date(), data["tarot"])
     line = [(f"{moon.GLYPHS[phase]} {moon.NAMES[phase]} {moon.illumination(now)}%", "moon", False), SEPARATOR,
-            (f"✦ {card['name']}", "tarot", False)]
+            (f"{palette.GLYPHS['dirty']} {card['name']}", "tarot", False)]
     if reversed_:
         line.append((" (reversed)", "muted", False))
     sabbat = wheel.upcoming(now.date(), now.tzinfo)
     if sabbat:
         name, days = sabbat
-        line += [SEPARATOR, (f"🕯️ {name}" if days == 0 else _countdown(name, days), name.lower(), False)]
+        candle = f"{palette.GLYPHS['candle']} {name}"
+        line += [SEPARATOR, (candle if days == 0 else _countdown(name, days), name.lower(), False)]
     return layout.fit(line, width)
 
 

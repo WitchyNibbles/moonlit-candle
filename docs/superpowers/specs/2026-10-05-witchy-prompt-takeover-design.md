@@ -214,7 +214,7 @@ GLYPHS = {
 
 - `palette.TIDE` takes its icons from `GLYPHS`; the unused-item icons in 6.4 live in TIDE directly.
 - `statusline.py` is copied on its own and imports nothing, so `build.py` rewrites a `# BEGIN GLYPHS` / `# END GLYPHS` block in it the same way it rewrites `PALETTE`. The branch glyph changes from `⎇` to 🌿.
-- The ritual takes `candle`, `dirty` and `separator` from the table through `ritual/data.json`. `ritual/layout.WIDE` becomes the moon phases plus every table emoji, so width stays right.
+- The ritual takes `candle`, `dirty` and `separator` from the table through a `# BEGIN GLYPHS` block in `witchy/ritual/palette.py`, which `build.py` rewrites like its PALETTE block. (`ritual/data.json` would not do: the repository copy reads `content/ritual.json`, which no build step touches.) `ritual/layout.WIDE` becomes the moon phases plus every table emoji, so width stays right.
 
 ## 8. Windows Terminal: purge PastelOneDark
 

@@ -14,7 +14,6 @@ STATUSLINE_SOURCE = Path(__file__).resolve().parent / "statusline.py"
 RITUAL_SOURCE = Path(__file__).resolve().parent / "ritual"
 FISH_SOURCE = content.CONTENT_DIR / "fish"
 TIDE_DEFAULTS = content.CONTENT_DIR / content.TIDE_DEFAULTS
-PALETTE_BLOCK = re.compile(r"(# BEGIN PALETTE\n)(.*?)(# END PALETTE\n)", re.DOTALL)
 
 THEME = "claude/themes/moonlit-candle.json"
 OUTPUT_STYLE = "claude/output-styles/witchynibbles.md"
@@ -23,32 +22,42 @@ TIPS = "claude/witchy/tips.json"
 WT_SCHEME = "windows-terminal/moonlit-candle.scheme.json"
 
 
-def palette_block(colours: dict[str, str]) -> str:
-    lines = ["PALETTE = {", *(f'    "{key}": "{value}",' for key, value in colours.items()), "}"]
+def dict_block(name: str, values: dict[str, str]) -> str:
+    """``NAME = {...}``, one ``"key": "value",`` line per entry, as the generated blocks hold it."""
+    lines = [f"{name} = {{", *(f"    {json.dumps(key)}: {json.dumps(value, ensure_ascii=False)},"
+                               for key, value in values.items()), "}"]
     return "\n".join(lines) + "\n"
 
 
-def statusline_source(colours: dict[str, str] = palette.STATUSLINE, source: Path = STATUSLINE_SOURCE) -> str:
-    """The status line script with its PALETTE block rewritten from ``colours``."""
-    return with_palette(source, colours)
+def palette_block(colours: dict[str, str]) -> str:
+    return dict_block("PALETTE", colours)
 
 
-def with_palette(source: Path, colours: dict[str, str]) -> str:
-    """``source`` with its one ``# BEGIN PALETTE`` block rewritten from ``colours``."""
+def with_blocks(source: Path, blocks: dict[str, dict[str, str]]) -> str:
+    """``source`` with each ``# BEGIN NAME`` / ``# END NAME`` block rewritten; each must appear exactly once."""
     text = source.read_text(encoding="utf-8")
-    rewritten, count = PALETTE_BLOCK.subn(lambda m: m.group(1) + palette_block(colours) + m.group(3), text)
-    if count != 1:
-        raise ValueError(f"{source} must contain exactly one PALETTE block, found {count}")
-    return rewritten
+    for name, values in blocks.items():
+        pattern = re.compile(rf"(# BEGIN {name}\n)(.*?)(# END {name}\n)", re.DOTALL)
+        text, count = pattern.subn(lambda m: m.group(1) + dict_block(name, values) + m.group(3), text)
+        if count != 1:
+            raise ValueError(f"{source} must contain exactly one {name} block, found {count}")
+    return text
+
+
+def statusline_source(colours: dict[str, str] = palette.STATUSLINE, source: Path = STATUSLINE_SOURCE,
+                      glyphs: dict[str, str] = palette.GLYPHS) -> str:
+    """The status line script with its PALETTE and GLYPHS blocks rewritten."""
+    return with_blocks(source, {"PALETTE": colours, "GLYPHS": glyphs})
 
 
 def ritual_package(variant: str = palette.DEFAULT_VARIANT, content_dir: Path = content.CONTENT_DIR,
                    source: Path = RITUAL_SOURCE) -> dict[str, bytes]:
-    """The greeting package as installed: its modules, palette.py from ``variant``, and data.json from content/."""
+    """The greeting package as installed: its modules, palette.py from ``variant`` and the glyph table, and
+    data.json from content/."""
     files = {}
     for module in sorted(source.glob("*.py")):
-        text = (with_palette(module, palette.VARIANTS[variant].ritual) if module.name == "palette.py"
-                else module.read_text(encoding="utf-8"))
+        text = (with_blocks(module, {"PALETTE": palette.VARIANTS[variant].ritual, "GLYPHS": palette.GLYPHS})
+                if module.name == "palette.py" else module.read_text(encoding="utf-8"))
         files[module.name] = text.encode("utf-8")
     files["data.json"] = (content_dir / content.RITUAL).read_bytes()
     return files
