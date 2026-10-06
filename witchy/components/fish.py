@@ -22,6 +22,8 @@ NO_EZA_NOTE = "eza is not installed, so ll and lt use ls; install it with: sudo 
 EZA_FIX = "sudo apt install eza"
 RECENT = timedelta(days=7)  # older greeting and sky errors are history, not a warning
 MESSAGE_MAX = 100
+SHOWN_MAX = 10  # drifted names listed by doctor
+SHELL_TIMEOUT = 15  # seconds for doctor's new interactive shell, which runs the user's whole config (spec 9.1)
 PROMPT_ITEMS = ("tide_left_prompt_items", "tide_right_prompt_items")
 NOT_READY = "skipped: Tide not ready (run: python3 -m witchy install --only tide)"
 LOG_LINE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d) (greeting|sky): (.*)$")
@@ -43,6 +45,17 @@ for name in $names
         printf '%s\\0' $name $flag (count $$name) $$name
     else
         printf '%s\\0' $name absent
+    end
+end
+"""
+
+# Run by a new interactive shell, the way a new tab starts one: prints each name that has a global value (set
+# by config.fish or conf.d, so it hides the universal one), its element count and its elements.
+GLOBALS_SCRIPT = """\
+printf '%s\\0' witchy-fish
+for name in $argv
+    if set -q -g $name
+        printf '%s\\0' $name (count $$name) $$name
     end
 end
 """
@@ -110,6 +123,27 @@ def snapshot(ctx: Any, names: list[str]) -> dict[str, dict]:
         return {**{name: found[name] for name in names}, **found}
     except (ValueError, IndexError, KeyError) as exc:
         raise ComponentFailed(f"could not read the Tide variables ({exc})") from exc
+
+
+def shadows(ctx: Any, names: list[str]) -> dict[str, list[str]]:
+    """The ``names`` a new interactive shell holds as globals, with their values.
+
+    WITCHY_DOCTOR makes conf.d/witchy.fish skip the sky job and fish_greeting stay quiet; standard input is
+    empty, so nothing waits for a key.
+    """
+    done = run_command(ctx, Command((FISH, "-i", "-c", GLOBALS_SCRIPT, "--", *names),
+                                    "read the prompt variables a new shell sees", "", exact=True,
+                                    timeout=SHELL_TIMEOUT, env={"WITCHY_DOCTOR": "1"}))
+    try:
+        fields = fishprobe.fields(done.stdout)
+        found, index = {}, 0
+        while index < len(fields):
+            count = int(fields[index + 1])
+            found[fields[index]] = fields[index + 2:index + 2 + count]
+            index += 2 + count
+        return found
+    except (ValueError, IndexError) as exc:
+        raise ComponentFailed(f"could not read the prompt variables a new shell sees ({exc})") from exc
 
 
 def set_command(updates: list[tuple[str, str, list[str]]], label: str) -> Command:
@@ -347,22 +381,38 @@ class FishComponent:
         # The variables go back first, so no prompt asks for the moon item once its function is gone.
         return Plan(changes=changes, commands=commands, warnings=warnings, prune=[ctx.home / RITUAL_DIR])
 
+    def _prompt_checks(self, ctx: Any) -> list[Check]:
+        """Every variable against the spec, not only the recorded ones (spec 9.1): drift, tide_ variables Tide
+        does not define, and globals that hide a universal value in a new shell."""
+        fix = fix_command(self.name)
+        wanted = desired(ctx.variant or palette.DEFAULT_VARIANT)
+        try:
+            reason = fishprobe.tide_ready(fishprobe.probe(ctx))
+            if reason:
+                return [Check("warn", self.name, f"Tide variables not checked: {reason}", fix_command("tide"))]
+            current = snapshot(ctx, list(wanted))
+            hidden = shadows(ctx, list(wanted))
+        except ComponentFailed as exc:
+            return [Check("warn", self.name, f"cannot check the Tide variables: {exc}")]
+        drift = sorted(name for name, values in wanted.items() if current[name].get("value") != values)
+        more = f" (and {len(drift) - SHOWN_MAX} more)" if len(drift) > SHOWN_MAX else ""
+        checks = [Check("fail", self.name, "prompt variables changed: " + ", ".join(drift[:SHOWN_MAX]) + more, fix)
+                  if drift else Check("ok", self.name, f"{len(wanted)} prompt variables match")]
+        strays = sorted(current.keys() - wanted.keys())
+        if strays:
+            checks.append(Check("fail", self.name, "not Tide 6.1.1 variables: " + ", ".join(strays), fix))
+        # The tide component disables `set -g tide_…` lines in config.fish and conf.d.
+        checks += [Check("fail", self.name, f"{name} is overridden by a global in config.fish or conf.d",
+                         fix_command("tide")) for name in sorted(hidden)]
+        return checks
+
     def check(self, ctx: Any, entry: dict) -> list[Check]:
         fix = fix_command(self.name)
         changed = [record["path"] for record in entry["files"]
                    if sha(read(Path(record["path"]))) != record["installed_sha256"]]
         checks = [Check("fail", self.name, "changed or missing: " + ", ".join(changed), fix) if changed
                   else Check("ok", self.name, f"{len(entry['files'])} files match")]
-        variables = entry.get("variables") or {}
-        if variables:
-            try:
-                current = snapshot(ctx, list(variables))
-            except ComponentFailed as exc:
-                checks.append(Check("warn", self.name, f"cannot check the Tide variables: {exc}"))
-            else:
-                drift = [name for name, record in variables.items() if current[name].get("value") != record["installed"]]
-                checks.append(Check("fail", self.name, "Tide variables changed: " + ", ".join(drift), fix) if drift
-                              else Check("ok", self.name, f"{len(variables)} Tide variables match"))
+        checks += self._prompt_checks(ctx)
         if shutil.which("eza", path=ctx.env.get("PATH")):
             checks.append(Check("ok", self.name, "eza found"))
         else:

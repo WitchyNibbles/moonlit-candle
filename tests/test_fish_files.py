@@ -129,11 +129,18 @@ class GreetingTest(FishTestCase):
         cases = {"not interactive": (self.WT, False), "no WT_SESSION": ({}, True),
                  "tmux": ({**self.WT, "TMUX": "/tmp/tmux"}, True), "Claude Code": ({**self.WT, "CLAUDECODE": "1"}, True),
                  "nested": ({**self.WT, "WITCHY_RITUAL_SHOWN": "1"}, True),
-                 "VS Code": ({**self.WT, "TERM_PROGRAM": "vscode"}, True)}
+                 "VS Code": ({**self.WT, "TERM_PROGRAM": "vscode"}, True),
+                 "doctor's shell": ({**self.WT, "WITCHY_DOCTOR": "1"}, True)}
         for label, (env, interactive) in cases.items():
             done = self.fish("fish_greeting", interactive=interactive, env=env)
             self.assertEqual((done.stdout, done.stderr), ("", ""), label)
             self.assertIsNone(self.python_args(), label)
+
+    def test_the_doctors_new_shell_never_greets(self):
+        # doctor reads the prompt variables with `fish -i -c`, which must stay silent (spec 9.1).
+        done = self.fish("true", interactive=True, env={**self.WT, "WITCHY_DOCTOR": "1"})
+        self.assertEqual((done.stdout, done.stderr), ("", ""))
+        self.assertIsNone(self.python_args())
 
     def test_a_missing_package_prints_nothing_but_still_marks_the_shell(self):
         (self.witchy / "ritual" / "__main__.py").unlink()
@@ -233,6 +240,13 @@ class SkyJobStartTest(FishTestCase):
         (self.cache / "sky-fail").write_text((date.today() - timedelta(days=1)).isoformat() + "\n", encoding="utf-8")
         self.assertTrue(self.sky_job_started())
         self.assertEqual(self.wait_for_python()[3], "--sky")
+
+    def test_the_doctors_new_shell_never_starts_the_job(self):
+        self.assertTrue(self.sky_job_started())  # the control: a normal shell starts it
+        self.wait_for_python()
+        done = self.start_shell({"fish_trace": "1", "WITCHY_DOCTOR": "1"})
+        self.assertTrue(any(re.search(r"source .*conf\.d/witchy\.fish$", line) for line in done.stderr.splitlines()))
+        self.assertFalse(any(re.search(r"^-+> .*/ritual'? --sky$", line) for line in done.stderr.splitlines()))
 
     def test_needs_an_interactive_windows_terminal_shell_and_the_config(self):
         self.assertFalse(self.sky_job_started(interactive=False))

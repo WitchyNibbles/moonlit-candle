@@ -62,7 +62,7 @@ FAKE_TIDE_FILES = [FAKE_PROMPT, f"{FAKE_FUNCTIONS}/tide.fish", f"{FAKE_FUNCTIONS
 
 
 def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="", calls=None, fisher="4.4.5",
-              prompt=FAKE_PROMPT, plugins=None):
+              prompt=FAKE_PROMPT, plugins=None, globals=None):
     """A ``run`` that answers witchy's fish scripts the way fish would, byte for byte.
 
     ``variables`` maps names to ``{"value": [...], "exported": bool}`` and is changed in place by the set
@@ -76,6 +76,9 @@ def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="
     fisher is not installed); ``tide``, the version ``tide --version`` reports (None or False: Tide is not
     installed); ``prompt``, the file fish_prompt comes from (None: not defined); and ``plugins``, fisher's plugins
     and their files. By default ``plugins`` lists fisher and Tide (``FAKE_TIDE_FILES``) when they are installed.
+
+    A new interactive shell (doctor's read) sees ``globals``: names set with ``set -g`` by config.fish or conf.d,
+    each with its value.
     """
     from witchy import fishprobe
     from witchy.components import fish
@@ -106,6 +109,12 @@ def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="
                                *value["value"]]
                 else:
                     fields += [name, "absent"]
+            return 0, fields
+        if args[:4] == ["fish", "-i", "-c", fish.GLOBALS_SCRIPT] and args[4] == "--":
+            fields = []
+            for name in args[5:]:
+                if name in (globals or {}):
+                    fields += [name, str(len(globals[name])), *globals[name]]
             return 0, fields
         if args == ["fish", "-c", fish.SET_SCRIPT]:
             items, done = received.split("\0")[:-1], []

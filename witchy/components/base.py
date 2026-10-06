@@ -68,7 +68,7 @@ class Command:
 
     An ``exact`` command's input and output travel as UTF-8 bytes with surrogate escapes and no newline
     translation, so every byte comes back as it was (a fish value can hold any byte but NUL). ``timeout`` is in
-    seconds.
+    seconds; ``env`` is added to ``ctx.env``.
     """
 
     args: tuple[str, ...]
@@ -76,6 +76,7 @@ class Command:
     input: str | None = None
     exact: bool = False
     timeout: float = COMMAND_TIMEOUT
+    env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -236,7 +237,7 @@ def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.Co
         data, text = command.input, {"text": True, "errors": "replace"}
     try:
         done = ctx.run(list(command.args), input=data, capture_output=True, timeout=command.timeout,
-                       env=dict(ctx.env), **text)
+                       env={**ctx.env, **command.env}, **text)
     except subprocess.TimeoutExpired as exc:  # its text would hold the whole argument list
         raise ComponentFailed(f"could not {command.label} (timed out after {command.timeout:g} s)") from exc
     except OSError as exc:

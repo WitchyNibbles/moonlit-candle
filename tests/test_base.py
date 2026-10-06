@@ -139,6 +139,16 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual(str(caught.exception), "could not read the shell (timed out after 15 s)")
         self.assertEqual(Command(("x",), "do x").timeout, 5)
 
+    def test_a_command_can_add_environment_variables(self):
+        seen = {}
+
+        def run(args, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        run_command(self.ctx(run), Command(("fish",), "ask fish", env={"WITCHY_DOCTOR": "1"}))
+        self.assertEqual(seen["env"], {"HOME": "/tmp/h", "WITCHY_DOCTOR": "1"})
+
     def test_an_exact_command_sends_and_reads_every_byte_unchanged(self):
         seen = {}
 

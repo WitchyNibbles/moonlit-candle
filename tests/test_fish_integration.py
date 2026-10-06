@@ -82,6 +82,19 @@ class RealFishRoundTripTest(unittest.TestCase):
                          ["_tide_remove_unusable_items.fish", "fish_prompt.fish", "tide.fish"])
         self.assertEqual(sorted(path.name for path in (self.config / "conf.d").iterdir()), [])
 
+    def test_doctor_sees_globals_that_only_a_new_interactive_shell_sets(self):
+        self.assertEqual(runner.install(self.ctx("20261003-120000")), 0, self.out.getvalue())
+        (self.config / "conf.d").mkdir(exist_ok=True)
+        (self.config / "conf.d" / "mine.fish").write_text(
+            "status is-interactive; or exit\nset -g tide_time_color 5F8787\n", encoding="utf-8")
+        ctx = self.ctx("20261003-130000")
+        self.assertEqual(runner.doctor(ctx, [fish.FishComponent()]), 1)
+        output = self.out.getvalue()
+        self.assertIn(f"✓ fish              {len(build.tide()) + 1} prompt variables match", output)
+        self.assertIn("✗ fish              tide_pwd_bg_color is overridden by a global in config.fish or conf.d", output)
+        self.assertIn("✗ fish              tide_time_color is overridden by a global in config.fish or conf.d", output)
+        self.assertNotIn("hello from config.fish", output)
+
     def test_snapshot_reads_values_with_spaces_and_empty_lists(self):
         self.fish("set -U tide_a 'two words' ''; set -U tide_b; set -Ux tide_c x; set -U _tide_private x")
         asked = ["tide_a", "tide_b", "tide_c", "tide_none"]

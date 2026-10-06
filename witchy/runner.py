@@ -247,6 +247,7 @@ def doctor(ctx: Any, components: Sequence[Component] | None = None) -> int:
         _print_check(ctx, Check("fail", "state", " ".join(str(exc).split())))
         return 1
     entries = (state or {}).get("components", {})
+    ctx.variant = ctx.variant or (state or {}).get("variant")  # fish compares the prompt with this variant's
     checks: list[Check] = []
     for component in _components(components):
         entry = entries.get(component.name)

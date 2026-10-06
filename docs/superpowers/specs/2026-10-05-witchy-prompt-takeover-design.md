@@ -240,9 +240,10 @@ The `tide` component's `check`:
 
 The `fish` component's `check`:
 
-- The snapshot no longer erases globals. It reads each name twice: the universal value and the value a fresh interactive shell sees (`fish -i -c` with `WITCHY_DOCTOR=1` set, which makes `conf.d/witchy.fish` skip the greeting and the sky job). A global hiding a universal is ✗ `tide_X is overridden by a global in config.fish or conf.d`.
-- ✓/✗ every `tide_*` in the spec matches (all 161, not 31); ✗ lists the names that drifted, fix `python3 -m witchy install --only fish`.
+- A global no longer passes as ✓. The snapshot still reads the universal value by erasing globals inside its own `fish -c` process (the one exact way fish 3.7 offers), and doctor reads each name a second time in a fresh interactive shell (`fish -i -c` with `WITCHY_DOCTOR=1` set, which makes `conf.d/witchy.fish` skip the sky job and `fish_greeting` stay quiet; empty standard input, 15 s timeout). A global hiding a universal is ✗ `tide_X is overridden by a global in config.fish or conf.d`, fix `python3 -m witchy install --only tide`.
+- ✓/✗ every variable in the spec matches (all 158 and `fish_emoji_width`, not 31), whatever an older install recorded; ✗ lists the names that drifted (the first 10, then a count), fix `python3 -m witchy install --only fish`.
 - ✗ any universal `tide_*` not in Tide 6.1.1's list.
+- When Tide is not ready, these three are replaced by one ⚠ `Tide variables not checked: <reason>`, fix `python3 -m witchy install --only tide` (the `tide` check carries the ✗).
 
 `windows-terminal` `check`: ✗ if any purged scheme is still defined or referenced.
 
@@ -285,7 +286,7 @@ On this PC (Tide and fisher were already there) uninstall restores the recorded 
 
 - Unit tests stub every `fish` call and download, as the current component tests do.
 - `test_components_tide.py`: each bootstrap row of 5.1, each takeover row of 5.2, uninstall steps 1–5, dry run runs nothing, SHA mismatch fails.
-- `test_components_fish.py`: the global-shadow check, the 161-name drift check, skip when `tide` did not end `ok`.
+- `test_components_fish.py`: the global-shadow check, the drift check over all 158 names and `fish_emoji_width`, skip when `tide` did not end `ok`.
 - `test_wt.py`: purge and restore of defaults, per-profile overrides and scheme definitions; a user change after install is left alone.
 - `test_prompt_palette.py`: rules 11.1–11.5.
 - `test_runner.py`: the banner appears for skipped and failed components and not for a clean run.

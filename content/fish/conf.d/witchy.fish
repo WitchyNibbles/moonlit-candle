@@ -4,6 +4,7 @@
 set -gx EZA_COLORS @EZA_COLORS@
 
 status is-interactive; or exit
+set -q WITCHY_DOCTOR; and exit  # doctor's new shell reads the prompt variables and must start nothing
 set -q WT_SESSION; or exit
 test -f @WITCHY_DIR@/ritual-config.json; and test -x @PYTHON@; or exit
 
