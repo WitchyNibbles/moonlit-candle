@@ -169,11 +169,10 @@ def scan(folder: Path, skip: set[Path] = frozenset(), parses: Callable[[bytes], 
         except OSError as exc:
             found.blockers.append(f"cannot read {name} ({exc.strerror or exc})")
             continue
-        raw = data.split(b"\n")
-        codes = [_code(line.decode("utf-8", "surrogateescape").rstrip("\r")) for line in raw]
+        texts = [line.decode("utf-8", "surrogateescape").rstrip("\r") for line in data.split(b"\n")]
+        codes = [_code(text) for text in texts]
         numbers = []
-        for index, line in enumerate(raw):
-            text = line.decode("utf-8", "surrogateescape").rstrip("\r")
+        for index, text in enumerate(texts):
             if FUNCTION.match(text):
                 found.blockers.append(f"{name} defines fish_prompt at line {index + 1}; remove that function")
                 continue

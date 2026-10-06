@@ -85,12 +85,11 @@ TIDE_TEXT_PAIRS: tuple[tuple[str, str | None], ...] = (
 TIDE_ITEMS = ("aws", "crystal", "direnv", "distrobox", "docker", "elixir", "gcloud", "go", "java", "jobs",
               "kubectl", "nix_shell", "node", "os", "php", "private_mode", "pulumi", "python", "ruby", "rustc",
               "shlvl", "terraform", "toolbox", "zig")
-VI_MODES = ("default", "insert", "replace", "visual")
 TIDE_ITEM_PAIRS: tuple[tuple[str, str | None], ...] = (
     *((f"tide_{item}_color", f"tide_{item}_bg_color") for item in TIDE_ITEMS),
     ("tide_direnv_color_denied", "tide_direnv_bg_color_denied"),
     *((f"tide_context_color_{kind}", "tide_context_bg_color") for kind in ("default", "root", "ssh")),
-    *((f"tide_vi_mode_color_{mode}", f"tide_vi_mode_bg_color_{mode}") for mode in VI_MODES),
+    *((f"tide_vi_mode_color_{mode}", f"tide_vi_mode_bg_color_{mode}") for mode in palette.VI_MODES),
 )
 TIDE_SECONDARY_PAIRS: tuple[tuple[str, str | None], ...] = (
     ("tide_pwd_color_truncated_dirs", "tide_pwd_bg_color"),
@@ -389,7 +388,12 @@ def validate_tide(overrides: Mapping[str, Any], background: str = palette.BACKGR
     tide = {**defaults, **overrides}
     bad = set()
     for key, value in tide.items():
-        texts = [value] if isinstance(value, str) else list(value) if isinstance(value, tuple) else []
+        if isinstance(value, str):
+            texts = [value]
+        elif isinstance(value, tuple):
+            texts = list(value)
+        else:
+            texts = []
         if "icon" in key.split("_") or key == "tide_time_format":
             _prompt_glyph(failures, key, "".join(text for text in texts if isinstance(text, str)))
         if any(isinstance(text, str) and is_pastel(text) for text in texts):

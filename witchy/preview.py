@@ -48,14 +48,17 @@ SAMPLES = (
 )
 
 
+def _rgb(colour: str) -> str:
+    """``RRGGBB`` as the ``R;G;B`` of a 24-bit colour escape."""
+    return ";".join(str(int(colour[i:i + 2], 16)) for i in (0, 2, 4))
+
+
 def fg(colour: str) -> str:
-    red, green, blue = (int(colour[i:i + 2], 16) for i in (0, 2, 4))
-    return f"\x1b[38;2;{red};{green};{blue}m"
+    return f"\x1b[38;2;{_rgb(colour)}m"
 
 
 def bg(colour: str) -> str:
-    red, green, blue = (int(colour[i:i + 2], 16) for i in (0, 2, 4))
-    return f"\x1b[48;2;{red};{green};{blue}m"
+    return f"\x1b[48;2;{_rgb(colour)}m"
 
 
 def width(text: str) -> int:

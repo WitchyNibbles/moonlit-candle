@@ -83,12 +83,13 @@ class Command:
 class Plan:
     """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied.
 
-    For a restore plan the runner runs ``commands`` before writing ``changes``, then renames each ``moves``
-    (source, target) pair with ``os.replace``, which keeps a symlink a symlink and a file its mode (the target must
-    be free by then), then removes each ``prune`` directory that is left empty. A skipped restore plan means the
-    restore is blocked: nothing of the component is touched and it stays installed. ``outcome`` replaces "ok" in the install results when a plan applied only
-    in part (for example "skipped: Tide not found"). ``replan`` makes the runner plan the component again right
-    before applying it, because an earlier component of the same run changes what it finds.
+    For a restore plan the runner runs ``commands`` before writing ``changes``, then renames each ``moves`` (source,
+    target) pair with ``os.replace``, which keeps a symlink a symlink and a file its mode (the target must be free
+    by then), then removes each ``prune`` directory that is left empty. A skipped restore plan means the restore is
+    blocked: nothing of the component is touched and it stays installed. ``outcome`` replaces "ok" in the install
+    results when a plan applied only in part (for example "skipped: Tide not found"). ``replan`` makes the runner
+    plan the component again right before applying it, because an earlier component of the same run changes what it
+    finds.
     """
 
     changes: list[Change] = field(default_factory=list)

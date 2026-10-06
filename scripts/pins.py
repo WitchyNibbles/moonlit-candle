@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from witchy.pinning import FOLDERS, plugin_files, tarball_url  # noqa: E402,F401  (shared with the tide component)
+from witchy.pinning import plugin_files, tarball_url  # noqa: E402  (shared with the tide component)
 
 OUTPUT = Path(__file__).resolve().parent.parent / "content" / "pins.json"
 BOOTSTRAP = "https://raw.githubusercontent.com/jorgebucaran/fisher/4.4.5/functions/fisher.fish"

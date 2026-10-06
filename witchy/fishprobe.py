@@ -51,7 +51,7 @@ class Probe:
 
 def fields(stdout: str) -> list[str]:
     """The NUL-terminated fields printed after the sentinel."""
-    head, found, rest = stdout.partition(SENTINEL + "\0")
+    _, found, rest = stdout.partition(SENTINEL + "\0")
     if not found:
         raise ValueError("fish printed no answer")
     return rest.split("\0")[:-1]
@@ -93,13 +93,15 @@ def probe(ctx: Any) -> Probe:
                  prompt_path=None if prompt in ("n/a", "") else prompt, plugins=plugins)
 
 
+def installed_name(found: Probe, plugin: str) -> str | None:
+    """The name fisher lists ``plugin`` (``owner/repo``) under, in any case and maybe with an ``@ref``, or None."""
+    return next((name for name in found.plugins if name.lower().split("@", 1)[0] == plugin), None)
+
+
 def plugin_files(found: Probe, plugin: str) -> list[str] | None:
     """The files of ``plugin`` (``owner/repo``, in any case, installed with or without an ``@ref``), or None."""
-    for name, files in found.plugins.items():
-        base = name.lower().split("@", 1)[0]
-        if base == plugin:
-            return files
-    return None
+    name = installed_name(found, plugin)
+    return None if name is None else found.plugins[name]
 
 
 def tide_ready(found: Probe) -> str | None:
