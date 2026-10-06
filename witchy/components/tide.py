@@ -8,8 +8,8 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
-from .. import build, content, fishprobe, installlog, jsonio, pinning, takeover
-from .base import Change, Command, ComponentFailed, Plan, read, sha, tilde
+from .. import build, content, fishprobe, installlog, jsonio, palette, pinning, takeover
+from .base import Change, Check, Command, ComponentFailed, Plan, backup_checks, fix_command, read, sha, tilde
 from .fish import config_dir
 
 FISH = "fish"
@@ -21,6 +21,10 @@ FISHER_TIMEOUT = 120  # seconds for each fisher call, which downloads (spec D20)
 FISH_MISSING = "fish not found (sudo apt install fish)"
 CURL_MISSING = "curl not found (sudo apt install curl)"
 NOT_PINNED = "its files do not match the pinned release"
+SHOWN_MAX = 5  # files listed by doctor
+GLYPH_TEST = ("glyph test: " + " ".join(palette.GLYPHS[name] for name in (
+    "cwd", "home", "unwritable", "branch", "ok", "fail", "duration", "jobs", "time", "caret"))
+    + " — each should be one clear symbol")
 
 # Sources the pinned fisher.fish, then lets it install itself as a plugin.
 BOOTSTRAP_SCRIPT = "source $argv[1]; and fisher install $argv[2]"
@@ -456,3 +460,73 @@ class TideComponent:
             return []
         # Runs after the commands: by then Tide's file is gone.
         return [Change(path, current, data, backup=False), Change(backup, data, None, backup=False)]
+
+    def check(self, ctx: Any, entry: dict) -> list[Check]:
+        """doctor (spec 9.1): fisher, Tide 6.1.1, the pins, Tide's fish_prompt, no other owner, a glyph test."""
+        fix = fix_command(self.name)
+        backups = [record.get("backup") for record in entry["disabled_files"]]
+        backups += [entry["moved_prompt"]["backup"]] if entry.get("moved_prompt") else []
+        try:
+            found = fishprobe.probe(ctx)
+        except ComponentFailed as exc:
+            reason = FISH_MISSING if isinstance(exc.__cause__, FileNotFoundError) else str(exc)
+            return [Check("warn", self.name, f"cannot check fisher and Tide: {reason}")] + \
+                backup_checks(self.name, backups)
+        checks = []
+        if found.fisher is None:
+            checks.append(Check("fail", self.name, "fisher not found", fix))
+        elif found.fisher != FISHER_VERSION:
+            checks.append(Check("warn", self.name, f"fisher is {found.fisher or 'of an unknown version'}; witchy "
+                                                   f"was tested with {FISHER_VERSION}"))
+        else:
+            checks.append(Check("ok", self.name, f"fisher {FISHER_VERSION} found"))
+        if found.tide is None:
+            checks.append(Check("fail", self.name, "Tide not found", fix))
+        elif found.tide != fishprobe.TIDE_VERSION:
+            checks.append(Check("fail", self.name, f"Tide is {found.tide or 'of an unknown version'}, "
+                                                   f"not {fishprobe.TIDE_VERSION}", fix))
+        else:
+            checks.append(Check("ok", self.name, f"Tide {fishprobe.TIDE_VERSION} found"))
+        checks += self._pin_checks(found, fix)
+        reason = fishprobe.tide_ready(found)
+        if found.tide is not None and reason and reason.startswith("fish_prompt"):
+            checks.append(Check("fail", self.name, reason, fix))
+        elif not reason:
+            checks.append(Check("ok", self.name, "the active fish_prompt is Tide's"))
+        checks += self._owner_checks(ctx, found, fix)
+        checks.append(Check("info", self.name, GLYPH_TEST))
+        return checks + backup_checks(self.name, backups)
+
+    def _pin_checks(self, found: fishprobe.Probe, fix: str) -> list[Check]:
+        """Every file of Tide, and of fisher when witchy installed it, against content/pins.json (D21)."""
+        checks = []
+        plugins = [(fishprobe.TIDE_PLUGIN, TIDE_SOURCE)]
+        if installed_name(found, fishprobe.FISHER_PLUGIN) == FISHER_SOURCE:
+            plugins.insert(0, (fishprobe.FISHER_PLUGIN, FISHER_SOURCE))
+        for plugin, source in plugins:
+            if installed_name(found, plugin) is None:
+                continue
+            wrong = mismatches(found, plugin, self._pinned(source))
+            if wrong:
+                more = f" (and {len(wrong) - SHOWN_MAX} more)" if len(wrong) > SHOWN_MAX else ""
+                checks.append(Check("fail", self.name, f"{plugin} files do not match the pinned release: "
+                                                       + ", ".join(wrong[:SHOWN_MAX]) + more, fix))
+            else:
+                checks.append(Check("ok", self.name, f"every {plugin} file matches the pinned release"))
+        return checks
+
+    def _owner_checks(self, ctx: Any, found: fishprobe.Probe, fix: str) -> list[Check]:
+        """Another prompt owner of spec 5.2 that is active, a disabled line turned back on included (drift)."""
+        prompt, plugins, scan = owners(ctx, found)
+        checks = []
+        if prompt is not None:
+            checks.append(Check("fail", self.name, f"{tilde(ctx, prompt)} is a fish_prompt that is not Tide's", fix))
+        checks += [Check("fail", self.name, f"the fisher plugin {name} ships its own fish_prompt", fix)
+                   for name in plugins]
+        checks += [Check("fail", self.name, f"{line.what} in {tilde(ctx, line.path)} line {line.number} is active",
+                         fix) for line in scan.lines]
+        for blocker in scan.blockers:
+            # Not something install can do: the fix is the instruction itself, which doctor --fix never runs.
+            problem, _, instruction = blocker.rpartition("; ")
+            checks.append(Check("fail", self.name, problem, instruction))
+        return checks or [Check("ok", self.name, "no other prompt owner is active")]

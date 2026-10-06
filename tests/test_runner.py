@@ -462,6 +462,12 @@ class DoctorTest(RunnerTestCase):
         self.assertEqual(runner.doctor(self.ctx(), [CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])]), 0)
         self.assertIn("✓ a", self.out.getvalue())
 
+    def test_an_info_line_is_never_a_problem(self):
+        self.write_state({"a": {}})
+        info = CheckingFake("a", self.log, checks=[Check("info", "a", "glyph test: 🧹", "never shown")])
+        self.assertEqual(runner.doctor(self.ctx(), [info]), 0)
+        self.assertEqual(self.out.getvalue(), "· a                 glyph test: 🧹\n")
+
     def test_raising_check_is_reported_not_crashed(self):
         self.write_state({"a": {}})
         self.assertEqual(runner.doctor(self.ctx(), [CheckingFake("a", self.log, raises=KeyError("path"))]), 1)

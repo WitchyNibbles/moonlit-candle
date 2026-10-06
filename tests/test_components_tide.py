@@ -798,6 +798,108 @@ class UninstallTest(TideTestCase):
         self.assertEqual(config.read_bytes(), b"# witchy-disabled: starship init fish | source\n")
 
 
+class CheckTest(TideTestCase):
+    def doctor(self):
+        ctx = self.ctx(stamp="20261005-130000")
+        code = runner.doctor(ctx, [tide.TideComponent(fake_pins())])
+        return code, [line for line in self.out.getvalue().splitlines()]
+
+    def test_a_healthy_install(self):
+        self.fisher()
+        self.install()
+        code, lines = self.doctor()
+        self.assertEqual(code, 0)
+        self.assertEqual(lines, [
+            "✓ tide              fisher 4.4.5 found",
+            "✓ tide              Tide 6.1.1 found",
+            "✓ tide              every jorgebucaran/fisher file matches the pinned release",
+            "✓ tide              every ilancosman/tide file matches the pinned release",
+            "✓ tide              the active fish_prompt is Tide's",
+            "✓ tide              no other prompt owner is active",
+            "· tide              glyph test: 🧹 🔮 🪦 🌿 🧪 💀 🔥 🐈 🦉 ❯ — each should be one clear symbol"])
+
+    def test_fisher_or_tide_missing_fails_with_the_fix(self):
+        self.fisher()
+        self.install()
+        self.fake.fisher("remove", ["ilancosman/tide@v6.1.1", "jorgebucaran/fisher@4.4.5"])
+        code, lines = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertEqual(lines[:4], ["✗ tide              fisher not found",
+                                     "    fix: python3 -m witchy install --only tide",
+                                     "✗ tide              Tide not found",
+                                     "    fix: python3 -m witchy install --only tide"])
+
+    def test_another_tide_version_fails(self):
+        self.fisher(PINNED)
+        self.install()
+        (self.config / "functions" / "tide.fish").write_bytes(OLD_TIDE["functions/tide.fish"])
+        code, lines = self.doctor()
+        self.assertIn("✗ tide              Tide is 6.0.0, not 6.1.1", lines)
+        self.assertIn("✗ tide              ilancosman/tide files do not match the pinned release: functions/tide.fish",
+                      lines)
+
+    def test_a_long_list_of_changed_files_is_cut(self):
+        self.fisher(PINNED)
+        self.install()
+        for number in range(7):
+            self.write(f"functions/tide/extra{number}.fish", b"x\n")
+        code, lines = self.doctor()
+        self.assertIn("✗ tide              ilancosman/tide files do not match the pinned release: "
+                      "functions/tide/extra0.fish, functions/tide/extra1.fish, functions/tide/extra2.fish, "
+                      "functions/tide/extra3.fish, functions/tide/extra4.fish (and 2 more)", lines)
+
+    def test_a_fish_prompt_that_is_not_tides_fails(self):
+        self.fisher(PINNED)
+        self.install()
+        (self.config / "functions" / "fish_prompt.fish").unlink()
+        code, lines = self.doctor()
+        self.assertIn("✗ tide              fish_prompt is not Tide's (no fish_prompt)", lines)
+
+    def test_a_disabled_line_turned_back_on_is_drift(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher(PINNED)
+        self.install()
+        config.write_bytes(b"starship init fish | source\n")
+        code, lines = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ tide              starship init in ~/.config/fish/config.fish line 1 is active", lines)
+        self.assertIn("    fix: python3 -m witchy install --only tide", lines)
+
+    def test_a_fish_prompt_function_names_what_to_do_by_hand(self):
+        self.fisher(PINNED)
+        self.install()
+        self.write("config.fish", b"set -g fish_greeting\nfunction fish_prompt\nend\n")
+        code, lines = self.doctor()
+        self.assertIn("✗ tide              config.fish defines fish_prompt at line 2", lines)
+        self.assertIn("    fix: remove that function", lines)
+
+    def test_a_fisher_the_user_installed_at_another_version_is_a_warning(self):
+        older = {"functions/fisher.fish": b"function fisher\n    echo 'fisher, version 4.3.0'\nend\n"}
+        self.fisher({"jorgebucaran/fisher": older, "ilancosman/tide@v6.1.1": TIDE_FILES})
+        self.install()
+        code, lines = self.doctor()
+        self.assertEqual(code, 0)
+        self.assertIn("⚠ tide              fisher is 4.3.0; witchy was tested with 4.4.5", lines)
+        self.assertNotIn("jorgebucaran/fisher file", "\n".join(lines))
+
+    def test_without_fish_it_cannot_check(self):
+        self.fisher()
+        self.install()
+        self.fake.missing = True
+        code, lines = self.doctor()
+        self.assertEqual((code, lines), (0, ["⚠ tide              cannot check fisher and Tide: fish not found "
+                                             "(sudo apt install fish)"]))
+
+    def test_a_missing_backup_is_a_warning(self):
+        config = self.write("config.fish", b"starship init fish | source\n")
+        self.fisher(PINNED)
+        self.install()
+        config.with_name("config.fish.bak-witchy-20261005-120000").unlink()
+        code, lines = self.doctor()
+        self.assertIn(f"⚠ tide              backup {config}.bak-witchy-20261005-120000 is missing; uninstall cannot "
+                      "give back the original bytes", lines)
+
+
 class PinsTest(unittest.TestCase):
     def test_the_installed_sources_are_the_pinned_ones(self):
         self.assertEqual(tuple(content.load_pins()["plugins"]), (tide.FISHER_SOURCE, tide.TIDE_SOURCE))

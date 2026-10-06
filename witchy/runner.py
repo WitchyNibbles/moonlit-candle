@@ -231,12 +231,12 @@ def _uninstall(ctx: Any, components: list) -> int:
     return 0
 
 
-SYMBOLS = {"ok": "✓", "warn": "⚠", "fail": "✗"}
+SYMBOLS = {"ok": "✓", "warn": "⚠", "fail": "✗", "info": "·"}
 
 
 def _print_check(ctx: Any, check: Check) -> None:
     ctx.say(f"{SYMBOLS[check.level]} {check.component:<17} {check.message}")
-    if check.fix and check.level != "ok":
+    if check.fix and check.level in ("warn", "fail"):
         ctx.say(f"    fix: {check.fix}")
 
 

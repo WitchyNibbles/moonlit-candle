@@ -234,11 +234,11 @@ Each previous value (defaults key, each profile's key by GUID, each scheme objec
 
 The `tide` component's `check`:
 
-- ✓/✗ fisher found; Tide is version 6.1.1.
-- ✓/✗ every fisher and Tide file matches `content/pins.json` (D21).
+- ✓/✗ fisher found (⚠ when a fisher the user installed is not 4.4.5: witchy leaves the user's fisher alone); Tide is version 6.1.1.
+- ✓/✗ every Tide file, and every fisher file when witchy installed fisher, matches `content/pins.json` (D21); ✗ lists the first 5 files, then a count.
 - ✓/✗ the active `fish_prompt` is Tide's (`functions --details fish_prompt` is in Tide's fisher file list).
-- ✓/✗ no other prompt owner from 5.2 is active.
-- An info line: `glyph test: 🧹 🔮 🪦 🌿 🧪 💀 🔥 🐈 🦉 ❯ — each should be one clear symbol`.
+- ✓/✗ no other prompt owner from 5.2 is active; a disabled line turned back on is ✗ (drift). The ✗ of a `function fish_prompt` block, a continued line or a symlink gives the step to take by hand as its fix.
+- An info line (`·`, never a problem): `glyph test: 🧹 🔮 🪦 🌿 🧪 💀 🔥 🐈 🦉 ❯ — each should be one clear symbol`.
 
 The `fish` component's `check`:
 

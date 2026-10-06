@@ -134,7 +134,8 @@ def file_lock(path: Path | None, timeout: float = 10.0) -> Iterator[None]:
 
 @dataclass(frozen=True)
 class Check:
-    """One doctor line. ``level`` is "ok", "warn" or "fail"; ``fix`` is a command to run."""
+    """One doctor line. ``level`` is "ok", "warn", "fail" or "info" (a line to read, never a problem); ``fix`` is a
+    command to run, or what to do by hand when no witchy command can do it."""
 
     level: str
     component: str
