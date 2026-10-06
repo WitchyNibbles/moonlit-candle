@@ -123,6 +123,30 @@ class WindowsTerminalComponentTest(unittest.TestCase):
         self.assertIn("Campbell", fails[0].message)
         self.assertEqual(fails[0].fix, "python3 -m witchy install --only windows-terminal")
 
+    def test_check_fails_while_a_purged_scheme_is_defined_or_used(self):
+        ctx, entry = self.install()
+        data = json.loads(self.wt.read_text(encoding="utf-8"))
+        data["profiles"]["defaults"]["colorScheme"] = "PastelOneDark"
+        data["schemes"].append({"name": "PastelOneDark", "background": "#282C34"})
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        fails = [(c.message, c.fix) for c in self.component.check(ctx, entry) if c.level == "fail"]
+        self.assertEqual(fails, [("PastelOneDark is still in settings.json: schemes, profiles.defaults",
+                                  "python3 -m witchy install --only windows-terminal")])
+
+    def test_install_purges_pastel_one_dark_and_uninstall_gives_it_back(self):
+        data = json.loads(json.dumps(WT))
+        data["profiles"]["defaults"]["colorScheme"] = "PastelOneDark"
+        data["schemes"] = [{"name": "PastelOneDark", "background": "#282C34"}]
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        ctx, entry = self.install()
+        after = json.loads(self.wt.read_text(encoding="utf-8"))
+        self.assertEqual(after["profiles"]["defaults"], {"colorScheme": "Moonlit Candle"})
+        self.assertEqual([scheme["name"] for scheme in after["schemes"]], ["Moonlit Candle"])
+        self.assertEqual(entry["purged"]["schemes"], [{"index": 0, "value": data["schemes"][0]}])
+        self.assertEqual({c.level for c in self.component.check(ctx, entry)}, {"ok"})
+        apply_changes(ctx, self.component.restore(self.ctx(stamp="20261002-130000"), entry).changes)
+        self.assertEqual(json.loads(self.wt.read_text(encoding="utf-8")), data)
+
     def test_recorded_settings_path_is_reused_without_cmd_exe(self):
         _, entry = self.install()
         ctx = Context(home=self.root / "home", env={"WT_PROFILE_ID": UBUNTU}, out=io.StringIO(), run=refuse_cmd,

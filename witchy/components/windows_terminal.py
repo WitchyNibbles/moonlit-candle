@@ -91,6 +91,8 @@ class WindowsTerminalComponent:
 
         def build(font: bool, background: bool) -> tuple[bytes, dict]:
             new_data, record = wt.apply_scheme(data, scheme, guid, entry)
+            new_data, record["purged"] = wt.purge_schemes(new_data, palette.PURGED_SCHEMES, scheme["name"],
+                                                          (entry or {}).get("purged"))
             recorded = (entry or {}).get("profile_keys")
             desired = profile_keys(variant, font, sky if background else None)
             new_data, keys = wt.apply_profile_keys(new_data, guid, desired, recorded)
@@ -149,9 +151,11 @@ class WindowsTerminalComponent:
         warnings: list[str] = []
 
         def give_back(data: dict) -> tuple[dict, list[str]]:
-            restored, notes = wt.restore_scheme(data, entry)
+            # The purge first: restore_scheme keeps the witchy scheme while profiles.defaults still names it.
+            restored, purged = wt.restore_purged(data, entry.get("purged"))
+            restored, notes = wt.restore_scheme(restored, entry)
             restored, more = wt.restore_profile_keys(restored, entry["profile_guid"], entry.get("profile_keys", {}))
-            return restored, notes + more
+            return restored, purged + notes + more
 
         settings = restore_json(entry, give_back, warnings)
         files = [restore_copy(record) for record in entry.get("files", [])]
@@ -184,6 +188,11 @@ class WindowsTerminalComponent:
             drift = [key for key, record in keys.items() if not wt.holds_installed(found, key, record)]
             checks.append(Check("fail", self.name, "profile keys changed: " + ", ".join(drift), fix) if drift
                           else Check("ok", self.name, f"{len(keys)} profile keys match"))
+        for purged in palette.PURGED_SCHEMES:
+            places = wt.purged_uses(data, purged)
+            if places:
+                checks.append(Check("fail", self.name, f"{purged} is still in {path.name}: " + ", ".join(places),
+                                    fix))
         records = entry.get("files") or []
         if records:
             changed = [record["path"] for record in records

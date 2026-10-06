@@ -111,6 +111,10 @@ WT_SCHEME: dict[str, str] = {
     "brightWhite": "#FFFFFF",
 }
 
+# Windows Terminal schemes the windows-terminal component takes out of settings.json (spec 8): the default
+# scheme becomes WT_SCHEME, profiles that name one inherit the default, and their definitions go.
+PURGED_SCHEMES: tuple[str, ...] = ("PastelOneDark",)
+
 # Order matters: build.py writes this dict into statusline.py's PALETTE block verbatim.
 STATUSLINE: dict[str, str] = {
     "model": "#FFD477",
