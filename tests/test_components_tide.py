@@ -607,6 +607,14 @@ class TakeoverTest(TideTestCase):
         self.assertEqual(config.read_bytes(), data)
         self.assertEqual((self.fetched, self.fisher_calls()), ([], []))
 
+    def test_a_conf_d_symlink_loop_fails_without_a_traceback(self):
+        loop = self.config / "conf.d" / "loop.fish"
+        loop.parent.mkdir()
+        loop.symlink_to(loop)
+        self.fisher(PINNED)
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: cannot read conf.d/loop.fish (Too many levels of symbolic links)")
+
     def test_crlf_and_bytes_that_are_not_utf8_are_kept(self):
         config = self.write("config.fish", b"echo \xff\r\nstarship init fish | source\r\n")
         self.fisher(PINNED)

@@ -228,6 +228,20 @@ class ScanTest(unittest.TestCase):
             "the file with it disabled); disable it yourself" for number in (1, 2)])
         self.assertEqual(found.lines, [])
 
+    def test_a_symlink_loop_is_a_file_it_cannot_read(self):
+        os.symlink(self.folder / "conf.d" / "b.fish", self.folder / "conf.d" / "a.fish")
+        os.symlink(self.folder / "conf.d" / "a.fish", self.folder / "conf.d" / "b.fish")
+        self.write("config.fish", b"starship init fish | source\n")
+        found = takeover.scan(self.folder, {self.folder / "conf.d" / "a.fish.skipped"})
+        self.assertEqual(found.blockers, ["cannot read conf.d/a.fish (Too many levels of symbolic links)",
+                                          "cannot read conf.d/b.fish (Too many levels of symbolic links)"])
+        self.assertEqual(len(found.changes), 1)
+
+    def test_a_skipped_path_that_loops_is_skipped_by_its_own_name(self):
+        loop = self.folder / "conf.d" / "loop.fish"
+        os.symlink(loop, loop)
+        self.assertEqual(takeover.scan(self.folder, {loop}), takeover.Scan())
+
     def test_enable_takes_back_only_what_witchy_added(self):
         self.assertEqual(takeover.enable(b"# witchy-disabled: a\n# a comment\n  # witchy-disabled: b\n"),
                          b"a\n# a comment\n  # witchy-disabled: b\n")

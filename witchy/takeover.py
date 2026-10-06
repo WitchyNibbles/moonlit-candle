@@ -119,12 +119,22 @@ def owner(line: str) -> str | None:
     return _global_set(code)
 
 
+def _resolved(path: Path) -> Path:
+    """``path`` with every symlink followed; a loop (RuntimeError before Python 3.13) leaves it as it is."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
+
+
 def config_files(folder: Path, skip: set[Path]) -> list[Path]:
-    """config.fish, then each conf.d/*.fish by name, leaving out ``skip`` (witchy's own and fisher's files)."""
+    """config.fish, then each conf.d/*.fish by name, leaving out ``skip`` (witchy's own and fisher's files).
+
+    A symlink loop stays in the list: reading it fails, which scan reports as a file it cannot read."""
     conf_d = folder / "conf.d"
     found = [folder / "config.fish"] + (sorted(conf_d.glob("*.fish")) if conf_d.is_dir() else [])
-    left = {path.resolve() for path in skip}
-    return [path for path in found if (path.is_file() or path.is_symlink()) and path.resolve() not in left]
+    left = {_resolved(path) for path in skip}
+    return [path for path in found if (path.is_file() or path.is_symlink()) and _resolved(path) not in left]
 
 
 def _numbers(numbers: list[int]) -> str:
