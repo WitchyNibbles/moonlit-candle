@@ -255,6 +255,45 @@ class InstallRunnerTest(RunnerTestCase):
 
 
 
+class Replanning(Fake):
+    """A component whose first plan asks to be planned again right before it applies."""
+
+    def plan(self, ctx, entry):
+        self.log.append(("plan", self.name))
+        if not any(step == ("apply", "a") for step in self.log):
+            return Plan(replan=True, actions=["b: decided later"])
+        return Plan(notes=["b planned after a"])
+
+
+class ReplanTest(RunnerTestCase):
+    def test_a_plan_can_ask_to_be_made_again_after_earlier_components_applied(self):
+        self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log), Replanning("b", self.log)]), 0)
+        self.assertEqual(self.log, [("plan", "a"), ("plan", "b"), ("apply", "a"), ("plan", "b"), ("apply", "b")])
+        self.assertIn("b planned after a", self.out.getvalue())
+
+    def test_a_dry_run_shows_the_first_plan(self):
+        self.assertEqual(runner.install(self.ctx(dry_run=True), [Fake("a", self.log), Replanning("b", self.log)]), 0)
+        self.assertEqual(self.log, [("plan", "a"), ("plan", "b")])
+        self.assertIn("b: decided later", self.out.getvalue())
+
+
+class BannerTest(RunnerTestCase):
+    def test_a_skipped_or_failed_component_gets_the_banner_after_the_summary(self):
+        code = runner.install(self.ctx(), [Fake("a", self.log), Fake("b", self.log, skip="Tide not found"),
+                                           Fake("c", self.log, fail=True)])
+        self.assertEqual(code, 2)
+        lines = self.out.getvalue().splitlines()
+        start = lines.index("1/3 components installed · skipped: b (Tide not found) · failed: c (boom)")
+        self.assertEqual(lines[start + 1:start + 5], ["✗✗✗ witchy is NOT fully installed ✗✗✗",
+                                                      "  b: skipped: Tide not found",
+                                                      "  c: failed: boom",
+                                                      "Fix the lines above, then run: python3 -m witchy install"])
+
+    def test_a_clean_run_has_no_banner(self):
+        self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log)]), 0)
+        self.assertNotIn("NOT fully installed", self.out.getvalue())
+
+
 class UninstallRunnerTest(RunnerTestCase):
     def test_uninstall_runs_in_reverse_order_and_removes_state(self):
         a, b = Fake("a", self.log), Fake("b", self.log)

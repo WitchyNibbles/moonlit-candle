@@ -15,6 +15,8 @@ LOCK_BUSY = "another witchy command is running"
 INSTALLED = "Moonlit Candle installed. Undo with: python3 -m witchy uninstall"
 PARTLY_INSTALLED = "Moonlit Candle partly installed. Undo with: python3 -m witchy uninstall"
 NOTHING_INSTALLED = "Nothing was installed."
+BANNER = "✗✗✗ witchy is NOT fully installed ✗✗✗"
+BANNER_FIX = "Fix the lines above, then run: python3 -m witchy install"
 NEW_SESSION_NOTE = ("The output style applies from your next message; restart Claude Code if the theme "
                     "or status line do not update.")
 
@@ -115,7 +117,12 @@ def _install(ctx: Any, components: list) -> int:
     results: dict[str, str] = {}
     ctx.results = results
     applied = set()
-    for component, plan in plans:
+    for index, (component, plan) in enumerate(plans):
+        if plan.replan:
+            # An earlier component of this run changed what this one finds (fish after tide installed Tide).
+            plan = component.plan(ctx, ctx.entries.get(component.name))
+            plans[index] = (component, plan)
+            ctx.planned[component.name] = plan
         if plan.skip is not None:
             results[component.name] = f"skipped: {plan.skip}"
         else:
@@ -133,6 +140,12 @@ def _install(ctx: Any, components: list) -> int:
         statefile.save(ctx.state_path, new_state)
     ok = all(result == "ok" for result in results.values())
     ctx.say(_summary(results))
+    problems = {name: result for name, result in results.items() if result.startswith(("skipped: ", "failed: "))}
+    if problems:  # spec 9.2: a summary line alone is too easy to miss
+        ctx.say(BANNER)
+        for name, result in problems.items():
+            ctx.say(f"  {name}: {result}")
+        ctx.say(BANNER_FIX)
     if not applied:
         ctx.say(NOTHING_INSTALLED)
     elif ok:

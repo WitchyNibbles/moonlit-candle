@@ -98,6 +98,17 @@ end
 """
 
 
+def tide_goes_first(ctx: Any) -> bool:
+    """This run's tide plan changes which prompt fish runs and has not applied yet.
+
+    fish then plans again once it has, and still asks fish itself whether Tide is ready, never how tide ended
+    (spec D19). With ``--only fish`` there is no tide plan, so fish asks right away.
+    """
+    plan = ctx.planned.get("tide")
+    return (plan is not None and plan.skip is None and bool(plan.data.get("reprobe"))
+            and "tide" not in ctx.results)
+
+
 def config_dir(ctx: Any) -> Path:
     """fish's own rule: $XDG_CONFIG_HOME/fish, else ~/.config/fish."""
     base = ctx.env.get("XDG_CONFIG_HOME")
@@ -256,6 +267,11 @@ class FishComponent:
         plan = Plan(changes=changes, notes=notes, data={"earlier": earlier, "recorded": recorded, "records": {},
                                                         "updates": []})
         wanted = desired(variant)
+        if tide_goes_first(ctx):
+            plan.replan = True
+            plan.actions = [f"fish: set {len(wanted)} prompt variables once tide has installed Tide "
+                            "(fish is asked again then)"]
+            return plan
         try:
             # Tide's readiness comes from fish itself, never from how the tide component ended (spec D19).
             reason = fishprobe.tide_ready(fishprobe.probe(ctx))

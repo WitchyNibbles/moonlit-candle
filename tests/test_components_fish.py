@@ -341,7 +341,7 @@ class InstallTest(FishTestCase):
         self.assertNotIn(fish.NO_EZA_NOTE, self.out.getvalue())
 
     def test_fish_is_a_component_name(self):
-        self.assertEqual(components.NAMES, ("claude", "font", "windows-terminal", "fish"))
+        self.assertEqual(components.NAMES, ("claude", "font", "windows-terminal", "tide", "fish"))
 
 
 class UninstallTest(FishTestCase):

@@ -86,7 +86,8 @@ class Plan:
     For a restore plan the runner runs ``commands`` before writing ``changes``, then removes each ``prune``
     directory that is left empty. A skipped restore plan means the restore is blocked: nothing of the component
     is touched and it stays installed. ``outcome`` replaces "ok" in the install results when a plan applied only
-    in part (for example "skipped: Tide not found").
+    in part (for example "skipped: Tide not found"). ``replan`` makes the runner plan the component again right
+    before applying it, because an earlier component of the same run changes what it finds.
     """
 
     changes: list[Change] = field(default_factory=list)
@@ -99,6 +100,7 @@ class Plan:
     commands: list[Command] = field(default_factory=list)
     prune: list[Path] = field(default_factory=list)
     outcome: str | None = None
+    replan: bool = False
 
     @classmethod
     def skipped(cls, reason: str) -> Plan:

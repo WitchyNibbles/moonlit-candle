@@ -900,6 +900,56 @@ class CheckTest(TideTestCase):
                       "give back the original bytes", lines)
 
 
+class FreshPcTest(TideTestCase):
+    """tide and fish in one run (acceptance criterion 1), through the runner as `install` runs them."""
+
+    def run_install(self, only=("tide", "fish"), dry_run=False, fetch=None):
+        ctx = self.ctx(dry_run=dry_run, fetch=fetch)
+        ctx.only, ctx.python = only, "/usr/bin/python3"
+        return runner.install(ctx, [tide.TideComponent(fake_pins()), fish.FishComponent()])
+
+    def test_a_pc_with_fish_only_ends_with_the_witchy_prompt(self):
+        self.fisher()
+        self.assertEqual(self.run_install(), 0, self.out.getvalue())
+        self.assertEqual(self.state()["last_install"]["results"], {"tide": "ok", "fish": "ok"})
+        self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
+        self.assertEqual(len(self.state()["components"]["fish"]["variables"]), len(fish.desired("midnight")))
+
+    def test_the_dry_run_says_fish_waits_for_tide(self):
+        self.fisher()
+        self.assertEqual(self.run_install(dry_run=True), 0)
+        self.assertIn(f"fish: set {len(fish.desired('midnight'))} prompt variables once tide has installed Tide "
+                      "(fish is asked again then)", self.out.getvalue())
+
+    def test_when_tide_fails_fish_finds_tide_not_ready_by_itself(self):
+        def offline(url):
+            raise OSError("network is unreachable")
+
+        self.fisher()
+        self.assertEqual(self.run_install(fetch=offline), 2)
+        self.assertEqual(self.state()["last_install"]["results"], {
+            "tide": "failed: could not download fisher (network is unreachable)",
+            "fish": "skipped: Tide not ready (run: python3 -m witchy install --only tide)"})
+        self.assertIn("✗✗✗ witchy is NOT fully installed ✗✗✗\n"
+                      "  tide: failed: could not download fisher (network is unreachable)\n"
+                      "  fish: skipped: Tide not ready (run: python3 -m witchy install --only tide)\n",
+                      self.out.getvalue())
+        self.assertEqual(self.variables, {})
+
+    def test_only_fish_never_waits_for_tide(self):
+        self.fisher()
+        self.assertEqual(self.run_install(only=("fish",)), 2)
+        self.assertEqual(self.state()["last_install"]["results"]["fish"],
+                         "skipped: Tide not ready (run: python3 -m witchy install --only tide)")
+        self.assertEqual(self.fisher_calls(), [])
+
+    def test_a_ready_tide_lets_fish_plan_once(self):
+        self.fisher(PINNED)
+        self.assertEqual(self.run_install(), 0, self.out.getvalue())
+        probes = [args for args in self.fake.calls if args[2:3] == [fishprobe.PROBE_SCRIPT]]
+        self.assertEqual(len(probes), 2)  # one for tide, one for fish
+
+
 class PinsTest(unittest.TestCase):
     def test_the_installed_sources_are_the_pinned_ones(self):
         self.assertEqual(tuple(content.load_pins()["plugins"]), (tide.FISHER_SOURCE, tide.TIDE_SOURCE))

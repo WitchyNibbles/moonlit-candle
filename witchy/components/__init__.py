@@ -4,11 +4,12 @@ from __future__ import annotations
 from .claude import ClaudeComponent
 from .fish import FishComponent
 from .font import FontComponent
+from .tide import TideComponent
 from .windows_terminal import WindowsTerminalComponent
 
 
 def all_components() -> list:
-    return [ClaudeComponent(), FontComponent(), WindowsTerminalComponent(), FishComponent()]
+    return [ClaudeComponent(), FontComponent(), WindowsTerminalComponent(), TideComponent(), FishComponent()]
 
 
 NAMES: tuple[str, ...] = tuple(component.name for component in all_components())
