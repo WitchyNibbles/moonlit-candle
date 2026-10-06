@@ -305,7 +305,7 @@ On this PC (Tide and fisher were already there) uninstall restores the recorded 
 ## 13. Repo purge
 
 - Test fixtures: `FFB7C5` becomes Tide 6.1.1's default pwd background (`3465A4`), in `tests/test_components_fish.py`, `tests/test_fish_integration.py` and `tests/test_install.py`. `tests/fixtures/state-v1.json` uses `Campbell` instead of `PastelOneDark`.
-- `2026-10-02-shell-ritual-design.md`: line 438 ("the pink 🌸 Tide prompt") becomes "the prompt that was there before install"; section 2 "Out" drops "Installing fish, fisher, Tide" with a pointer to this spec.
+- `2026-10-02-shell-ritual-design.md`: line 438 ("the pink 🌸 Tide prompt") and the matching "pink Tide prompt" in its section 1 Success line become "the prompt that was there before install"; section 2 "Out" drops "Installing fish, fisher, Tide" with a pointer to this spec.
 - Plans under `docs/superpowers/plans/` are records of past work and stay as written.
 
 ## 14. Choices made while writing this spec (not covered by the grilling)

@@ -17,7 +17,7 @@ Extend Moonlit Candle from Claude Code to the whole terminal, and make it feel a
 - A witchy `ll`/`lt` through eza.
 - `witchy doctor` to see at a glance what is installed and what broke.
 
-**Success:** after `python3 -m witchy install` and a Windows Terminal restart, a new Ubuntu tab matches sections 4–7, `python3 -m witchy doctor` shows no `✗`, and `python3 -m witchy uninstall` gives back the pink Tide prompt, the previous profile settings and the default greeting, leaving only the Maple Mono font files installed.
+**Success:** after `python3 -m witchy install` and a Windows Terminal restart, a new Ubuntu tab matches sections 4–7, `python3 -m witchy doctor` shows no `✗`, and `python3 -m witchy uninstall` gives back the prompt that was there before install, the previous profile settings and the default greeting, leaving only the Maple Mono font files installed.
 
 ## 2. Scope
 
@@ -33,7 +33,7 @@ In:
 
 Out:
 
-- Installing fish, fisher, Tide or eza. Missing tools are skipped with a warning; doctor prints the install command.
+- Installing eza without `install --fresh`. A missing eza is skipped with a warning; doctor prints the install command. (witchy installs fisher and Tide, and with `--fresh` fish and eza, since [the prompt takeover spec](2026-10-05-witchy-prompt-takeover-design.md), sections 5 and 15.1.)
 - Removing Maple Mono on uninstall.
 - The hidden duplicate `Windows.Terminal.Wsl` "Ubuntu" profile and Windows Terminal Preview.
 
@@ -435,4 +435,4 @@ Strict component-first order, as chosen in the review:
 6. The greeting's median time is under 200 ms (`ritual --debug`, 10 runs).
 7. `python3 -m witchy doctor` shows no `✗`.
 8. A screenshot of criterion 3 is attached to the PR.
-9. `uninstall` brings back the pink 🌸 Tide prompt, the previous profile settings and the default greeting, and leaves Maple Mono installed; the user then reinstalls if they want.
+9. `uninstall` brings back the prompt that was there before install, the previous profile settings and the default greeting, and leaves Maple Mono installed; the user then reinstalls if they want.
