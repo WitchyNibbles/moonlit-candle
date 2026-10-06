@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fcntl
+import os
 from contextlib import contextmanager, nullcontext
 from typing import Any, Iterator, Sequence
 
@@ -15,6 +16,8 @@ LOCK_BUSY = "another witchy command is running"
 INSTALLED = "Moonlit Candle installed. Undo with: python3 -m witchy uninstall"
 PARTLY_INSTALLED = "Moonlit Candle partly installed. Undo with: python3 -m witchy uninstall"
 NOTHING_INSTALLED = "Nothing was installed."
+BANNER = "✗✗✗ witchy is NOT fully installed ✗✗✗"
+BANNER_FIX = "Fix the lines above, then run: python3 -m witchy install"
 NEW_SESSION_NOTE = ("The output style applies from your next message; restart Claude Code if the theme "
                     "or status line do not update.")
 
@@ -115,24 +118,35 @@ def _install(ctx: Any, components: list) -> int:
     results: dict[str, str] = {}
     ctx.results = results
     applied = set()
-    for component, plan in plans:
-        if plan.skip is not None:
-            results[component.name] = f"skipped: {plan.skip}"
-        else:
-            try:
+    for index, (component, plan) in enumerate(plans):
+        try:
+            if plan.replan:
+                # An earlier component of this run changed what this one finds (fish after tide installed Tide).
+                plan = component.plan(ctx, ctx.entries.get(component.name))
+                plans[index] = (component, plan)
+                ctx.planned[component.name] = plan
+            if plan.skip is not None:
+                results[component.name] = f"skipped: {plan.skip}"
+            else:
                 with file_lock(plan.lock):
                     _recheck(plan.changes)
                     new_state["components"][component.name] = component.apply(ctx, plan)
                 applied.add(component.name)
                 results[component.name] = plan.outcome or "ok"
-            except ComponentFailed as exc:
-                results[component.name] = f"failed: {exc}"
+        except ComponentFailed as exc:
+            results[component.name] = f"failed: {exc}"
         new_state["last_install"] = {"at": ctx.stamp, "results": dict(results)}
         # Saved after every component: a later one can fail on the Windows side, and the
         # record must already describe what is really installed.
         statefile.save(ctx.state_path, new_state)
     ok = all(result == "ok" for result in results.values())
     ctx.say(_summary(results))
+    problems = {name: result for name, result in results.items() if result != "ok"}
+    if problems:  # spec 9.2: a summary line alone is too easy to miss
+        ctx.say(BANNER)
+        for name, result in problems.items():
+            ctx.say(f"  {name}: {result}")
+        ctx.say(BANNER_FIX)
     if not applied:
         ctx.say(NOTHING_INSTALLED)
     elif ok:
@@ -166,6 +180,15 @@ def _save_or_remove(ctx: Any, state: dict) -> None:
         witchy_dir.rmdir()
 
 
+def _apply_moves(ctx: Any, moves: list) -> None:
+    """Each file moved aside back in its place, as it was (a link stays a link, a file keeps its mode)."""
+    for source, target in moves:
+        if target.exists() or target.is_symlink():
+            raise ComponentFailed(f"{target} is taken, so {source} was not moved back")
+        os.replace(source, target)
+        ctx.say(f"moved {source} to {target}")
+
+
 def _uninstall(ctx: Any, components: list) -> int:
     state = statefile.load(ctx.state_path)
     if state is None:
@@ -192,6 +215,8 @@ def _uninstall(ctx: Any, components: list) -> int:
         for component, plan in plans:
             for command in plan.commands:
                 ctx.say(f"{component.name}: {command.label}")
+            for source, target in plan.moves:
+                ctx.say(f"{component.name}: move {source} to {target}")
             for directory in plan.prune:
                 ctx.say(f"{component.name}: remove {directory} if empty")
         for warning in warnings:
@@ -209,6 +234,7 @@ def _uninstall(ctx: Any, components: list) -> int:
                 for command in plan.commands:
                     run_command(ctx, command)
                 apply_changes(ctx, plan.changes)
+                _apply_moves(ctx, plan.moves)
         except (OSError, ComponentFailed) as exc:
             reason = f"could not write ({exc})" if isinstance(exc, OSError) else str(exc)
             ctx.say(f"{component.name}: {reason}; run uninstall again.")
@@ -231,22 +257,55 @@ def _uninstall(ctx: Any, components: list) -> int:
     return 0
 
 
-SYMBOLS = {"ok": "✓", "warn": "⚠", "fail": "✗"}
+SYMBOLS = {"ok": "✓", "warn": "⚠", "fail": "✗", "info": "·"}
 
 
 def _print_check(ctx: Any, check: Check) -> None:
     ctx.say(f"{SYMBOLS[check.level]} {check.component:<17} {check.message}")
-    if check.fix and check.level != "ok":
+    if check.fix and check.level in ("warn", "fail"):
         ctx.say(f"    fix: {check.fix}")
 
 
-def doctor(ctx: Any, components: Sequence[Component] | None = None) -> int:
+def doctor(ctx: Any, components: Sequence[Component] | None = None, fix: bool = False) -> int:
+    """Check every component; with ``fix``, re-install the ones a ✗ names in its fix, then check again (D18)."""
+    checks = _doctor(ctx, components)
+    failed = checks is None or any(check.level == "fail" for check in checks)
+    if not fix or not failed or checks is None:
+        return 1 if failed else 0
+    # Only fixes that are witchy commands run; the others (sudo apt, editing config.fish) stay printed above.
+    names = {component.name for component in _components(components)
+             if any(check.level == "fail" and check.fix == fix_command(component.name) for check in checks)}
+    if "tide" in names and "fish" in _installed(ctx):
+        names.add("fish")  # fish sets Tide's variables; it plans again once tide has installed Tide
+    fixable = [component.name for component in _components(components) if component.name in names]
+    if not fixable:
+        ctx.say("doctor --fix: no witchy command fixes these; do the fixes above by hand.")
+        return 1
+    ctx.say("doctor --fix: python3 -m witchy install " + " ".join(f"--only {name}" for name in fixable))
+    ctx.only = tuple(fixable)
+    install(ctx, components)
+    ctx.say("doctor --fix: checking again")
+    checks = _doctor(ctx, components)
+    return 1 if checks is None or any(check.level == "fail" for check in checks) else 0
+
+
+def _installed(ctx: Any) -> dict:
+    """The components state.json records (none when it cannot be read)."""
+    try:
+        return (statefile.load(ctx.state_path) or {}).get("components", {})
+    except Abort:
+        return {}
+
+
+def _doctor(ctx: Any, components: Sequence[Component] | None) -> list[Check] | None:
+    """Print every check; None when state.json cannot be read."""
     try:
         state = statefile.load(ctx.state_path)
     except Abort as exc:
         _print_check(ctx, Check("fail", "state", " ".join(str(exc).split())))
-        return 1
+        return None
     entries = (state or {}).get("components", {})
+    ctx.variant = ctx.variant or (state or {}).get("variant")  # fish compares the prompt with this variant's
     checks: list[Check] = []
     for component in _components(components):
         entry = entries.get(component.name)
@@ -263,7 +322,7 @@ def doctor(ctx: Any, components: Sequence[Component] | None = None) -> int:
             checks.append(Check("warn", name, f"last install ({last.get('at')}): {result}", fix_command(name)))
     for check in checks:
         _print_check(ctx, check)
-    return 1 if any(check.level == "fail" for check in checks) else 0
+    return checks
 
 
 def mood(ctx: Any, variant: str | None, components: Sequence[Component] | None = None) -> int:

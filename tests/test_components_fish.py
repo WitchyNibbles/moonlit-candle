@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.fakes import fake_fish
-from witchy import build, components, jsonio, palette, runner
+from tests.fakes import fake_fish, fake_tide
+from witchy import build, components, fishprobe, jsonio, palette, runner
 from witchy.components import fish
 from witchy.components.base import ComponentFailed, sha
 from witchy.context import Context
@@ -21,10 +21,14 @@ FISH = shutil.which("fish")
 # The prompt as Tide's own "lean" setup and the user left it: a pink pwd, an exported variable, no moon.
 USER_TIDE = {
     "tide_left_prompt_items": {"value": ["os", "pwd", "git", "newline", "character"], "exported": False},
-    "tide_pwd_bg_color": {"value": ["FFB7C5"], "exported": False},
+    "tide_pwd_bg_color": {"value": ["3465A4"], "exported": False},
     "tide_time_color": {"value": ["5F8787"], "exported": True},
     "tide_cmd_duration_threshold": {"value": ["3000"], "exported": False},
 }
+# Every variable witchy sets: Tide's, the moon item's and fish_emoji_width.
+DESIRED = {name: [value] if isinstance(value, str) else list(value)
+           for name, value in {**build.tide(), **palette.FISH}.items()}
+NOT_READY = "skipped: Tide not ready (run: python3 -m witchy install --only tide)"
 
 
 class FishTestCase(unittest.TestCase):
@@ -95,11 +99,73 @@ class InstallTest(FishTestCase):
         self.assertEqual(len(self.set_calls()), 1)
         self.assertIn(fish.NEW_TAB_NOTE, self.out.getvalue())
 
+    def test_sets_every_tide_variable_and_the_emoji_width(self):
+        self.assertEqual(runner.install(self.ctx()), 0)
+        self.assertEqual({name: self.value(name) for name in DESIRED}, DESIRED)
+        self.assertEqual(len(DESIRED), 159)
+        self.assertEqual(self.value("fish_emoji_width"), ["2"])
+        self.assertEqual(self.value("tide_left_prompt_prefix"), ["\ue0ba"])
+        self.assertEqual(self.value("tide_pwd_markers"), list(build.tide()["tide_pwd_markers"]))
+
+    def test_a_tide_variable_tide_does_not_define_is_erased_and_recorded(self):
+        self.variables["tide_sparkle_icon"] = {"value": ["✨"], "exported": False}
+        self.assertEqual(runner.install(self.ctx(dry_run=True)), 0)
+        self.assertIn("fish: set -e -U tide_sparkle_icon (now: ✨)", self.out.getvalue())
+        self.assertEqual(runner.install(self.ctx()), 0)
+        self.assertNotIn("tide_sparkle_icon", self.variables)
+        self.assertEqual(self.entry()["variables"]["tide_sparkle_icon"],
+                         {"previous": {"value": ["✨"], "exported": False}, "installed": None})
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.variables["tide_sparkle_icon"], {"value": ["✨"], "exported": False})
+
+    def test_a_reinstall_keeps_the_record_of_an_erased_variable(self):
+        self.variables["tide_sparkle_icon"] = {"value": ["✨"], "exported": False}
+        self.variables["tide_old_icon"] = {"value": ["🎀"], "exported": False}
+        self.assertEqual(runner.install(self.ctx()), 0)
+        self.assertEqual(runner.install(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.entry()["variables"]["tide_sparkle_icon"],
+                         {"previous": {"value": ["✨"], "exported": False}, "installed": None})
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-140000")), 0)
+        self.assertEqual(self.variables["tide_sparkle_icon"], {"value": ["✨"], "exported": False})
+        self.assertEqual(self.variables["tide_old_icon"], {"value": ["🎀"], "exported": False})
+
+    def test_tides_private_variables_are_never_touched(self):
+        self.variables["_tide_left_items"] = {"value": ["pwd"], "exported": False}
+        self.assertEqual(runner.install(self.ctx()), 0)
+        self.assertEqual(self.variables["_tide_left_items"], {"value": ["pwd"], "exported": False})
+        self.assertNotIn("_tide_left_items", self.entry()["variables"])
+
+    def test_upgrading_an_install_that_set_fewer_variables_still_gives_back_the_users_prompt(self):
+        older = {name: DESIRED[name] for name in USER_TIDE}  # an older witchy set only these
+        with mock.patch.object(fish, "desired", return_value=older):
+            self.assertEqual(runner.install(self.ctx()), 0)
+        self.assertEqual(runner.install(self.ctx(stamp="20261003-130000")), 0)
+        self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"],
+                         {"value": ["3465A4"], "exported": False})
+        self.assertEqual(set(self.entry()["variables"]), set(DESIRED))
+        self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-140000")), 0)
+        self.assertEqual(self.variables, USER_TIDE)
+
+    def test_a_tide_that_is_not_ready_gets_no_variable(self):
+        cases = ((fake_fish(self.variables, tide=None, calls=self.calls), "Tide not found"),
+                 (fake_fish(self.variables, tide="6.0.0", calls=self.calls), "Tide is 6.0.0, not 6.1.1"),
+                 (fake_fish(self.variables, prompt="/usr/share/fish/functions/fish_prompt.fish", calls=self.calls),
+                  "fish_prompt is not Tide's (/usr/share/fish/functions/fish_prompt.fish)"))
+        for run, reason in cases:
+            with self.subTest(reason=reason):
+                self.calls.clear()
+                self.assertEqual(runner.install(self.ctx(run=run)), 2)
+                self.assertEqual(self.state()["last_install"]["results"], {"fish": NOT_READY})
+                self.assertIn(f"fish: {reason}; prompt not recoloured. Run: python3 -m witchy install --only tide",
+                              self.out.getvalue())
+                self.assertEqual([args for args, _ in self.calls], [["fish", "-c", fishprobe.PROBE_SCRIPT]])
+                self.assertEqual(self.variables, USER_TIDE)
+
     def test_records_what_each_variable_held_before(self):
         runner.install(self.ctx())
         variables = self.entry()["variables"]
-        self.assertEqual(set(variables), set(palette.TIDE))
-        self.assertEqual(variables["tide_pwd_bg_color"], {"previous": {"value": ["FFB7C5"], "exported": False},
+        self.assertEqual(set(variables), set(DESIRED))
+        self.assertEqual(variables["tide_pwd_bg_color"], {"previous": {"value": ["3465A4"], "exported": False},
                                                           "installed": ["B99AFF"]})
         self.assertEqual(variables["tide_moon_color"]["previous"], {"absent": True})
         self.assertEqual(variables["tide_time_color"]["previous"]["exported"], True)
@@ -124,7 +190,7 @@ class InstallTest(FishTestCase):
         self.assertEqual(self.set_calls(), [])
         self.assertEqual(self.entry()["variables"], {})
         self.assertTrue((self.home / ".config" / "fish" / "functions" / "fish_greeting.fish").is_file())
-        self.assertEqual(self.state()["last_install"]["results"], {"fish": "skipped: Tide not found"})
+        self.assertEqual(self.state()["last_install"]["results"], {"fish": NOT_READY})
         self.assertIn("fish: Tide not found; prompt not recoloured.", self.out.getvalue())
 
     def test_the_new_tab_note_promises_only_what_this_install_changes(self):
@@ -149,11 +215,12 @@ class InstallTest(FishTestCase):
         run = fake_fish(self.variables, fail_at="tide_pwd_bg_color", calls=self.calls)
         self.assertEqual(runner.install(self.ctx(run=run)), 2)
         variables = self.entry()["variables"]
-        self.assertIn("tide_moon_color", variables)  # set before the failure
+        self.assertIn("tide_aws_icon", variables)  # set before the failure
         self.assertNotIn("tide_pwd_bg_color", variables)
         self.assertNotIn("tide_time_color", variables)  # never reached
+        self.assertNotIn("tide_moon_color", variables)
         self.assertIn("tide_cmd_duration_threshold", variables)  # needed no change
-        self.assertEqual(self.value("tide_pwd_bg_color"), ["FFB7C5"])
+        self.assertEqual(self.value("tide_pwd_bg_color"), ["3465A4"])
         self.assertEqual(self.state()["last_install"]["results"], {"fish": "failed: could not set tide_pwd_bg_color"})
 
     def test_a_fish_that_times_out_while_setting_keeps_the_files_recorded(self):
@@ -168,7 +235,7 @@ class InstallTest(FishTestCase):
         self.assertEqual(len(self.entry()["files"]), len(self.files()))
         self.assertEqual(self.state()["last_install"]["results"]["fish"],
                          "failed: fish did not finish setting the Tide variables")
-        self.assertEqual(set(self.entry()["variables"]), set(palette.TIDE))
+        self.assertEqual(set(self.entry()["variables"]), set(DESIRED))
         self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
         self.assertEqual(self.variables, USER_TIDE)
 
@@ -183,12 +250,12 @@ class InstallTest(FishTestCase):
         self.assertEqual(runner.install(self.ctx(run=run)), 2)
         self.assertEqual(self.state()["last_install"]["results"]["fish"],
                          "failed: fish did not finish setting the Tide variables")
-        self.assertEqual(set(self.entry()["variables"]), set(palette.TIDE))
+        self.assertEqual(set(self.entry()["variables"]), set(DESIRED))
 
     def test_a_set_call_killed_by_a_signal_is_an_unknown_outcome(self):
-        name = next(iter(palette.TIDE))
+        name = next(iter(DESIRED))
         self.unknown_outcome(lambda args: subprocess.CompletedProcess(
-            args, -9, stdout=f"{fish.SENTINEL}\0{name}\0".encode(), stderr=b""))
+            args, -9, stdout=f"{fishprobe.SENTINEL}\0{name}\0".encode(), stderr=b""))
         self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
         self.assertEqual(self.variables, USER_TIDE)
 
@@ -198,7 +265,7 @@ class InstallTest(FishTestCase):
     def test_what_config_fish_prints_is_ignored(self):
         run = fake_fish(self.variables, noise="Welcome!\n\0stray\0", calls=self.calls)
         self.assertEqual(runner.install(self.ctx(run=run)), 0)
-        self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"]["value"], ["FFB7C5"])
+        self.assertEqual(self.entry()["variables"]["tide_pwd_bg_color"]["previous"]["value"], ["3465A4"])
 
     def test_a_value_comes_back_byte_for_byte(self):
         # A carriage return, a line break and a byte that is not UTF-8 (0xFF, held as the surrogate U+DCFF).
@@ -221,7 +288,7 @@ class InstallTest(FishTestCase):
         with mock.patch.dict(palette.TIDE, {"tide_pwd_bg_color": "D0B8FF"}):
             self.assertEqual(runner.install(self.ctx(stamp="20261003-130000")), 0)
         record = self.entry()["variables"]["tide_pwd_bg_color"]
-        self.assertEqual(record, {"previous": {"value": ["FFB7C5"], "exported": False}, "installed": ["D0B8FF"]})
+        self.assertEqual(record, {"previous": {"value": ["3465A4"], "exported": False}, "installed": ["D0B8FF"]})
         self.assertEqual(self.value("tide_pwd_bg_color"), ["D0B8FF"])
 
     def test_uninstall_gives_back_a_function_the_user_replaced_between_installs(self):
@@ -252,9 +319,10 @@ class InstallTest(FishTestCase):
         self.assertEqual(self.set_calls(), [])
         self.assertFalse((self.home / ".config").exists())
         self.assertEqual(self.variables, USER_TIDE)
-        self.assertIn("fish: set -U tide_pwd_bg_color B99AFF (now: FFB7C5)", self.out.getvalue())
+        self.assertIn("fish: set -U tide_pwd_bg_color B99AFF (now: 3465A4)", self.out.getvalue())
         self.assertIn("fish: set -Ux tide_time_color A99AB9 (now: 5F8787)", self.out.getvalue())
         self.assertIn("fish: set -U tide_moon_color FFD477 (now: unset)", self.out.getvalue())
+        self.assertIn("fish: set -U fish_emoji_width 2 (now: unset)", self.out.getvalue())
 
     def test_fish_config_follows_xdg_config_home(self):
         env = {"PATH": "/nowhere", "XDG_CONFIG_HOME": str(self.root / "xdg")}
@@ -273,7 +341,7 @@ class InstallTest(FishTestCase):
         self.assertNotIn(fish.NO_EZA_NOTE, self.out.getvalue())
 
     def test_fish_is_a_component_name(self):
-        self.assertEqual(components.NAMES, ("claude", "font", "windows-terminal", "fish"))
+        self.assertEqual(components.NAMES, ("claude", "font", "windows-terminal", "tide", "fish"))
 
 
 class UninstallTest(FishTestCase):
@@ -319,13 +387,16 @@ class UninstallTest(FishTestCase):
 
     def test_tide_removed_before_uninstall_gives_one_warning(self):
         runner.install(self.ctx())
-        self.variables.clear()  # Tide's own uninstall erases every tide_ variable
+        for name in [name for name in self.variables if name.startswith("tide_")]:
+            del self.variables[name]  # Tide's own uninstall erases every tide_ variable
         self.calls.clear()
         self.assertEqual(runner.uninstall(self.ctx(stamp="20261003-130000")), 0)
         output = self.out.getvalue()
-        self.assertIn("fish: Tide's variables are gone (was Tide removed?); nothing to restore.", output)
+        self.assertIn("fish: the Tide variables witchy set are gone (was Tide removed?), so those are not restored; "
+                      "fish_emoji_width and the tide_ variables witchy erased are given back.", output)
         self.assertNotIn("changed after install", output)
-        self.assertEqual(self.set_calls(), [])
+        self.assertEqual(self.set_calls(), ["fish_emoji_width\0erase\0" "0\0"])  # fish's own goes back
+        self.assertEqual(self.variables, {})
         self.assertFalse((self.home / ".claude" / "witchy").exists())
 
     def test_a_retry_after_a_partial_restore_is_silent(self):
@@ -372,7 +443,7 @@ class UninstallTest(FishTestCase):
         runner.install(self.ctx())
         installed = json.loads(json.dumps(self.variables))
         self.assertEqual(runner.uninstall(self.ctx(dry_run=True, stamp="20261003-130000")), 0)
-        self.assertIn(f"fish: restore {len(palette.TIDE) - 1} Tide variables", self.out.getvalue())
+        self.assertIn(f"fish: restore {len(DESIRED) - 1} Tide variables", self.out.getvalue())
         self.assertEqual(self.variables, installed)
         self.assertTrue((self.home / ".claude" / "witchy" / "ritual" / "cli.py").is_file())
 
@@ -484,8 +555,9 @@ class DoctorTest(FishTestCase):
         code, output = self.doctor()
         self.assertEqual(code, 0)
         self.assertIn(f"✓ fish              {len(self.files())} files match", output)
-        self.assertIn(f"✓ fish              {len(palette.TIDE)} Tide variables match", output)
+        self.assertIn(f"✓ fish              {len(DESIRED)} prompt variables match", output)
         self.assertIn("✓ fish              no greeting or sky errors in the last 7 days", output)
+        self.assertNotIn("overridden", output)
 
     def test_a_changed_file_and_a_changed_variable_fail(self):
         runner.install(self.ctx())
@@ -495,14 +567,102 @@ class DoctorTest(FishTestCase):
         self.assertEqual(code, 1)
         self.assertIn("✗ fish              changed or missing: ", output)
         self.assertIn("ll.fish", output)
-        self.assertIn("✗ fish              Tide variables changed: tide_pwd_bg_color", output)
+        self.assertIn("✗ fish              prompt variables changed: tide_pwd_bg_color", output)
         self.assertIn("fix: python3 -m witchy install --only fish", output)
 
     def test_fish_that_does_not_answer_is_a_warning(self):
         runner.install(self.ctx())
         code, output = self.doctor(run=fake_fish(missing=True))
         self.assertEqual(code, 0)
-        self.assertIn("⚠ fish              cannot check the Tide variables: could not read the Tide variables", output)
+        self.assertIn("⚠ fish              cannot check the Tide variables: could not read fisher and Tide", output)
+
+    def test_every_variable_is_checked_not_only_the_recorded_ones(self):
+        older = {name: DESIRED[name] for name in USER_TIDE}  # an older witchy recorded only these
+        with mock.patch.object(fish, "desired", return_value=older):
+            runner.install(self.ctx())
+        code, output = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ fish              prompt variables changed: fish_emoji_width, tide_aws_bg_color, "
+                      "tide_aws_color, tide_aws_icon, tide_character_color, tide_character_color_failure, "
+                      "tide_character_icon, tide_character_vi_icon_default, tide_character_vi_icon_replace, "
+                      "tide_character_vi_icon_visual (and 145 more)\n", output)
+
+    def test_tide_configure_afterwards_is_drift(self):
+        runner.install(self.ctx())
+        for name, value in (("tide_pwd_icon", [""]), ("tide_left_prompt_items", ["pwd", "git", "newline"]),
+                            ("tide_prompt_transient_enabled", ["false"])):
+            self.variables[name]["value"] = value
+        code, output = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ fish              prompt variables changed: tide_left_prompt_items, "
+                      "tide_prompt_transient_enabled, tide_pwd_icon\n", output)
+
+    def test_a_tide_variable_tide_does_not_define_fails(self):
+        runner.install(self.ctx())
+        self.variables["tide_sparkle_icon"] = {"value": ["✨"], "exported": False}
+        self.variables["_tide_private"] = {"value": ["x"], "exported": False}
+        code, output = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ fish              not Tide 6.1.1 variables: tide_sparkle_icon\n"
+                      "    fix: python3 -m witchy install --only fish", output)
+        self.assertNotIn("_tide_private", output)
+
+    def test_a_global_hiding_a_universal_fails(self):
+        runner.install(self.ctx())
+        run = fake_fish(self.variables, globals={"tide_pwd_bg_color": ["000000"], "fish_emoji_width": ["1"]})
+        code, output = self.doctor(run=run)
+        self.assertEqual(code, 1)
+        self.assertIn("✗ fish              fish_emoji_width is overridden by a global in config.fish or conf.d\n"
+                      "    fix: python3 -m witchy install --only tide\n"
+                      "✗ fish              tide_pwd_bg_color is overridden by a global in config.fish or conf.d\n",
+                      output)
+        self.assertIn(f"✓ fish              {len(DESIRED)} prompt variables match", output)
+
+    def test_the_new_shell_is_interactive_quiet_and_has_15_seconds(self):
+        runner.install(self.ctx())
+        seen = []
+        answers = fake_fish(self.variables)
+
+        def run(args, **kwargs):
+            seen.append((args, kwargs["env"].get("WITCHY_DOCTOR"), kwargs["timeout"], kwargs["input"]))
+            return answers(args, **kwargs)
+
+        self.doctor(run=run)
+        self.assertIn((["fish", "-i", "-c", fish.GLOBALS_SCRIPT, "--", *DESIRED], "1", 15, b""), seen)
+
+    def test_a_new_shell_that_does_not_answer_is_a_warning(self):
+        runner.install(self.ctx())
+        answers = fake_fish(self.variables)
+
+        def run(args, **kwargs):
+            if args[:2] == ["fish", "-i"]:
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+            return answers(args, **kwargs)
+
+        code, output = self.doctor(run=run)
+        self.assertEqual(code, 0)
+        self.assertIn("⚠ fish              cannot check the Tide variables: could not read the prompt variables a "
+                      "new shell sees (timed out after 15 s)", output)
+
+    def test_tide_not_ready_is_one_warning(self):
+        runner.install(self.ctx())
+        code, output = self.doctor(run=fake_fish(self.variables, tide="6.0.0"))
+        self.assertEqual(code, 0)
+        self.assertIn("⚠ fish              Tide variables not checked: Tide is 6.0.0, not 6.1.1\n"
+                      "    fix: python3 -m witchy install --only tide", output)
+        self.assertNotIn("prompt variables", output)
+
+    def test_the_installed_variant_is_the_one_checked(self):
+        midnight = palette.VARIANTS["midnight"]
+        dawn = palette.Variant(**{**midnight.__dict__, "name": "dawn",
+                                  "tide": dict(midnight.tide, tide_pwd_bg_color="D0B8FF")})
+        with mock.patch.dict(palette.VARIANTS, {"dawn": dawn}):
+            ctx = self.ctx()
+            ctx.variant = "dawn"
+            self.assertEqual(runner.install(ctx), 0)
+            code, output = self.doctor()
+        self.assertEqual(code, 0, output)
+        self.assertIn(f"✓ fish              {len(DESIRED)} prompt variables match", output)
 
     def test_eza(self):
         runner.install(self.ctx())
@@ -600,6 +760,86 @@ class DoctorTest(FishTestCase):
         self.assertIn("greeting: last run failed today at 09:14", self.out.getvalue())
 
 
+class CaretDoctorTest(FishTestCase):
+    """doctor's caret line and the caret global (prompt takeover spec 15.3)."""
+
+    NOW = datetime(2026, 10, 31, 21, 0)
+    SAMHAIN = "2026-10-31 FFB86B samhain\n2026-11-01\n"
+
+    def setUp(self):
+        super().setUp()
+        runner.install(self.ctx())
+
+    def doctor(self, run=None):
+        ctx = self.ctx(run=run)
+        ctx.now = lambda: self.NOW
+        code = runner.doctor(ctx, [fish.FishComponent()])
+        return code, self.out.getvalue()
+
+    def write_caret(self, text):
+        path = self.home / ".cache" / "witchy" / "caret"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_a_sabbat_shows_its_colour(self):
+        self.write_caret(self.SAMHAIN)
+        self.assertIn("· fish              caret: samhain FFB86B (today's cache)\n", self.doctor()[1])
+
+    def test_an_ordinary_day_is_gold(self):
+        self.write_caret("2026-10-31\n2026-11-01\n")
+        self.assertIn("· fish              caret: gold\n", self.doctor()[1])
+
+    def test_yesterdays_cache_still_holds_a_line_for_today(self):
+        self.write_caret("2026-10-30 FFB86B samhain\n2026-10-31 FFB86B samhain\n")
+        self.assertIn("· fish              caret: samhain FFB86B (today's cache)\n", self.doctor()[1])
+
+    def test_a_stale_cache_is_a_warning_with_the_log(self):
+        self.write_caret("2026-10-28\n2026-10-29\n")
+        code, output = self.doctor()
+        self.assertEqual(code, 0)
+        log = self.home / ".cache" / "witchy" / "ritual.log"
+        self.assertIn("⚠ fish              caret: gold (the caret cache was written on 2026-10-28, not today)\n"
+                      f"    fix: tail -n 20 {log}\n", output)
+
+    def test_a_damaged_or_missing_cache_is_a_warning(self):
+        self.write_caret("FFB86B\n")
+        self.assertIn("⚠ fish              caret: gold (the caret cache is damaged)\n", self.doctor()[1])
+        (self.home / ".cache" / "witchy" / "caret").unlink()
+        output = self.doctor()[1]
+        self.assertIn("⚠ fish              caret: gold (no caret cache yet; a new tab writes it)\n", output)
+        self.assertNotIn("caret cache yet; a new tab writes it)\n    fix", output)
+
+    def test_the_caret_global_is_accepted_only_with_todays_colour(self):
+        run = fake_fish(self.variables, globals={"tide_character_color": ["FFB86B"]})
+        self.write_caret(self.SAMHAIN)
+        code, output = self.doctor(run=run)
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("overridden", output)
+        for text in ("2026-10-31\n2026-11-01\n", "2026-10-30 FFB86B samhain\n", "2026-10-31 FFD477 litha\n"):
+            with self.subTest(text=text):
+                self.write_caret(text)
+                code, output = self.doctor(run=run)
+                self.assertEqual(code, 1)
+                self.assertIn("✗ fish              tide_character_color is overridden by a global in config.fish "
+                              "or conf.d\n", output)
+
+    def test_only_the_caret_colour_is_accepted(self):
+        self.write_caret(self.SAMHAIN)
+        for hidden in ({"tide_character_color": ["FFB86B", "FFB86B"]}, {"tide_character_color_failure": ["FFB86B"]}):
+            with self.subTest(hidden=hidden):
+                code, output = self.doctor(run=fake_fish(self.variables, globals=hidden))
+                self.assertEqual(code, 1)
+                self.assertIn(f"✗ fish              {next(iter(hidden))} is overridden", output)
+
+    def test_an_aware_now_uses_the_local_day(self):
+        self.write_caret(self.SAMHAIN)
+        local = self.NOW.astimezone()  # 21:00 on the 31st in this machine's zone
+        ctx = self.ctx()
+        ctx.now = lambda: local.astimezone(timezone.utc)
+        runner.doctor(ctx, [fish.FishComponent()])
+        self.assertIn("caret: samhain FFB86B (today's cache)", self.out.getvalue())
+
+
 @unittest.skipUnless(FISH, "fish is not installed")
 class RealFishBytesTest(unittest.TestCase):
     """Real fish with a temporary HOME and config folder, never the user's own."""
@@ -611,10 +851,9 @@ class RealFishBytesTest(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
         config = self.root / "config"
-        (config / "fish" / "functions").mkdir(parents=True)
-        (config / "fish" / "functions" / "tide.fish").write_text("function tide\nend\n", encoding="utf-8")
         tools = dict.fromkeys([str(Path(FISH).parent), "/usr/bin", "/bin"])
         self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(config), "PATH": os.pathsep.join(tools)}
+        fake_tide(config / "fish", self.env)
 
     def fish(self, script):
         return subprocess.run([FISH, "-c", script], capture_output=True, env=self.env, timeout=20, check=True).stdout

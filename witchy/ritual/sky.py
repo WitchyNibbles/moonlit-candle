@@ -1,4 +1,5 @@
-"""The sky job: point the Windows Terminal profile's backgroundImage at tonight's phase image (spec 4.5).
+"""The sky job: point the Windows Terminal profile's backgroundImage at tonight's phase image (spec 4.5), and
+write the caret cache for today (prompt takeover spec 15.3).
 
 It edits the one value in place, so Windows Terminal's own formatting survives, and it shares
 ~/.cache/witchy/wt.lock with the installer.
@@ -17,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-from . import log, moon
+from . import caret, log, moon
 
 CONFIG = Path(".claude/witchy/ritual-config.json")
 CACHE = Path(".cache/witchy")
@@ -121,24 +122,34 @@ def update(config: object, lock: Path, stamp: Path, target: int) -> bool:
     return current != wanted
 
 
-def run(home: Path, now: datetime) -> int:
-    """Move the sky to ``now``'s phase. Failures are logged and retried at most once a day; always exits 0."""
-    cache = home / CACHE
-    today = now.date().isoformat()
-    fail = cache / FAIL
+def _failed(cache: Path, now: datetime, message: str) -> None:
+    """Log ``message`` and mark today as failed, so shells start no job again until tomorrow."""
     try:
-        if fail.read_text(encoding="utf-8").strip() == today:
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / FAIL).write_text(now.date().isoformat() + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    log.append(cache / log.NAME, f"sky: {message}", now)
+
+
+def run(home: Path, now: datetime, move_sky: bool = True) -> int:
+    """Write the caret cache for ``now``'s day, then move the sky to ``now``'s phase unless ``move_sky`` is
+    False. Failures are logged and retried at most once a day; always exits 0."""
+    cache = home / CACHE
+    try:
+        if (cache / FAIL).read_text(encoding="utf-8").strip() == now.date().isoformat():
             return 0
     except (OSError, ValueError):
         pass
     try:
+        caret.write(cache / caret.NAME, now.date(), now.tzinfo)
+    except Exception as exc:  # the job runs in the background: it must never surface a traceback
+        _failed(cache, now, f"could not write the caret cache ({exc})")
+    if not move_sky:
+        return 0
+    try:
         config = json.loads((home / CONFIG).read_text(encoding="utf-8"))
         update(config, cache / LOCK, cache / STAMP, moon.phase_bin(now))
-    except Exception as exc:  # the job runs in the background: it must never surface a traceback
-        try:
-            cache.mkdir(parents=True, exist_ok=True)
-            fail.write_text(today + "\n", encoding="utf-8")
-        except OSError:
-            pass
-        log.append(cache / log.NAME, f"sky: {exc}", now)
+    except Exception as exc:
+        _failed(cache, now, str(exc))
     return 0

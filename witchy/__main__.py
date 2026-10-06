@@ -1,12 +1,13 @@
-"""python3 -m witchy validate | build | install | uninstall | doctor | mood"""
+"""python3 -m witchy validate | build | install | uninstall | doctor | mood | preview"""
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 from pathlib import Path
 
-from . import build, components, runner, validate
+from . import build, components, fresh, palette, preview, runner, validate
 from .context import Context
 
 
@@ -21,14 +22,26 @@ def main(argv: list[str] | None = None) -> int:
     install_parser.add_argument("--wt-settings", type=Path, help="path to Windows Terminal settings.json")
     install_parser.add_argument("--only", action="append", choices=components.NAMES, metavar="NAME",
                                 help=f"install only this component (repeatable): {', '.join(components.NAMES)}")
+    install_parser.add_argument("--fresh", action="store_true",
+                                help="first install what a new WSL box lacks (fish, curl, eza) with sudo and offer "
+                                     "fish as the login shell; asks before each")
     uninstall_parser = commands.add_parser("uninstall", help="give back everything install changed")
     uninstall_parser.add_argument("--dry-run", action="store_true", help="show the changes without writing anything")
     uninstall_parser.add_argument("--only", action="append", choices=components.NAMES, metavar="NAME",
                                   help="uninstall only this component (repeatable)")
-    commands.add_parser("doctor", help="check every installed piece and say how to fix it")
+    doctor_parser = commands.add_parser("doctor", help="check every installed piece and say how to fix it")
+    doctor_parser.add_argument("--fix", action="store_true",
+                               help="re-install what doctor marks ✗ when a witchy command fixes it, then check again")
     mood_parser = commands.add_parser("mood", help="show or switch the colour variant")
     mood_parser.add_argument("variant", nargs="?", help="variant to switch to")
+    preview_parser = commands.add_parser("preview", help="draw the prompt from the palette, without fish or Tide")
+    preview_parser.add_argument("--variant", choices=sorted(palette.VARIANTS), default=palette.DEFAULT_VARIANT,
+                                help="colour variant to draw")
     args = parser.parse_args(argv)
+
+    if args.command == "preview":
+        print(preview.render(args.variant, columns=shutil.get_terminal_size((80, 24)).columns), end="")
+        return 0
 
     if args.command == "validate":
         failures = validate.validate_all()
@@ -49,11 +62,12 @@ def main(argv: list[str] | None = None) -> int:
     ctx = Context(home=Path.home(), env=os.environ, out=sys.stdout, dry_run=getattr(args, "dry_run", False),
                   wt_settings=getattr(args, "wt_settings", None), only=tuple(getattr(args, "only", None) or ()))
     if args.command == "install":
-        return runner.install(ctx)
+        code = fresh.prepare(ctx) if args.fresh else None  # before validation and the lock (spec 15.1)
+        return runner.install(ctx) if code is None else code
     if args.command == "uninstall":
         return runner.uninstall(ctx)
     if args.command == "doctor":
-        return runner.doctor(ctx)
+        return runner.doctor(ctx, fix=args.fix)
     return runner.mood(ctx, args.variant)
 
 

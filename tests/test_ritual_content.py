@@ -67,6 +67,9 @@ class RitualPaletteTest(unittest.TestCase):
     def test_the_package_block_matches_the_palette(self):
         self.assertIn(build.palette_block(palette.RITUAL), RITUAL_PALETTE_SOURCE.read_text(encoding="utf-8"))
 
+    def test_the_package_glyph_block_matches_the_table(self):
+        self.assertIn(build.dict_block("GLYPHS", palette.GLYPHS), RITUAL_PALETTE_SOURCE.read_text(encoding="utf-8"))
+
     def test_real_palette_passes(self):
         self.assertEqual(validate.validate_ritual_palette(palette.RITUAL), [])
 

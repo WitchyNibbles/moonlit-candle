@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from witchy.ritual import cli, layout, sky, wheel
+from witchy.ritual import cli, layout, palette, sky, wheel
 
 CET = timezone(timedelta(hours=1))
 CEST = timezone(timedelta(hours=2))
@@ -125,6 +125,14 @@ class FullRitualTest(CliTestCase):
 
 
 class OmenTest(CliTestCase):
+    def test_candle_dirty_and_separator_come_from_the_glyph_table(self):
+        with mock.patch.dict(palette.GLYPHS, {"candle": "C", "dirty": "D", "separator": "S"}):
+            self.assertEqual(self.run_cli(["--omen"]), "🌗 Last Quarter 67% · D The Star · C Samhain\n\n")
+            text = self.run_cli(["--full"], now=datetime(2026, 10, 26, 8, 0, tzinfo=CET))
+        self.assertIn("S Samhain in 5 days", text)
+        self.assertIn("S Full  100%", text)
+        self.assertIn("D XV · The Devil", text)
+
     def test_one_line(self):
         self.assertEqual(self.run_cli(["--omen"]),
                          "🌗 Last Quarter 67% · ✦ The Star · 🕯️ Samhain\n\n")
@@ -187,8 +195,14 @@ class SkyModeTest(CliTestCase):
         self.assertIn("greeting: OSError('disk full')", self.log.read_text(encoding="utf-8"))
         self.assertFalse(self.stamp.exists())
 
+    def test_caret_runs_the_job_without_the_sky_on_now(self):
+        with mock.patch.object(sky, "run", return_value=0) as run:
+            self.assertEqual(self.run_cli(["--caret", "--date", "2026-12-24"]), "")
+        run.assert_called_once_with(self.home, SAMHAIN_NIGHT, move_sky=False)
+        self.assertFalse(self.stamp.exists())
+
     def test_sky_and_another_mode_is_an_argument_error(self):
-        for mode in ("--full", "--omen"):
+        for mode in ("--full", "--omen", "--caret"):
             with self.subTest(mode), mock.patch.object(sky, "run") as run:
                 self.assertIn(f"argument {mode}: not allowed with argument --sky", self.bad_arguments(["--sky", mode]))
                 run.assert_not_called()

@@ -5,7 +5,7 @@ import copy
 import json
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from . import windows
 from .records import apply_keys, is_installed, put_back, restore_keys, snapshot
@@ -167,6 +167,134 @@ def restore_scheme(data: dict, record: dict) -> tuple[dict, list[str]]:
             if record["schemes_key_absent"] and not schemes:
                 del result["schemes"]
     return result, warnings
+
+
+def _names(value: Any, names: Iterable[str]) -> bool:
+    """Whether a colorScheme value, a name or a {"light": …, "dark": …} pair, names one of ``names``."""
+    names = tuple(names)
+    if isinstance(value, dict):
+        return any(isinstance(member, str) and member in names for member in value.values())
+    return isinstance(value, str) and value in names
+
+
+def _defaults(data: Any) -> dict | None:
+    profiles = data.get("profiles") if isinstance(data, dict) else None
+    defaults = profiles.get("defaults") if isinstance(profiles, dict) else None
+    return defaults if isinstance(defaults, dict) else None
+
+
+def _guidless(profile: Any) -> bool:
+    """A profile without a GUID: it could not be found again on uninstall, so the purge leaves it alone."""
+    return isinstance(profile, dict) and not isinstance(profile.get("guid"), str)
+
+
+def purge_schemes(data: dict, names: Iterable[str], replacement: str, recorded: dict | None) -> tuple[dict, dict]:
+    """Take the ``names`` schemes out of settings.json (spec 8).
+
+    profiles.defaults gets ``replacement`` when it names one, a profile that names one loses its colorScheme so
+    it inherits the default, and their definitions are deleted, except one a profile without a GUID still names
+    (that profile is left alone, and must not name a scheme that is gone). What each held is recorded; a
+    reinstall keeps the first record of each and adds the new ones.
+    """
+    names = tuple(names)
+    result = copy.deepcopy(data)
+    earlier = recorded or {}
+    record = {"defaults": copy.deepcopy(earlier.get("defaults")),
+              "profiles": copy.deepcopy(earlier.get("profiles", {})),
+              "schemes": copy.deepcopy(earlier.get("schemes", []))}
+    defaults = _defaults(result)
+    if defaults is not None and _names(defaults.get("colorScheme"), names):
+        if record["defaults"] is None:
+            record["defaults"] = {"previous": snapshot(defaults, "colorScheme"), "installed": replacement}
+        defaults["colorScheme"] = replacement
+    for profile in _profiles(result) or []:
+        if not isinstance(profile, dict) or _guidless(profile):
+            continue  # a profile without a GUID could not be found again on uninstall
+        if _names(profile.get("colorScheme"), names):
+            if not any(guid.lower() == profile["guid"].lower() for guid in record["profiles"]):
+                record["profiles"][profile["guid"]] = snapshot(profile, "colorScheme")
+            del profile["colorScheme"]
+    schemes = result.get("schemes")
+    if isinstance(schemes, list):
+        known = {item["value"].get("name") for item in record["schemes"]}
+        kept = {name for name in names if kept_uses(result, name)}
+        purged = [index for index, scheme in enumerate(schemes)
+                  if isinstance(scheme, dict) and scheme.get("name") in names and scheme.get("name") not in kept]
+        record["schemes"] += [{"index": index, "value": copy.deepcopy(schemes[index])} for index in purged
+                              if schemes[index].get("name") not in known]
+        result["schemes"] = [scheme for index, scheme in enumerate(schemes) if index not in purged]
+    return result, record
+
+
+def restore_purged(data: dict, record: dict | None) -> tuple[dict, list[str]]:
+    """Undo purge_schemes, leaving alone whatever the user changed since. Runs before restore_scheme, so the
+    witchy scheme is no longer the default when that one decides whether it is still in use."""
+    result = copy.deepcopy(data)
+    warnings: list[str] = []
+    if not record:
+        return result, warnings  # installed before the purge existed
+    if record.get("schemes"):
+        schemes = result.setdefault("schemes", [])
+        if not isinstance(schemes, list):
+            warnings.append("schemes in Windows Terminal settings is not a list; the purged schemes were not "
+                            "given back.")
+        else:
+            given: list[dict] = []
+            for item in sorted(record["schemes"], key=lambda item: item["index"]):
+                name = item["value"].get("name")
+                present = [scheme for scheme in schemes if isinstance(scheme, dict) and scheme.get("name") == name
+                           and not any(scheme is mine for mine in given)]
+                if item["value"] in present:
+                    continue  # already given back
+                if present:
+                    warnings.append(f"The Windows Terminal scheme {name!r} was added again after install; "
+                                    "leaving it as it is.")
+                    continue
+                scheme = copy.deepcopy(item["value"])
+                schemes.insert(min(item["index"], len(schemes)), scheme)
+                given.append(scheme)
+    defaults_record = record.get("defaults")
+    defaults = _defaults(result)
+    if defaults_record and defaults is not None and snapshot(defaults, "colorScheme") != defaults_record["previous"]:
+        if defaults.get("colorScheme") == defaults_record["installed"]:
+            put_back(defaults, "colorScheme", defaults_record["previous"])
+        else:
+            warnings.append("The Windows Terminal default colour scheme was changed after install; "
+                            "leaving it as it is.")
+    for guid, previous in (record.get("profiles") or {}).items():
+        profile = _profile(result, guid)
+        if profile is None or snapshot(profile, "colorScheme") == previous:
+            continue  # the profile was deleted, or this one was already given back
+        if "colorScheme" in profile:
+            warnings.append(f"The colour scheme of Windows Terminal profile {profile.get('name', guid)!r} was "
+                            "changed after install; leaving it as it is.")
+            continue
+        put_back(profile, "colorScheme", previous)
+    return result, warnings
+
+
+def kept_uses(data: Any, name: str) -> list[str]:
+    """The profiles without a GUID that name the scheme ``name``: the purge leaves them, and keeps the definition."""
+    return [f"profile {profile['name']!r}" if isinstance(profile.get("name"), str) else "a profile without a name"
+            for profile in _profiles(data) or []
+            if _guidless(profile) and _names(profile.get("colorScheme"), (name,))]
+
+
+def purged_uses(data: Any, name: str) -> list[str]:
+    """Where settings.json still defines or uses the scheme ``name`` that the purge would take it out of:
+    "schemes" (unless a profile without a GUID keeps it), "profiles.defaults", profiles with a GUID."""
+    places = []
+    schemes = data.get("schemes") if isinstance(data, dict) else None
+    if isinstance(schemes, list) and any(isinstance(s, dict) and s.get("name") == name for s in schemes) \
+            and not kept_uses(data, name):
+        places.append("schemes")
+    defaults = _defaults(data)
+    if defaults is not None and _names(defaults.get("colorScheme"), (name,)):
+        places.append("profiles.defaults")
+    places += [f"profile {profile.get('name', profile.get('guid'))!r}" for profile in _profiles(data) or []
+               if isinstance(profile, dict) and not _guidless(profile)
+               and _names(profile.get("colorScheme"), (name,))]
+    return places
 
 
 def manual_snippet(scheme: dict, guid: str) -> str:

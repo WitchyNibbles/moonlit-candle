@@ -1,5 +1,6 @@
 import fcntl
 import io
+import os
 import json
 import subprocess
 import tempfile
@@ -255,6 +256,109 @@ class InstallRunnerTest(RunnerTestCase):
 
 
 
+class Replanning(Fake):
+    """A component whose first plan asks to be planned again right before it applies."""
+
+    def plan(self, ctx, entry):
+        self.log.append(("plan", self.name))
+        if not any(step == ("apply", "a") for step in self.log):
+            return Plan(replan=True, actions=["b: decided later"])
+        return Plan(notes=["b planned after a"])
+
+
+class ReplanTest(RunnerTestCase):
+    def test_a_plan_can_ask_to_be_made_again_after_earlier_components_applied(self):
+        ctx = self.ctx()
+        self.assertEqual(runner.install(ctx, [Fake("a", self.log), Replanning("b", self.log)]), 0)
+        self.assertEqual(self.log, [("plan", "a"), ("plan", "b"), ("apply", "a"), ("plan", "b"), ("apply", "b")])
+        self.assertIn("b planned after a", self.out.getvalue())
+        self.assertEqual((ctx.planned["b"].replan, ctx.planned["b"].notes), (False, ["b planned after a"]))
+
+    def test_a_second_plan_that_fails_fails_only_that_component(self):
+        class Failing(Fake):
+            def plan(self, ctx, entry):
+                self.log.append(("plan", self.name))
+                if ("apply", "a") in self.log:
+                    raise ComponentFailed("fish did not answer")
+                return Plan(replan=True)
+
+        code = runner.install(self.ctx(), [Fake("a", self.log), Failing("b", self.log)])
+        self.assertEqual(code, 2)
+        self.assertEqual(self.state()["last_install"]["results"], {"a": "ok", "b": "failed: fish did not answer"})
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertIn("1/2 components installed · failed: b (fish did not answer)", self.out.getvalue())
+        self.assertIn("  b: failed: fish did not answer", self.out.getvalue())
+        self.assertNotIn(("apply", "b"), self.log)
+
+    def test_the_second_plan_reads_files_an_earlier_component_changed(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Fresh(Fake):
+            def plan(self, ctx, entry):
+                self.log.append(("plan", self.name))
+                return Plan(changes=[Change(target, target.read_bytes(), b'{"x": 1}')],
+                            replan=("apply", "a") not in self.log)
+
+        def sky_job(ctx):
+            target.write_text('{"sky": 3}', encoding="utf-8")
+
+        code = runner.install(self.ctx(), [Fake("a", self.log, on_apply=sky_job), Fresh("b", self.log)])
+        self.assertEqual(code, 0, self.out.getvalue())
+        self.assertEqual(self.state()["last_install"]["results"], {"a": "ok", "b": "ok"})
+
+    def test_a_file_changed_after_the_second_plan_is_caught_under_its_lock(self):
+        target = self.root / "settings.json"
+        target.write_text("{}", encoding="utf-8")
+
+        class Raced(Fake):
+            def plan(self, ctx, entry):
+                self.log.append(("plan", self.name))
+                if ("apply", "a") not in self.log:
+                    return Plan(replan=True)
+                plan = Plan(lock=ctx.home / "wt.lock", changes=[Change(target, target.read_bytes(), b'{"x": 1}')])
+                target.write_text('{"sky": 3}', encoding="utf-8")  # another writer, before b applies
+                return plan
+
+        code = runner.install(self.ctx(), [Fake("a", self.log), Raced("b", self.log)])
+        self.assertEqual(code, 2)
+        self.assertTrue(self.state()["last_install"]["results"]["b"].startswith("failed: "))
+        self.assertIn("changed while planning", self.state()["last_install"]["results"]["b"])
+        self.assertEqual(target.read_text(encoding="utf-8"), '{"sky": 3}')
+        self.assertNotIn(("apply", "b"), self.log)
+
+    def test_a_dry_run_shows_the_first_plan(self):
+        self.assertEqual(runner.install(self.ctx(dry_run=True), [Fake("a", self.log), Replanning("b", self.log)]), 0)
+        self.assertEqual(self.log, [("plan", "a"), ("plan", "b")])
+        self.assertIn("b: decided later", self.out.getvalue())
+
+
+class BannerTest(RunnerTestCase):
+    def test_a_skipped_or_failed_component_gets_the_banner_after_the_summary(self):
+        code = runner.install(self.ctx(), [Fake("a", self.log), Fake("b", self.log, skip="Tide not found"),
+                                           Fake("c", self.log, fail=True)])
+        self.assertEqual(code, 2)
+        lines = self.out.getvalue().splitlines()
+        start = lines.index("1/3 components installed · skipped: b (Tide not found) · failed: c (boom)")
+        self.assertEqual(lines[start + 1:start + 5], ["✗✗✗ witchy is NOT fully installed ✗✗✗",
+                                                      "  b: skipped: Tide not found",
+                                                      "  c: failed: boom",
+                                                      "Fix the lines above, then run: python3 -m witchy install"])
+
+    def test_any_result_that_is_not_ok_gets_the_banner(self):
+        class Partial(Fake):
+            def plan(self, ctx, entry):
+                return Plan(outcome="partly: Tide variables not set")
+
+        self.assertEqual(runner.install(self.ctx(), [Partial("a", self.log)]), 2)
+        self.assertIn("✗✗✗ witchy is NOT fully installed ✗✗✗\n  a: partly: Tide variables not set\n",
+                      self.out.getvalue())
+
+    def test_a_clean_run_has_no_banner(self):
+        self.assertEqual(runner.install(self.ctx(), [Fake("a", self.log)]), 0)
+        self.assertNotIn("NOT fully installed", self.out.getvalue())
+
+
 class UninstallRunnerTest(RunnerTestCase):
     def test_uninstall_runs_in_reverse_order_and_removes_state(self):
         a, b = Fake("a", self.log), Fake("b", self.log)
@@ -347,6 +451,45 @@ class RestoreCommandsTest(RunnerTestCase):
         self.assertEqual(runner.uninstall(self.ctx(run=self.runs(error=missing)), [a]), 2)
         self.assertTrue(self.target.exists())
         self.assertIn("could not restore 2 Tide variables", self.out.getvalue())
+
+    def moving(self, ctx):
+        """A command that removes the target, then a move of a link back into its place."""
+        self.aside.symlink_to(self.root / "dotfiles.fish")
+        return Plan(commands=[Command(("fish", "-c", "restore"), "remove the target")],
+                    moves=[(self.aside, self.target)])
+
+    def test_a_move_runs_after_the_commands_and_keeps_a_link_a_link(self):
+        self.aside = self.target.with_name("cli.py.bak")
+
+        def run(args, **kwargs):
+            self.target.unlink()
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        a = Restoring("a", self.log, self.moving)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=run), [a]), 0, self.out.getvalue())
+        self.assertEqual(os.readlink(self.target), str(self.root / "dotfiles.fish"))
+        self.assertFalse(self.aside.is_symlink())
+        self.assertIn(f"moved {self.aside} to {self.target}", self.out.getvalue())
+
+    def test_a_move_whose_place_is_taken_keeps_the_component(self):
+        self.aside = self.target.with_name("cli.py.bak")
+        a = Restoring("a", self.log, self.moving)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(run=self.runs()), [a]), 2)
+        self.assertEqual(self.target.read_bytes(), b"ours")
+        self.assertTrue(self.aside.is_symlink())
+        self.assertEqual(self.state()["components"], {"a": {"installed": "a"}})
+        self.assertIn(f"a: {self.target} is taken, so {self.aside} was not moved back; run uninstall again.",
+                      self.out.getvalue())
+
+    def test_dry_run_lists_a_move_and_moves_nothing(self):
+        self.aside = self.target.with_name("cli.py.bak")
+        a = Restoring("a", self.log, self.moving)
+        runner.install(self.ctx(), [a])
+        self.assertEqual(runner.uninstall(self.ctx(dry_run=True, run=self.runs()), [a]), 0)
+        self.assertIn(f"a: move {self.aside} to {self.target}", self.out.getvalue())
+        self.assertTrue(self.aside.is_symlink())
 
     def test_dry_run_lists_the_commands_and_runs_nothing(self):
         a = Restoring("a", self.log, self.plan)
@@ -462,6 +605,12 @@ class DoctorTest(RunnerTestCase):
         self.assertEqual(runner.doctor(self.ctx(), [CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])]), 0)
         self.assertIn("✓ a", self.out.getvalue())
 
+    def test_an_info_line_is_never_a_problem(self):
+        self.write_state({"a": {}})
+        info = CheckingFake("a", self.log, checks=[Check("info", "a", "glyph test: 🧹", "never shown")])
+        self.assertEqual(runner.doctor(self.ctx(), [info]), 0)
+        self.assertEqual(self.out.getvalue(), "· a                 glyph test: 🧹\n")
+
     def test_raising_check_is_reported_not_crashed(self):
         self.write_state({"a": {}})
         self.assertEqual(runner.doctor(self.ctx(), [CheckingFake("a", self.log, raises=KeyError("path"))]), 1)
@@ -480,6 +629,73 @@ class DoctorTest(RunnerTestCase):
                         last_install={"at": "20261002-120000", "results": {"a": "skipped: offline"}}))
         runner.doctor(self.ctx(), [CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])])
         self.assertIn("last install (20261002-120000): skipped: offline", self.out.getvalue())
+
+
+class Drifting(Fake):
+    """A component whose check fails with ``fix`` until it is applied again; ``heals`` False keeps it failing."""
+
+    def __init__(self, name, log, fix=None, heals=True):
+        super().__init__(name, log)
+        self.fix, self.heals, self.applied = fix, heals, False
+
+    def apply(self, ctx, plan):
+        self.applied = self.heals
+        return super().apply(ctx, plan)
+
+    def check(self, ctx, entry):
+        if self.applied:
+            return [Check("ok", self.name, "fine")]
+        return [Check("fail", self.name, "drifted", self.fix or f"python3 -m witchy install --only {self.name}")]
+
+
+class DoctorFixTest(RunnerTestCase):
+    def test_installs_only_what_a_witchy_command_fixes_then_checks_again(self):
+        self.write_state({"a": {}, "b": {}, "c": {}})
+        a, b, c = Fake("a", self.log), Drifting("b", self.log), Drifting("c", self.log)
+        self.assertEqual(runner.doctor(self.ctx(), [a, b, c], fix=True), 0, self.out.getvalue())
+        self.assertEqual(self.log, [("plan", "b"), ("plan", "c"), ("apply", "b"), ("apply", "c")])
+        output = self.out.getvalue()
+        self.assertIn("doctor --fix: python3 -m witchy install --only b --only c\n", output)
+        self.assertIn("doctor --fix: checking again\n✓ b                 fine\n✓ c                 fine\n", output)
+
+    def test_a_fix_another_component_carries_installs_that_component_in_order(self):
+        self.write_state({"tide": {}, "fish": {}})
+        tide, fish = Drifting("tide", self.log), Drifting("fish", self.log, fix="python3 -m witchy install --only tide")
+        runner.doctor(self.ctx(), [tide, fish], fix=True)
+        self.assertEqual(self.log, [("plan", "tide"), ("plan", "fish"), ("apply", "tide"), ("apply", "fish")])
+
+    def test_fixing_tide_sets_fish_up_again_when_fish_is_installed(self):
+        # A missing Tide: fish's prompt variables need Tide in place, and fish plans again once tide has run.
+        self.write_state({"tide": {}, "fish": {}})
+        tide, fish = Drifting("tide", self.log), CheckingFake("fish", self.log, checks=[Check("ok", "fish", "fine")])
+        self.assertEqual(runner.doctor(self.ctx(), [tide, fish], fix=True), 0, self.out.getvalue())
+        self.assertEqual(self.log, [("plan", "tide"), ("plan", "fish"), ("apply", "tide"), ("apply", "fish")])
+        self.assertIn("doctor --fix: python3 -m witchy install --only tide --only fish\n", self.out.getvalue())
+
+    def test_fixing_tide_leaves_a_fish_that_is_not_installed(self):
+        self.write_state({"tide": {}})
+        runner.doctor(self.ctx(), [Drifting("tide", self.log), Fake("fish", self.log)], fix=True)
+        self.assertEqual(self.log, [("plan", "tide"), ("apply", "tide")])
+
+    def test_a_fix_by_hand_is_printed_and_never_run(self):
+        self.write_state({"a": {}})
+        by_hand = Drifting("a", self.log, fix="remove that function")
+        self.assertEqual(runner.doctor(self.ctx(), [by_hand], fix=True), 1)
+        self.assertEqual(self.log, [])
+        self.assertIn("    fix: remove that function\ndoctor --fix: no witchy command fixes these; do the fixes "
+                      "above by hand.\n", self.out.getvalue())
+
+    def test_still_broken_after_the_install_exits_1(self):
+        self.write_state({"a": {}})
+        self.assertEqual(runner.doctor(self.ctx(), [Drifting("a", self.log, heals=False)], fix=True), 1)
+        self.assertEqual(self.log, [("plan", "a"), ("apply", "a")])
+
+    def test_nothing_failing_installs_nothing(self):
+        self.write_state({"a": {}})
+        fine = CheckingFake("a", self.log, checks=[Check("ok", "a", "fine")])
+        self.assertEqual(runner.doctor(self.ctx(), [fine], fix=True), 0)
+        self.assertEqual(self.log, [])
+        self.assertNotIn("doctor --fix", self.out.getvalue())
 
 
 class MoodTest(RunnerTestCase):

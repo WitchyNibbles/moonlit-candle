@@ -16,9 +16,9 @@ from ..errors import Abort, ComponentFailed
 
 __all__ = ["Abort", "ComponentFailed", "Change", "Command", "JsonPlan", "Plan", "Check", "Component", "sha", "read",
            "fix_command", "backup_checks", "check_unchanged", "show_changes", "apply_changes", "run_command",
-           "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock"]
+           "file_change", "file_record", "applied_records", "restore_copy", "restore_json", "file_lock", "tilde"]
 
-COMMAND_TIMEOUT = 5  # seconds for every fish call (spec 5.3)
+COMMAND_TIMEOUT = 5  # seconds, unless a command carries its own timeout (spec 5.3)
 
 
 def sha(data: bytes | None) -> str | None:
@@ -67,23 +67,29 @@ class Command:
     """A program to run: list arguments (never a shell string), optional standard input, and a label for messages.
 
     An ``exact`` command's input and output travel as UTF-8 bytes with surrogate escapes and no newline
-    translation, so every byte comes back as it was (a fish value can hold any byte but NUL).
+    translation, so every byte comes back as it was (a fish value can hold any byte but NUL). ``timeout`` is in
+    seconds; ``env`` is added to ``ctx.env``.
     """
 
     args: tuple[str, ...]
     label: str
     input: str | None = None
     exact: bool = False
+    timeout: float = COMMAND_TIMEOUT
+    env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class Plan:
     """What a component will do. ``skip`` set means it will do nothing, and says why. ``actions`` describe work that is not a file change (a download, a reg.exe call) for dry runs. ``lock`` is held while the plan is applied.
 
-    For a restore plan the runner runs ``commands`` before writing ``changes``, then removes each ``prune``
-    directory that is left empty. A skipped restore plan means the restore is blocked: nothing of the component
-    is touched and it stays installed. ``outcome`` replaces "ok" in the install results when a plan applied only
-    in part (for example "skipped: Tide not found").
+    For a restore plan the runner runs ``commands`` before writing ``changes``, then renames each ``moves`` (source,
+    target) pair with ``os.replace``, which keeps a symlink a symlink and a file its mode (the target must be free
+    by then), then removes each ``prune`` directory that is left empty. A skipped restore plan means the restore is
+    blocked: nothing of the component is touched and it stays installed. ``outcome`` replaces "ok" in the install
+    results when a plan applied only in part (for example "skipped: Tide not found"). ``replan`` makes the runner
+    plan the component again right before applying it, because an earlier component of the same run changes what it
+    finds.
     """
 
     changes: list[Change] = field(default_factory=list)
@@ -94,8 +100,10 @@ class Plan:
     lock: Path | None = None
     data: dict[str, Any] = field(default_factory=dict)
     commands: list[Command] = field(default_factory=list)
+    moves: list[tuple[Path, Path]] = field(default_factory=list)
     prune: list[Path] = field(default_factory=list)
     outcome: str | None = None
+    replan: bool = False
 
     @classmethod
     def skipped(cls, reason: str) -> Plan:
@@ -131,7 +139,8 @@ def file_lock(path: Path | None, timeout: float = 10.0) -> Iterator[None]:
 
 @dataclass(frozen=True)
 class Check:
-    """One doctor line. ``level`` is "ok", "warn" or "fail"; ``fix`` is a command to run."""
+    """One doctor line. ``level`` is "ok", "warn", "fail" or "info" (a line to read, never a problem); ``fix`` is a
+    command to run, or what to do by hand when no witchy command can do it."""
 
     level: str
     component: str
@@ -149,6 +158,14 @@ class Component(Protocol):
     def restore(self, ctx: Any, entry: dict) -> Plan: ...
 
     def check(self, ctx: Any, entry: dict) -> list[Check]: ...
+
+
+def tilde(ctx: Any, path: Path | str) -> str:
+    """``path`` with ~ for HOME, as messages about the user's own files show it."""
+    try:
+        return "~/" + Path(path).relative_to(ctx.home).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def fix_command(name: str) -> str:
@@ -222,7 +239,7 @@ def apply_changes(ctx: Any, changes: list[Change], backups: dict[Path, Path] | N
 
 
 def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.CompletedProcess:
-    """Run ``command`` through ``ctx.run`` with ``ctx.env`` and a timeout.
+    """Run ``command`` through ``ctx.run`` with ``ctx.env`` and the command's timeout.
 
     A command that cannot start or times out raises ComponentFailed (the cause is kept, so a caller can tell a
     missing program from a slow one); a non-zero exit raises it too unless ``check`` is false.
@@ -233,10 +250,10 @@ def run_command(ctx: Any, command: Command, check: bool = True) -> subprocess.Co
     else:
         data, text = command.input, {"text": True, "errors": "replace"}
     try:
-        done = ctx.run(list(command.args), input=data, capture_output=True, timeout=COMMAND_TIMEOUT,
-                       env=dict(ctx.env), **text)
+        done = ctx.run(list(command.args), input=data, capture_output=True, timeout=command.timeout,
+                       env={**ctx.env, **command.env}, **text)
     except subprocess.TimeoutExpired as exc:  # its text would hold the whole argument list
-        raise ComponentFailed(f"could not {command.label} (timed out after {COMMAND_TIMEOUT} s)") from exc
+        raise ComponentFailed(f"could not {command.label} (timed out after {command.timeout:g} s)") from exc
     except OSError as exc:
         raise ComponentFailed(f"could not {command.label} ({exc.strerror or type(exc).__name__})") from exc
     except (ValueError, subprocess.SubprocessError) as exc:

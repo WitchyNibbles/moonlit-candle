@@ -1,0 +1,27 @@
+name: network
+
+# The real download path: fisher's bootstrap file and the fisher and Tide releases from GitHub, checked against
+# content/pins.json, installed into a throwaway HOME (spec 12, D24). Pushes run only the offline suite (tests.yml).
+on:
+  schedule:
+    - cron: "17 6 * * 1"  # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install fish
+        run: sudo apt-get update && sudo apt-get install -y fish
+      - name: Bootstrap the real fisher and Tide
+        env:
+          WITCHY_NETWORK_TESTS: "1"
+        run: python -m unittest tests.test_tide_network -v

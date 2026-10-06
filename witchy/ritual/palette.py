@@ -1,4 +1,5 @@
-"""The greeting's colours. build.py rewrites the PALETTE block from the active variant."""
+"""The greeting's colours and glyphs. build.py rewrites the PALETTE block from the active variant and the GLYPHS
+block from the shared glyph table (spec 7)."""
 from __future__ import annotations
 
 # BEGIN PALETTE
@@ -25,3 +26,22 @@ PALETTE = {
     "yule": "#E6DCEE",
 }
 # END PALETTE
+
+# BEGIN GLYPHS
+GLYPHS = {
+    "candle": "🕯️",
+    "scroll": "📜",
+    "branch": "🌿",
+    "dirty": "✦",
+    "separator": "⋆",
+    "cwd": "🧹",
+    "home": "🔮",
+    "unwritable": "🪦",
+    "ok": "🧪",
+    "fail": "💀",
+    "duration": "🔥",
+    "jobs": "🐈",
+    "time": "🦉",
+    "caret": "❯",
+}
+# END GLYPHS

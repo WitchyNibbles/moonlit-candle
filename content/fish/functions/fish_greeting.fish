@@ -2,7 +2,7 @@
 function fish_greeting --description 'Moonlit Candle greeting'
     status is-interactive; or return
     set -q WT_SESSION; or return
-    for name in TMUX CLAUDECODE WITCHY_RITUAL_SHOWN
+    for name in TMUX CLAUDECODE WITCHY_RITUAL_SHOWN WITCHY_DOCTOR
         set -q $name; and return
     end
     test "$TERM_PROGRAM" = vscode; and return

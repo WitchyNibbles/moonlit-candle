@@ -17,7 +17,7 @@ Extend Moonlit Candle from Claude Code to the whole terminal, and make it feel a
 - A witchy `ll`/`lt` through eza.
 - `witchy doctor` to see at a glance what is installed and what broke.
 
-**Success:** after `python3 -m witchy install` and a Windows Terminal restart, a new Ubuntu tab matches sections 4–7, `python3 -m witchy doctor` shows no `✗`, and `python3 -m witchy uninstall` gives back the pink Tide prompt, the previous profile settings and the default greeting, leaving only the Maple Mono font files installed.
+**Success:** after `python3 -m witchy install` and a Windows Terminal restart, a new Ubuntu tab matches sections 4–7, `python3 -m witchy doctor` shows no `✗`, and `python3 -m witchy uninstall` gives back the prompt that was there before install, the previous profile settings and the default greeting, leaving only the Maple Mono font files installed.
 
 ## 2. Scope
 
@@ -33,7 +33,7 @@ In:
 
 Out:
 
-- Installing fish, fisher, Tide or eza. Missing tools are skipped with a warning; doctor prints the install command.
+- Installing eza without `install --fresh`. A missing eza is skipped with a warning; doctor prints the install command. (witchy installs fisher and Tide, and with `--fresh` fish and eza, since [the prompt takeover spec](2026-10-05-witchy-prompt-takeover-design.md), sections 5 and 15.1.)
 - Removing Maple Mono on uninstall.
 - The hidden duplicate `Windows.Terminal.Wsl` "Ubuntu" profile and Windows Terminal Preview.
 
@@ -218,11 +218,11 @@ The names are checked against Tide 6.1.1 during implementation; a test pins the 
 - Set with `set -U` (`-Ux` when the snapshot was exported) after the fish files exist.
 - If a `set -U` exits non-zero, stop; state records only the variables already set.
 - Uninstall restores a variable (or erases it with `set -e -U`) only if it still holds the installed value; otherwise it warns and leaves it. When a changed `tide_left_prompt_items` or `tide_right_prompt_items` still lists `moon`, the warning gives the command that removes it (`set -U <name> (string match -v moon $<name>)`), because the moon item's function goes with the files.
-- Every `fish` call uses list arguments and a 5 s timeout through the injectable `ctx.run`.
+- Every `fish` call uses list arguments and a 5 s timeout through the injectable `ctx.run` (doctor's read in a new interactive shell gets 15 s; prompt-takeover spec 9.1).
 - Running shells keep their old prompt; the summary says to open a new tab for the new prompt and greeting. Without Tide (or when fish does not answer) it names only the greeting; without fish it says nothing about a new tab.
 - `fish -c` runs the user's `config.fish` (0.4 s on this machine) and `--no-config` also turns off universal variables, so the calls are batched: one call reads Tide's presence and every variable, one call sets them all. Values travel on standard input as NUL-terminated fields, never in the script; the scripts print a `witchy-fish` marker first, so whatever `config.fish` prints is ignored. A global that `config.fish` sets is erased inside the reading call so the universal value shows.
 - When fish or Tide is missing, the files still install and the result is `skipped: fish not found` or `skipped: Tide not found`. When a file write fails part-way, the files already written stay recorded (with the variables recorded earlier), the Tide variables are not set, and the result is `failed: could not write the fish files (…)`; nothing is recorded when nothing was written. A failed set records the files and the variables already set, and the result is `failed: could not set <name>`. When fish does not finish (for example a timeout), every planned variable is recorded, because restore skips one that still holds its previous value, and the result is `failed: fish did not finish setting the Tide variables`.
-- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left and the files still go, with the warning `fish: fish not found, so Tide keeps witchy's colours and the moon item; to reset them, run tide configure in fish.`; when fish exists but does not answer, the component stays installed. When every recorded variable is gone (Tide was removed), uninstall gives one warning, `fish: Tide's variables are gone (was Tide removed?); nothing to restore.`, instead of one per variable.
+- Uninstall restores the variables before it removes the files. A variable that already holds its previous value is skipped silently (a retry after a partial restore). When fish no longer exists, the variables are left and the files still go, with the warning `fish: fish not found, so Tide keeps witchy's colours and the moon item; to reset them, run tide configure in fish.`; when fish exists but does not answer, the component stays installed. When every recorded variable is gone (Tide was removed), uninstall gives one warning, `fish: the Tide variables witchy set are gone (was Tide removed?), so those are not restored; fish_emoji_width and the tide_ variables witchy erased are given back.`, instead of one per variable.
 
 ## 6. Greeting (the ritual)
 
@@ -435,4 +435,4 @@ Strict component-first order, as chosen in the review:
 6. The greeting's median time is under 200 ms (`ritual --debug`, 10 runs).
 7. `python3 -m witchy doctor` shows no `✗`.
 8. A screenshot of criterion 3 is attached to the PR.
-9. `uninstall` brings back the pink 🌸 Tide prompt, the previous profile settings and the default greeting, and leaves Maple Mono installed; the user then reinstalls if they want.
+9. `uninstall` brings back the prompt that was there before install, the previous profile settings and the default greeting, and leaves Maple Mono installed; the user then reinstalls if they want.

@@ -2,7 +2,7 @@
 
 Claude Code pipes one JSON payload per render and shows the line printed here.
 This file is copied on its own to ~/.claude/witchy/, so it imports nothing from
-the witchy package; build.py rewrites the PALETTE block from palette.py. Like
+the witchy package; build.py rewrites the PALETTE and GLYPHS blocks from palette.py. Like
 the archon status line it replaces, it is a sensor, never a gate: a missing or
 malformed field reads as a dash, and the script always exits 0.
 """
@@ -18,11 +18,6 @@ from typing import Any, Optional, TextIO
 
 MAX_INPUT_BYTES = 1_048_576
 DASH = "--"
-CANDLE = "🕯️"
-SCROLL = "📜"
-BRANCH = "⎇"
-DIRTY = "✦"
-SEPARATOR = "⋆"
 # Inclusive upper bound of the rounded context percentage, and the moon shown up to it.
 MOONS = ((12, "🌑"), (37, "🌒"), (62, "🌓"), (87, "🌔"), (100, "🌕"))
 BRANCH_MAX = 28
@@ -44,6 +39,25 @@ PALETTE = {
     "left_low": "#FF67B7",
 }
 # END PALETTE
+
+# BEGIN GLYPHS
+GLYPHS = {
+    "candle": "🕯️",
+    "scroll": "📜",
+    "branch": "🌿",
+    "dirty": "✦",
+    "separator": "⋆",
+    "cwd": "🧹",
+    "home": "🔮",
+    "unwritable": "🪦",
+    "ok": "🧪",
+    "fail": "💀",
+    "duration": "🔥",
+    "jobs": "🐈",
+    "time": "🦉",
+    "caret": "❯",
+}
+# END GLYPHS
 
 RESET = "\x1b[0m"
 BOLD = "\x1b[1m"
@@ -85,7 +99,7 @@ def _model(payload: Any) -> str:
     name = re.sub(r"\s*\(.*\)\s*$", "", name).strip() if isinstance(name, str) else ""
     level = _get(payload, "effort", "level")
     effort = _paint(f"·{level}", "muted") if isinstance(level, str) and level else ""
-    return _paint(f"{CANDLE} {name or DASH}", "model", bold=True) + effort
+    return _paint(f"{GLYPHS['candle']} {name or DASH}", "model", bold=True) + effort
 
 
 def _context(payload: Any) -> str:
@@ -144,8 +158,9 @@ def _repo(payload: Any) -> Optional[str]:
     if status is None:
         return None
     dirty = sum(1 for line in status.splitlines() if line.strip())
-    segment = _paint(f"{SCROLL} {os.path.basename(top)}", "repo") + " " + _paint(f"{BRANCH} {branch}", "branch")
-    return segment + (_paint(f"{DIRTY}{dirty}", "dirty") if dirty else "")
+    segment = (_paint(f"{GLYPHS['scroll']} {os.path.basename(top)}", "repo") + " "
+               + _paint(f"{GLYPHS['branch']} {branch}", "branch"))
+    return segment + (_paint(f"{GLYPHS['dirty']}{dirty}", "dirty") if dirty else "")
 
 
 def render(payload: Any) -> str:
@@ -154,7 +169,7 @@ def render(payload: Any) -> str:
     repo = _repo(payload)
     if repo:
         parts.append(repo)
-    return " " + _paint(f" {SEPARATOR} ", "divider").join(parts) + " "
+    return " " + _paint(f" {GLYPHS['separator']} ", "divider").join(parts) + " "
 
 
 def _utf8(stream: Optional[TextIO]) -> Optional[TextIO]:

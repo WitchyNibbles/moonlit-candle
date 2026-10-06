@@ -109,23 +109,23 @@ class GitSegmentTest(unittest.TestCase):
         return plain(statusline.render(payload or {"workspace": {"current_dir": str(self.repo)}}))
 
     def test_clean_repo(self):
-        self.assertTrue(self.line().endswith(" ⋆ 📜 spellbook ⎇ main "), self.line())
+        self.assertTrue(self.line().endswith(" ⋆ 📜 spellbook 🌿 main "), self.line())
 
     def test_dirty_repo_counts_changes(self):
         (self.repo / "a.txt").write_text("changed")
         (self.repo / "b.txt").write_text("new")
-        self.assertTrue(self.line().endswith("⎇ main✦2 "), self.line())
+        self.assertTrue(self.line().endswith("🌿 main✦2 "), self.line())
 
     def test_long_branch_is_cut_to_28(self):
         name = "feature/INC-98560-notificacion-juzgado"
         git(self.repo, "checkout", "-b", name)
-        self.assertTrue(self.line().endswith(f"⎇ {name[:27]}… "), self.line())
+        self.assertTrue(self.line().endswith(f"🌿 {name[:27]}… "), self.line())
 
     def test_detached_head_shows_the_short_hash(self):
         git(self.repo, "checkout", "--detach")
         short = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.repo,
                                capture_output=True, text=True, check=True).stdout.strip()
-        self.assertTrue(self.line().endswith(f"⎇ {short} "), self.line())
+        self.assertTrue(self.line().endswith(f"🌿 {short} "), self.line())
 
     def test_subdirectory_shows_the_repo_root_name(self):
         deep = self.repo / "deep"
@@ -138,10 +138,13 @@ class GitSegmentTest(unittest.TestCase):
     def test_missing_directory_hides_git(self):
         self.assertNotIn("📜", self.line({"workspace": {"current_dir": "/nonexistent/witchy"}}))
 
+    def test_the_branch_glyph_is_the_herb(self):
+        self.assertIn("📜 spellbook 🌿 main", self.line())
+
     def test_git_segment_colours(self):
         out = statusline.render({"workspace": {"current_dir": str(self.repo)}})
         self.assertIn(fg(P["repo"]) + "📜 spellbook", out)
-        self.assertIn(fg(P["branch"]) + "⎇ main", out)
+        self.assertIn(fg(P["branch"]) + "🌿 main", out)
 
     def assert_git_segment_hidden(self, *failing_args, result=None):
         """Make one git call fail (None) or come back empty inside a real repo; the segment must vanish."""
@@ -154,7 +157,7 @@ class GitSegmentTest(unittest.TestCase):
         with mock.patch.object(statusline, "_git", side_effect=fake):
             line = plain(statusline.render(payload))
         self.assertNotIn("📜", line)
-        self.assertNotIn("⎇", line)
+        self.assertNotIn("🌿", line)
         self.assertTrue(line.endswith(" ⋆ 7d 88% "), line)
 
     def test_branch_lookup_failure_hides_git(self):

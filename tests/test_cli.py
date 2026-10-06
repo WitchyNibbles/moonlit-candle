@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from witchy import build
+from witchy import build, components
 from witchy.__main__ import main
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,6 +66,26 @@ class CliTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
             main(["install", "--only", "nope"])
         self.assertEqual(raised.exception.code, 2)
+
+    def test_only_accepts_tide_as_the_fixes_name_it(self):
+        seen = []
+        with mock.patch("witchy.runner.install", side_effect=lambda ctx: seen.append(ctx.only) or 0):
+            self.assertEqual(main(["install", "--only", "tide", "--only", "fish"]), 0)
+        self.assertEqual(seen, [("tide", "fish")])
+
+    def test_doctor_fix_reaches_the_runner(self):
+        seen = []
+        with mock.patch("witchy.runner.doctor", side_effect=lambda ctx, fix: seen.append(fix) or 0):
+            self.assertEqual(main(["doctor", "--fix"]), 0)
+            self.assertEqual(main(["doctor"]), 0)
+        self.assertEqual(seen, [True, False])
+
+    def test_the_readme_names_every_component_in_order_and_every_flag(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("Components, in install order: " + ", ".join(f"`{name}`" for name in components.NAMES) + ".",
+                      readme)
+        for usage in ("install --dry-run", "install --only claude", "install --fresh", "doctor --fix"):
+            self.assertIn(f"/usr/bin/python3 -m witchy {usage} ", readme)
 
     def test_doctor_and_mood_run_on_an_empty_home(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"HOME": tmp}), \

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import unicodedata
 
-# Emoji we print, drawn two cells wide. 🕯 is narrow in Unicode but terminals draw it wide with its VS16.
-WIDE = frozenset("🌑🌒🌓🌔🌕🌖🌗🌘🕯")
+# Emoji we print, drawn two cells wide: the moon phases and every emoji of the glyph table (validate.py checks
+# the table). 🕯 is narrow in Unicode but terminals draw it wide with its VS16.
+WIDE = frozenset("🌑🌒🌓🌔🌕🌖🌗🌘🕯📜🌿🧹🔮🪦🧪💀🔥🐈🦉")
 ZERO_WIDTH = frozenset("️‍")
 GAP = 3
 ELLIPSIS = "…"

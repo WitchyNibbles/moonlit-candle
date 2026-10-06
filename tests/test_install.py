@@ -147,6 +147,19 @@ class InstallTest(InstallTestCase):
         self.assertEqual(self.snapshot(), before)
         self.assertFalse((self.claude / "witchy").exists())
 
+    def test_this_pcs_pastel_one_dark_is_purged_and_uninstall_gives_back_every_byte(self):
+        data = json.loads(json.dumps(WT_ORIGINAL))
+        data["profiles"]["defaults"]["colorScheme"] = "PastelOneDark"
+        for profile in data["profiles"]["list"][:2]:
+            profile["colorScheme"] = "PastelOneDark"
+        data["schemes"] = [{"name": "PastelOneDark", "background": "#282C34", "foreground": "#F5C6E0"}]
+        self.wt.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        before = self.snapshot()
+        self.assertEqual(install.install(self.ctx()), 0)
+        self.assertNotIn("PastelOneDark", self.wt.read_text(encoding="utf-8"))
+        self.assertEqual(install.uninstall(self.ctx(stamp="20260930-130000")), 0)
+        self.assertEqual(self.snapshot(), before)
+
     def test_install_twice_is_idempotent(self):
         install.install(self.ctx())
         after_first = self.snapshot_without_state()
@@ -445,7 +458,7 @@ class InstallTest(InstallTestCase):
         mine = self.home / ".config" / "fish" / "functions" / "ll.fish"
         mine.parent.mkdir(parents=True)
         mine.write_text("function ll; ls -lh $argv; end\n", encoding="utf-8")
-        variables = {"tide_pwd_bg_color": {"value": ["FFB7C5"], "exported": False},
+        variables = {"tide_pwd_bg_color": {"value": ["3465A4"], "exported": False},
                      "tide_time_color": {"value": ["5F8787"], "exported": True}}
         original = json.loads(json.dumps(variables))
         before = self.snapshot()

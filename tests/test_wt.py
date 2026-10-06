@@ -184,6 +184,155 @@ class ApplyRestoreTest(unittest.TestCase):
         self.assertIn('"colorScheme": "Moonlit Candle"', snippet)
 
 
+CMD = "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}"
+PASTEL = {"name": "PastelOneDark", "background": "#282C34", "foreground": "#F5C6E0"}
+CAMPBELL = {"name": "Campbell", "background": "#0C0C0C", "foreground": "#CCCCCC"}
+
+
+def pastel_settings():
+    """This PC before the purge: PastelOneDark is the default scheme, set on PowerShell and cmd, and defined."""
+    data = settings()
+    data["profiles"]["defaults"] = {"colorScheme": "PastelOneDark", "font": {"face": "Cascadia Mono"}}
+    for profile in data["profiles"]["list"][:2]:
+        profile["colorScheme"] = "PastelOneDark"
+    data["schemes"] = [copy.deepcopy(PASTEL), copy.deepcopy(CAMPBELL)]
+    return data
+
+
+def installed(data, recorded=None):
+    """apply_scheme, then the purge, as the component does."""
+    result, record = wt.apply_scheme(data, palette.WT_SCHEME, UBUNTU, recorded)
+    result, record["purged"] = wt.purge_schemes(result, palette.PURGED_SCHEMES, palette.THEME_NAME,
+                                                (recorded or {}).get("purged"))
+    return result, record
+
+
+def uninstalled(data, record):
+    """restore_purged, then restore_scheme, as the component does."""
+    result, warnings = wt.restore_purged(data, record["purged"])
+    result, more = wt.restore_scheme(result, record)
+    return result, warnings + more
+
+
+class PurgeTest(unittest.TestCase):
+    def test_the_default_profiles_and_definition_lose_the_purged_scheme(self):
+        result, record = installed(pastel_settings())
+        self.assertEqual(result["profiles"]["defaults"], {"colorScheme": "Moonlit Candle",
+                                                          "font": {"face": "Cascadia Mono"}})
+        profiles = {p["guid"]: p for p in result["profiles"]["list"]}
+        self.assertNotIn("colorScheme", profiles[POWERSHELL])
+        self.assertNotIn("colorScheme", profiles[CMD])
+        self.assertEqual(result["schemes"], [CAMPBELL, palette.WT_SCHEME])
+        self.assertEqual(record["purged"], {
+            "defaults": {"previous": {"value": "PastelOneDark"}, "installed": "Moonlit Candle"},
+            "profiles": {POWERSHELL: {"value": "PastelOneDark"}, CMD: {"value": "PastelOneDark"}},
+            "schemes": [{"index": 0, "value": PASTEL}],
+        })
+        self.assertEqual([wt.purged_uses(result, name) for name in palette.PURGED_SCHEMES], [[]])
+
+    def test_uninstall_gives_every_value_back_in_place(self):
+        original = pastel_settings()
+        restored, warnings = uninstalled(*installed(original))
+        self.assertEqual((restored, warnings), (original, []))
+        self.assertEqual(list(restored["profiles"]["list"][0]), ["guid", "name", "colorScheme"])
+
+    def test_a_light_and_dark_pair_that_names_a_purged_scheme_is_purged_whole(self):
+        data = pastel_settings()
+        data["profiles"]["list"][0]["colorScheme"] = {"light": "Campbell", "dark": "PastelOneDark"}
+        result, record = installed(data)
+        self.assertNotIn("colorScheme", wt.profile(result, POWERSHELL))
+        self.assertEqual(record["purged"]["profiles"][POWERSHELL],
+                         {"value": {"light": "Campbell", "dark": "PastelOneDark"}})
+        self.assertEqual(uninstalled(result, record), (data, []))
+
+    def test_settings_without_the_purged_scheme_record_nothing(self):
+        result, record = installed(settings())
+        self.assertEqual(record["purged"], {"defaults": None, "profiles": {}, "schemes": []})
+        self.assertEqual(result["profiles"]["defaults"], {})
+        self.assertEqual(uninstalled(result, record), (settings(), []))
+
+    def test_a_reinstall_keeps_the_first_record(self):
+        first_data, first = installed(pastel_settings())
+        again = copy.deepcopy(first_data)
+        again["profiles"]["defaults"]["colorScheme"] = "PastelOneDark"  # put back by hand, then reinstalled
+        again["schemes"].append({"name": "PastelOneDark", "background": "#000000"})
+        second_data, second = installed(again, first)
+        self.assertEqual(second["purged"], first["purged"])
+        self.assertEqual(second_data, first_data)
+
+    def test_a_reinstall_records_a_profile_that_took_the_scheme_since(self):
+        first_data, first = installed(pastel_settings())
+        again = copy.deepcopy(first_data)
+        wt.profile(again, UBUNTU)["colorScheme"] = "Moonlit Candle"
+        again["profiles"]["list"].append({"guid": "{22222222-2222-2222-2222-222222222222}", "name": "Azure",
+                                          "colorScheme": "PastelOneDark"})
+        _, second = installed(again, first)
+        self.assertEqual(second["purged"]["profiles"]["{22222222-2222-2222-2222-222222222222}"],
+                         {"value": "PastelOneDark"})
+        self.assertEqual(second["purged"]["profiles"][POWERSHELL], {"value": "PastelOneDark"})
+
+    def test_uninstall_leaves_what_the_user_changed_since(self):
+        result, record = installed(pastel_settings())
+        result["profiles"]["defaults"]["colorScheme"] = "Campbell"
+        wt.profile(result, POWERSHELL)["colorScheme"] = "Campbell"
+        result["schemes"].insert(0, {"name": "PastelOneDark", "background": "#111111"})
+        restored, warnings = uninstalled(result, record)
+        self.assertEqual(restored["profiles"]["defaults"]["colorScheme"], "Campbell")
+        self.assertEqual(wt.profile(restored, POWERSHELL)["colorScheme"], "Campbell")
+        self.assertEqual(wt.profile(restored, CMD)["colorScheme"], "PastelOneDark")
+        self.assertEqual(restored["schemes"][0], {"name": "PastelOneDark", "background": "#111111"})
+        self.assertEqual(len(warnings), 3)
+        self.assertTrue(all("after install" in warning for warning in warnings), warnings)
+
+    def test_uninstall_twice_is_silent_and_a_deleted_profile_is_skipped(self):
+        original = pastel_settings()
+        result, record = installed(original)
+        once, _ = uninstalled(result, record)
+        self.assertEqual(wt.restore_purged(once, record["purged"]), (original, []))
+        result["profiles"]["list"] = [p for p in result["profiles"]["list"] if p["guid"] != CMD]
+        restored, warnings = uninstalled(result, record)
+        self.assertEqual((len(restored["profiles"]["list"]), warnings), (2, []))
+
+    def test_uninstall_puts_back_a_schemes_list_the_user_deleted(self):
+        result, record = installed(pastel_settings())
+        del result["schemes"]
+        restored, _ = wt.restore_purged(result, record["purged"])
+        self.assertEqual(restored["schemes"], [PASTEL])
+
+    def test_an_entry_from_before_the_purge_restores_as_before(self):
+        result, _ = installed(pastel_settings())
+        self.assertEqual(wt.restore_purged(result, None), (result, []))
+
+    def test_the_witchy_scheme_is_never_purged(self):
+        self.assertNotIn(palette.WT_SCHEME["name"], palette.PURGED_SCHEMES)
+
+    def test_a_profile_without_a_guid_keeps_the_definition_it_names(self):
+        # Such a profile could not be found again on uninstall, so it keeps its colorScheme; deleting the definition
+        # would leave it naming a scheme Windows Terminal cannot find.
+        data = pastel_settings()
+        data["profiles"]["list"].append({"name": "Dev", "colorScheme": "PastelOneDark"})
+        result, record = installed(data)
+        self.assertEqual(result["profiles"]["list"][-1], {"name": "Dev", "colorScheme": "PastelOneDark"})
+        self.assertEqual(result["schemes"], [PASTEL, CAMPBELL, palette.WT_SCHEME])
+        self.assertEqual(record["purged"]["schemes"], [])
+        self.assertEqual(wt.purged_uses(result, "PastelOneDark"), [])
+        self.assertEqual(wt.kept_uses(result, "PastelOneDark"), ["profile 'Dev'"])
+        self.assertEqual(uninstalled(result, record), (data, []))
+
+    def test_purged_uses_names_every_place(self):
+        data = pastel_settings()
+        self.assertEqual(wt.purged_uses(data, "PastelOneDark"),
+                         ["schemes", "profiles.defaults", "profile 'Windows PowerShell'",
+                          "profile 'Símbolo del sistema'"])
+        self.assertEqual(wt.purged_uses(data, "Campbell"), ["schemes"])
+        self.assertEqual(wt.purged_uses({"profiles": "odd", "schemes": {}}, "PastelOneDark"), [])
+        self.assertEqual(wt.kept_uses(data, "PastelOneDark"), [])
+        data["profiles"]["list"].append({"colorScheme": {"dark": "PastelOneDark"}})
+        self.assertEqual(wt.purged_uses(data, "PastelOneDark"),
+                         ["profiles.defaults", "profile 'Windows PowerShell'", "profile 'Símbolo del sistema'"])
+        self.assertEqual(wt.kept_uses(data, "PastelOneDark"), ["a profile without a name"])
+
+
 
 CANONICAL = "{51855cb2-8cce-5362-8f54-464b92b32386}"
 HIDDEN = "{2c4de342-38b7-51cf-b940-2309a097f518}"
