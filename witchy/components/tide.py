@@ -434,19 +434,30 @@ class TideComponent:
         removes_tide = False
         if found is not None:
             tide_name = installed_name(found, fishprobe.TIDE_PLUGIN)
+            # Only witchy's own Tide and fisher are taken out; one the user put in since stays.
+            theirs = tide_name is not None and tide_name.lower() != TIDE_SOURCE
             previous = entry["previous_tide_plugin"]
             if previous and (tide_name or "").lower() != previous.lower():
-                commands.append(swap_command(f"put back {previous} in place of Tide {fishprobe.TIDE_VERSION}",
-                                             tide_name or "", previous))
+                if theirs:
+                    warnings.append(f"tide: Tide is now {tide_name}, which witchy did not install; it stays "
+                                    f"({previous}, the Tide before witchy, is not put back).")
+                else:
+                    commands.append(swap_command(f"put back {previous} in place of Tide {fishprobe.TIDE_VERSION}",
+                                                 tide_name or "", previous))
             elif not previous and entry["installed_tide"] and tide_name:
-                # A plain remove: no Tide was there before, so Tide's uninstall takes its variables with it (D13).
-                commands.append(fisher_command(f"remove Tide ({tide_name})", "remove", tide_name))
-                removes_tide = True
+                if theirs:
+                    warnings.append(f"tide: Tide is now {tide_name}, which witchy did not install; it stays.")
+                else:
+                    # A plain remove: no Tide was there before, so Tide's uninstall takes its variables with it (D13).
+                    commands.append(fisher_command(f"remove Tide ({tide_name})", "remove", tide_name))
+                    removes_tide = True
             for plugin in entry["removed_plugins"]:
                 if installed_name(found, plugin.lower().split("@", 1)[0]) is None:
                     commands.append(fisher_command(f"put back {plugin}", "install", plugin))
             fisher_name = installed_name(found, fishprobe.FISHER_PLUGIN)
-            if entry["installed_fisher"] and fisher_name:
+            if entry["installed_fisher"] and fisher_name and fisher_name.lower() != FISHER_SOURCE:
+                warnings.append(f"tide: fisher is now {fisher_name}, which witchy did not install; it stays.")
+            elif entry["installed_fisher"] and fisher_name:
                 commands.append(fisher_command(f"remove fisher ({fisher_name})", "remove", fisher_name))
         moves = self._prompt_back(ctx, entry.get("moved_prompt"), found, removes_tide, warnings)
         return Plan(changes=changes, commands=commands, warnings=warnings, moves=moves)

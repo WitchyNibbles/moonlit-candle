@@ -859,6 +859,43 @@ class UninstallTest(TideTestCase):
         self.assertEqual(self.uninstall(), 0, self.out.getvalue())
         self.assertEqual(self.fisher_calls(), [])
 
+    def renamed(self, old, new):
+        """The user put in another fisher or Tide after the install (fisher lists it under ``new``)."""
+        self.fake.plugins[new] = self.fake.plugins.pop(old)
+
+    def test_a_tide_the_user_put_in_later_is_left_with_a_warning(self):
+        self.fisher()
+        self.install()
+        self.renamed("ilancosman/tide@v6.1.1", "ilancosman/tide")
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "jorgebucaran/fisher@4.4.5")])
+        self.assertIn("ilancosman/tide", self.fake.plugins)
+        self.assertIn("tide: Tide is now ilancosman/tide, which witchy did not install; it stays.",
+                      self.out.getvalue())
+
+    def test_a_fisher_the_user_put_in_later_is_left_with_a_warning(self):
+        self.fisher()
+        self.install()
+        self.renamed("jorgebucaran/fisher@4.4.5", "jorgebucaran/fisher")
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("fisher", "remove", "ilancosman/tide@v6.1.1")])
+        self.assertIn("jorgebucaran/fisher", self.fake.plugins)
+        self.assertIn("tide: fisher is now jorgebucaran/fisher, which witchy did not install; it stays.",
+                      self.out.getvalue())
+
+    def test_a_tide_the_user_put_in_after_a_replacement_is_left_too(self):
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE},
+                    served={**RELEASES, "ilancosman/tide": OLD_TIDE})
+        self.install()
+        self.renamed("ilancosman/tide@v6.1.1", "ilancosman/tide@main")
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [])
+        self.assertIn("tide: Tide is now ilancosman/tide@main, which witchy did not install; it stays (ilancosman/tide, "
+                      "the Tide before witchy, is not put back).", self.out.getvalue())
+
     def test_without_fish_the_lines_still_come_back(self):
         config = self.write("config.fish", b"starship init fish | source\n")
         self.fisher({"jorgebucaran/fisher": FISHER})
