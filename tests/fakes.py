@@ -335,3 +335,102 @@ class FakeFisher:
         if not text:
             out, err = out.encode("utf-8"), err.encode("utf-8")
         return subprocess.CompletedProcess(args, code, stdout=out, stderr=err)
+
+
+# A stand-in for fisher 4.4.5 for real fish: it installs a plugin from $WITCHY_FAKE_PLUGINS/<escaped name> instead
+# of downloading it, and otherwise keeps fisher's records the way fisher does (_fisher_plugins, and each plugin's
+# files in _fisher_<escaped name>_files with ~ for HOME), refuses a file that is already there, sources what it
+# installs and emits the conf.d install and uninstall events.
+FAKE_FISHER_FISH = r"""function fisher --argument-names cmd
+    switch "$cmd"
+        case -v --version
+            echo "fisher, version 4.4.5"
+        case install remove
+            set -l code 1
+            for plugin in (string lower -- $argv[2..])
+                set -l var _fisher_(string escape --style=var -- $plugin)_files
+                set -l targets (string replace -- \~ ~ $$var)
+                if test $cmd = remove
+                    if not contains -- $plugin $_fisher_plugins
+                        echo "fisher: Plugin not installed: \"$plugin\"" >&2
+                        continue
+                    end
+                    for name in (string replace --filter --regex -- '.+/conf\.d/([^/]+)\.fish$' '$1' $targets)
+                        emit {$name}_uninstall
+                    end
+                    command rm -rf $targets
+                    functions --erase (string replace --filter --regex -- '.+/functions/([^/]+)\.fish$' '$1' $targets)
+                    set -e -U _fisher_plugins[(contains --index -- $plugin $_fisher_plugins)]
+                    set -e -U $var
+                    set code 0
+                    continue
+                end
+                set -l source $WITCHY_FAKE_PLUGINS/(string escape --style=var -- $plugin)
+                if not test -d $source
+                    echo "fisher: Invalid plugin name or host unavailable: \"$plugin\"" >&2
+                    continue
+                end
+                set -l files $source/{functions,themes,conf.d,completions}/*
+                set targets (string replace -- $source $__fish_config_dir $files)
+                if not contains -- $plugin $_fisher_plugins
+                    set -l conflicts
+                    for target in $targets
+                        test -e $target; and set -a conflicts $target
+                    end
+                    if set -q conflicts[1]
+                        echo "fisher: Cannot install \"$plugin\": please remove or move conflicting files first:" >&2
+                        printf '        %s\n' $conflicts >&2
+                        continue
+                    end
+                end
+                command mkdir -p $__fish_config_dir/{functions,themes,conf.d,completions}
+                for file in $files
+                    command cp -RLf $file (string replace -- $source $__fish_config_dir $file)
+                end
+                set -U $var (string replace -- ~ \~ $targets)
+                contains -- $plugin $_fisher_plugins; or set -U -a _fisher_plugins $plugin
+                for file in (string match --regex -- '.+/[^/]+\.fish$' $targets)
+                    source $file
+                    if set -l name (string replace --regex -- '.+conf\.d/([^/]+)\.fish$' '$1' $file)
+                        emit {$name}_install
+                    end
+                end
+                set code 0
+            end
+            return $code
+    end
+end
+"""
+# A stand-in for a Tide release: the version, a prompt, a nested folder (as functions/tide/ is), and Tide's own
+# install and uninstall handlers, which set two of its variables and erase every universal tide_ variable.
+FAKE_TIDE_INIT = """\
+function _tide_init_install --on-event _tide_init_install
+    set -U tide_pwd_icon lean
+    set -U tide_character_icon '❯'
+end
+function _tide_init_uninstall --on-event _tide_init_uninstall
+    set -e -U (set -U --names | string match --entire -r '^_?tide')
+end
+"""
+
+
+def fake_tide_tree(version="6.1.1"):
+    return {"functions/tide.fish": f"function tide\n    echo 'tide, version {version}'\nend\n".encode(),
+            "functions/fish_prompt.fish": b"function fish_prompt\n    echo 'tide> '\nend\n",
+            "functions/_tide_remove_unusable_items.fish": b"function _tide_remove_unusable_items\nend\n",
+            "functions/tide/configure/icons.fish": b"tide_pwd_icon x\n",
+            "conf.d/_tide_init.fish": FAKE_TIDE_INIT.encode()}
+
+
+def serve_plugins(folder, releases, env):
+    """Write each release (``owner/repo@ref`` -> files) where FAKE_FISHER_FISH looks for it, under ``folder``.
+
+    ``env`` is the temporary HOME's environment: fish names the folders.
+    """
+    names = subprocess.run([shutil.which("fish"), "-c", "string escape --style=var -- $argv", "--", *releases],
+                           capture_output=True, text=True, check=True, timeout=20, env=env).stdout.split()
+    for escaped, files in zip(names, releases.values()):
+        for relative, data in files.items():
+            path = Path(folder) / escaped / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
