@@ -264,12 +264,17 @@ class TideComponent:
         elif data["tide"] is not None:
             self._run(ctx, fisher_command("install Tide", "install", TIDE_SOURCE))
         if data["tide"] is not None:
+            # Fresh: no Tide was there before witchy, so a mismatch removes it with its variables (D13).
+            fresh = data["tide"] == "install" and not entry["previous_tide_plugin"]
             try:
                 found = self._verify(ctx, fishprobe.TIDE_PLUGIN, TIDE_SOURCE, "Tide",
-                                     data["replace"] if data["tide"] == "replace" else None)
+                                     data["replace"] if data["tide"] == "replace" else None, fresh)
             except ComponentFailed as exc:
                 if getattr(exc, "restored", False):
                     entry["previous_tide_plugin"] = earlier.get("previous_tide_plugin")  # it is back in place
+                elif data["tide"] == "update" and not entry["installed_tide"]:
+                    # The user's Tide was (or may be) removed: uninstall puts it back.
+                    entry["previous_tide_plugin"] = entry["previous_tide_plugin"] or TIDE_SOURCE
                 raise
             entry["installed_tide"] = entry["installed_tide"] or data["tide"] == "install"
             reason = fishprobe.tide_ready(found)
@@ -360,11 +365,13 @@ class TideComponent:
         if files != self._pinned(source):
             raise ComponentFailed(f"{plugin} release does not match the pinned files")
 
-    def _verify(self, ctx: Any, plugin: str, source: str, what: str, restore: str | None = None) -> fishprobe.Probe:
+    def _verify(self, ctx: Any, plugin: str, source: str, what: str, restore: str | None = None,
+                fresh: bool = False) -> fishprobe.Probe:
         """After a fisher install: the plugin is there, at the pinned version, file by file (spec D21).
 
-        A mismatch takes the plugin out again; a Tide that replaced ``restore`` is swapped back to it with the Tide
-        variables kept."""
+        A mismatch takes the plugin out again: fisher and a ``fresh`` Tide with a plain ``fisher remove`` (a fresh
+        Tide's uninstall takes its own variables with it, D13); any other Tide through the swap, which keeps the Tide
+        variables and puts back ``restore``, the Tide it replaced."""
         found = fishprobe.probe(ctx)
         version = found.fisher if plugin == fishprobe.FISHER_PLUGIN else found.tide
         wanted = FISHER_VERSION if plugin == fishprobe.FISHER_PLUGIN else fishprobe.TIDE_VERSION
@@ -372,11 +379,11 @@ class TideComponent:
         if name is None or version is None:
             raise ComponentFailed(f"{what} is still not installed (details: {installlog.shown(ctx)})")
         if version != wanted or mismatches(found, plugin, self._pinned(source)):
-            if restore:
-                self._run(ctx, swap_command(f"remove {name} and install {restore} again", name, restore))
-            else:
-                # A plain remove: a fresh Tide's uninstall takes its own variables with it (D13).
+            if plugin == fishprobe.FISHER_PLUGIN or fresh:
                 self._run(ctx, fisher_command(f"remove {name}", "remove", name))
+            else:
+                self._run(ctx, swap_command(f"remove {name}" + (f" and install {restore} again" if restore else ""),
+                                            name, restore or ""))
             error = ComponentFailed(f"{plugin} files do not match the pinned release")
             error.restored = restore is not None
             raise error

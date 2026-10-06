@@ -73,6 +73,10 @@ class TideTestCase(unittest.TestCase):
     def entry(self):
         return self.state()["components"]["tide"]
 
+    def tampered_tide(self, **more):
+        bad = {**TIDE_FILES, "functions/tide.fish": b"function tide\n    echo 'tide, version 6.1.1'; evil\nend\n"}
+        return {**RELEASES, "ilancosman/tide@v6.1.1": bad, **more}
+
     def result(self):
         return self.state()["last_install"]["results"]["tide"]
 
@@ -212,10 +216,6 @@ class BootstrapTest(TideTestCase):
         self.assertEqual(self.install(), 2)
         self.assertEqual(self.variables, {})  # no Tide was there before, so none of its variables stays
 
-    def tampered_tide(self, **more):
-        bad = {**TIDE_FILES, "functions/tide.fish": b"function tide\n    echo 'tide, version 6.1.1'; evil\nend\n"}
-        return {**RELEASES, "ilancosman/tide@v6.1.1": bad, **more}
-
     def test_a_replacement_that_does_not_match_puts_the_previous_tide_back(self):
         self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
         self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide": OLD_TIDE},
@@ -228,6 +228,18 @@ class BootstrapTest(TideTestCase):
         self.assertEqual((self.config / "functions" / "tide.fish").read_bytes(), OLD_TIDE["functions/tide.fish"])
         self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
         self.assertNotIn("tide", self.state()["components"])  # nothing changed, so nothing is recorded
+
+    def test_an_updated_tide_that_does_not_match_is_removed_with_its_variables_and_recorded(self):
+        self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide@v6.1.1": TIDE_FILES}, served=self.tampered_tide())
+        (self.config / "functions" / "tide" / "configure" / "icons.fish").write_bytes(b"edited\n")
+        self.assertEqual(self.install(), 2)
+        self.assertEqual(self.result(), "failed: ilancosman/tide files do not match the pinned release")
+        self.assertEqual(self.fisher_calls(), [("fisher", "install", "ilancosman/tide@v6.1.1"),
+                                               ("swap", "ilancosman/tide@v6.1.1", "")])
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.assertEqual(self.entry()["previous_tide_plugin"], "ilancosman/tide@v6.1.1")  # uninstall puts it back
+        self.assertFalse(self.entry()["installed_tide"])
 
     def test_fisher_that_does_not_match_after_the_bootstrap_is_removed_again(self):
         bad = {**RELEASES["jorgebucaran/fisher@4.4.5"], "completions/fisher.fish": b"evil\n"}
@@ -636,6 +648,38 @@ class UninstallTest(TideTestCase):
         self.assertEqual(self.uninstall(), 0, self.out.getvalue())
         self.assertEqual(self.fisher_calls(), [("swap", "ilancosman/tide@v6.1.1", "ilancosman/tide")])
         self.assertEqual(sorted(self.fake.plugins), ["ilancosman/tide", "jorgebucaran/fisher"])
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+
+    def failed_update(self):
+        """An install whose update of the user's Tide 6.1.1 did not match the pins, so that Tide was removed."""
+        self.variables.update({"tide_pwd_icon": {"value": ["x"], "exported": False}})
+        self.fisher({"jorgebucaran/fisher": FISHER, "ilancosman/tide@v6.1.1": TIDE_FILES}, served=self.tampered_tide())
+        (self.config / "functions" / "tide" / "configure" / "icons.fish").write_bytes(b"edited\n")
+        self.assertEqual(self.install(), 2)
+        self.fake.calls.clear()
+
+    def test_a_tide_removed_after_a_failed_update_is_put_back_with_its_variables(self):
+        self.failed_update()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [("swap", "", "ilancosman/tide@v6.1.1")])
+        self.assertIn("ilancosman/tide@v6.1.1", self.fake.plugins)
+        self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
+
+    def test_a_tide_removed_after_a_failed_update_that_is_back_already_is_left(self):
+        self.failed_update()
+        self.fake.run(["fish", "-c", tide.FISHER_SCRIPT, "--", "install", "ilancosman/tide@v6.1.1"])
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [])
+
+    def test_a_retried_install_after_a_failed_update_keeps_the_users_tide_on_uninstall(self):
+        self.failed_update()
+        self.fake.served["ilancosman/tide@v6.1.1"] = TIDE_FILES
+        self.assertEqual(self.install(self.ctx(stamp="20261005-121000")), 0, self.out.getvalue())
+        self.fake.calls.clear()
+        self.assertEqual(self.uninstall(), 0, self.out.getvalue())
+        self.assertEqual(self.fisher_calls(), [])
+        self.assertIn("ilancosman/tide@v6.1.1", self.fake.plugins)
         self.assertEqual(self.variables, {"tide_pwd_icon": {"value": ["x"], "exported": False}})
 
     def test_puts_back_a_removed_prompt_plugin_after_tide_is_gone(self):
