@@ -86,6 +86,8 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by what fix
 | `tide: failed: could not install Tide (exit 1): … (details: ~/.cache/witchy/install.log)` (install) | fisher could not download or install Tide | read the log, check the network, install again |
 | `⚠ fish  cannot check the Tide variables: …` or `⚠ tide  cannot check fisher and Tide: …` | `fish` is not on PATH, or did not answer within 5 s | put `fish` on PATH (`install --fresh` installs it), or run doctor again |
 | `⚠ fish  sky: the sky job failed today (it retries tomorrow)` | the sky job failed today and logged no error from today | `tail -n 20 ~/.cache/witchy/ritual.log` |
+| `⚠ fish  caret: gold (the caret cache was written on …, not today)` | the daily job did not refresh `~/.cache/witchy/caret`, so the prompt caret stays gold | `tail -n 20 ~/.cache/witchy/ritual.log`; a new tab retries |
+| `⚠ fish  caret: gold (no caret cache yet; a new tab writes it)` | no shell has started the daily job since install | open a new tab, then run doctor again |
 | `⚠ fish  eza missing — sudo apt install eza` | `ll` and `lt` fall back to `ls` | `sudo apt install eza` |
 | `⚠ fish  greeting: last run failed …` | the greeting hit an error in the last 7 days and printed nothing | `tail -n 20 ~/.cache/witchy/ritual.log`; `ritual` shows the greeting |
 | `⚠ fish  sky: last run failed …` | the sky job could not move the moon (for example, you set your own `backgroundImage`); it retries once a day | `python3 -m witchy install --only windows-terminal` puts the moon sky back |

@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from tests.fakes import fake_tide
@@ -94,6 +95,19 @@ class RealFishRoundTripTest(unittest.TestCase):
         self.assertIn("✗ fish              tide_pwd_bg_color is overridden by a global in config.fish or conf.d", output)
         self.assertIn("✗ fish              tide_time_color is overridden by a global in config.fish or conf.d", output)
         self.assertNotIn("hello from config.fish", output)
+
+    def test_doctor_accepts_the_caret_global_only_while_it_holds_todays_colour(self):
+        self.assertEqual(runner.install(self.ctx("20261003-120000")), 0, self.out.getvalue())
+        cache = self.home / ".cache" / "witchy"
+        cache.mkdir(parents=True)
+        (cache / "caret").write_text(f"{date.today().isoformat()} FFB86B samhain\n", encoding="utf-8")
+        runner.doctor(self.ctx("20261003-130000"), [fish.FishComponent()])
+        self.assertIn("· fish              caret: samhain FFB86B (today's cache)", self.out.getvalue())
+        self.assertNotIn("tide_character_color is overridden", self.out.getvalue())
+        with (self.config / "config.fish").open("a", encoding="utf-8") as config:
+            config.write("set -g tide_character_color 123456\n")
+        runner.doctor(self.ctx("20261003-140000"), [fish.FishComponent()])
+        self.assertIn("✗ fish              tide_character_color is overridden by a global", self.out.getvalue())
 
     def test_snapshot_reads_values_with_spaces_and_empty_lists(self):
         self.fish("set -U tide_a 'two words' ''; set -U tide_b; set -Ux tide_c x; set -U _tide_private x")

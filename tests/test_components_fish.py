@@ -759,6 +759,86 @@ class DoctorTest(FishTestCase):
         self.assertIn("greeting: last run failed today at 09:14", self.out.getvalue())
 
 
+class CaretDoctorTest(FishTestCase):
+    """doctor's caret line and the caret global (prompt takeover spec 15.3)."""
+
+    NOW = datetime(2026, 10, 31, 21, 0)
+    SAMHAIN = "2026-10-31 FFB86B samhain\n2026-11-01\n"
+
+    def setUp(self):
+        super().setUp()
+        runner.install(self.ctx())
+
+    def doctor(self, run=None):
+        ctx = self.ctx(run=run)
+        ctx.now = lambda: self.NOW
+        code = runner.doctor(ctx, [fish.FishComponent()])
+        return code, self.out.getvalue()
+
+    def write_caret(self, text):
+        path = self.home / ".cache" / "witchy" / "caret"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_a_sabbat_shows_its_colour(self):
+        self.write_caret(self.SAMHAIN)
+        self.assertIn("· fish              caret: samhain FFB86B (today's cache)\n", self.doctor()[1])
+
+    def test_an_ordinary_day_is_gold(self):
+        self.write_caret("2026-10-31\n2026-11-01\n")
+        self.assertIn("· fish              caret: gold\n", self.doctor()[1])
+
+    def test_yesterdays_cache_still_holds_a_line_for_today(self):
+        self.write_caret("2026-10-30 FFB86B samhain\n2026-10-31 FFB86B samhain\n")
+        self.assertIn("· fish              caret: samhain FFB86B (today's cache)\n", self.doctor()[1])
+
+    def test_a_stale_cache_is_a_warning_with_the_log(self):
+        self.write_caret("2026-10-28\n2026-10-29\n")
+        code, output = self.doctor()
+        self.assertEqual(code, 0)
+        log = self.home / ".cache" / "witchy" / "ritual.log"
+        self.assertIn("⚠ fish              caret: gold (the caret cache was written on 2026-10-28, not today)\n"
+                      f"    fix: tail -n 20 {log}\n", output)
+
+    def test_a_damaged_or_missing_cache_is_a_warning(self):
+        self.write_caret("FFB86B\n")
+        self.assertIn("⚠ fish              caret: gold (the caret cache is damaged)\n", self.doctor()[1])
+        (self.home / ".cache" / "witchy" / "caret").unlink()
+        output = self.doctor()[1]
+        self.assertIn("⚠ fish              caret: gold (no caret cache yet; a new tab writes it)\n", output)
+        self.assertNotIn("caret cache yet; a new tab writes it)\n    fix", output)
+
+    def test_the_caret_global_is_accepted_only_with_todays_colour(self):
+        run = fake_fish(self.variables, globals={"tide_character_color": ["FFB86B"]})
+        self.write_caret(self.SAMHAIN)
+        code, output = self.doctor(run=run)
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("overridden", output)
+        for text in ("2026-10-31\n2026-11-01\n", "2026-10-30 FFB86B samhain\n", "2026-10-31 FFD477 litha\n"):
+            with self.subTest(text=text):
+                self.write_caret(text)
+                code, output = self.doctor(run=run)
+                self.assertEqual(code, 1)
+                self.assertIn("✗ fish              tide_character_color is overridden by a global in config.fish "
+                              "or conf.d\n", output)
+
+    def test_only_the_caret_colour_is_accepted(self):
+        self.write_caret(self.SAMHAIN)
+        for hidden in ({"tide_character_color": ["FFB86B", "FFB86B"]}, {"tide_character_color_failure": ["FFB86B"]}):
+            with self.subTest(hidden=hidden):
+                code, output = self.doctor(run=fake_fish(self.variables, globals=hidden))
+                self.assertEqual(code, 1)
+                self.assertIn(f"✗ fish              {next(iter(hidden))} is overridden", output)
+
+    def test_an_aware_now_uses_the_local_day(self):
+        self.write_caret(self.SAMHAIN)
+        local = self.NOW.astimezone()  # 21:00 on the 31st in this machine's zone
+        ctx = self.ctx()
+        ctx.now = lambda: local.astimezone(timezone.utc)
+        runner.doctor(ctx, [fish.FishComponent()])
+        self.assertIn("caret: samhain FFB86B (today's cache)", self.out.getvalue())
+
+
 @unittest.skipUnless(FISH, "fish is not installed")
 class RealFishBytesTest(unittest.TestCase):
     """Real fish with a temporary HOME and config folder, never the user's own."""

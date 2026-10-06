@@ -4,12 +4,12 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .. import build, fishprobe, palette
-from ..ritual import log, sky
+from ..ritual import caret, log, sky
 from .base import (Check, Command, ComponentFailed, Plan, applied_records, apply_changes, backup_checks,
                    file_change, file_record, fix_command, read, restore_copy, run_command, sha)
 from .claude import python_for
@@ -27,6 +27,7 @@ SHELL_TIMEOUT = 15  # seconds for doctor's new interactive shell, which runs the
 PROMPT_ITEMS = ("tide_left_prompt_items", "tide_right_prompt_items")
 NOT_READY = "skipped: Tide not ready (run: python3 -m witchy install --only tide)"
 LOG_LINE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d) (greeting|sky): (.*)$")
+CARET = "tide_character_color"  # conf.d/witchy.fish sets it as a global on a sabbat and its eve (spec 15.3)
 
 # Prints the sentinel, then the universal value of each name asked for and of every other universal tide_
 # variable (Tide's private _tide_ ones are not listed): the name, "absent" or "exported"/"unexported", the
@@ -216,6 +217,39 @@ def _when(stamp: datetime, now: datetime) -> str:
 
 def _short(message: str) -> str:
     return message if len(message) <= MESSAGE_MAX else message[:MESSAGE_MAX - 1] + "…"
+
+
+def _today(ctx: Any) -> date:
+    """The local day, as fish's `date +%F` and the sky job see it."""
+    now = ctx.now()
+    return (now.astimezone() if now.tzinfo is not None else now).date()
+
+
+def _todays_caret(ctx: Any) -> str | None:
+    """The colour today's line of the caret cache holds, or None (gold, or no usable cache)."""
+    try:
+        found = caret.read(ctx.cache_dir / caret.NAME).get(_today(ctx).isoformat())
+    except OSError:
+        return None
+    return found[1] if found else None
+
+
+def caret_check(ctx: Any) -> Check:
+    """doctor's caret line (spec 15.3): today's colour from the cache, or gold, as a line to read; a warning when
+    the cache holds no line for today, since then every new shell shows gold."""
+    path = ctx.cache_dir / caret.NAME
+    try:
+        days = caret.read(path)
+    except OSError:
+        return Check("warn", "fish", "caret: gold (no caret cache yet; a new tab writes it)")
+    today = _today(ctx).isoformat()
+    if today not in days:
+        written = next(iter(days), None)
+        why = f"was written on {written}, not today" if written else "is damaged"
+        return Check("warn", "fish", f"caret: gold (the caret cache {why})",
+                     f"tail -n {log.MAX_LINES} {shlex.quote(str(ctx.cache_dir / log.NAME))}")
+    found = days[today]
+    return Check("info", "fish", f"caret: {found[0]} {found[1]} (today's cache)" if found else "caret: gold")
 
 
 def log_checks(ctx: Any) -> list[Check]:
@@ -417,6 +451,10 @@ class FishComponent:
         strays = sorted(current.keys() - wanted.keys())
         if strays:
             checks.append(Check("fail", self.name, "not Tide 6.1.1 variables: " + ", ".join(strays), fix))
+        # conf.d/witchy.fish's own caret global holds today's colour from the cache; any other global is not ours.
+        caret_colour = _todays_caret(ctx)
+        if caret_colour is not None and hidden.get(CARET) == [caret_colour]:
+            del hidden[CARET]
         # The tide component disables `set -g tide_…` lines in config.fish and conf.d.
         checks += [Check("fail", self.name, f"{name} is overridden by a global in config.fish or conf.d",
                          fix_command("tide")) for name in sorted(hidden)]
@@ -429,6 +467,7 @@ class FishComponent:
         checks = [Check("fail", self.name, "changed or missing: " + ", ".join(changed), fix) if changed
                   else Check("ok", self.name, f"{len(entry['files'])} files match")]
         checks += self._prompt_checks(ctx)
+        checks.append(caret_check(ctx))
         if shutil.which("eza", path=ctx.env.get("PATH")):
             checks.append(Check("ok", self.name, "eza found"))
         else:
