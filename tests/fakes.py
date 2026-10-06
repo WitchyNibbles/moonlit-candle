@@ -1,5 +1,6 @@
-"""Stand-ins for the Windows side, so no test runs cmd.exe or reg.exe."""
+"""Stand-ins for the Windows side and for fish, so no test runs cmd.exe or reg.exe or needs a real Tide."""
 import io
+import shutil
 import struct
 import subprocess
 import zipfile
@@ -96,8 +97,9 @@ def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="
                 fields += [name, str(len(files)), *files]
             return 0, fields
         if args[:3] == ["fish", "-c", fish.SNAPSHOT_SCRIPT] and args[3] == "--":
-            fields = ["tide" if tide else "no-tide"]
-            for name in args[4:]:
+            # The names asked for, then every other universal tide_ variable (never Tide's private _tide_ ones).
+            fields = []
+            for name in args[4:] + sorted(name for name in store if name.startswith("tide_") and name not in args[4:]):
                 if name in store:
                     value = store[name]
                     fields += [name, "exported" if value["exported"] else "unexported", str(len(value["value"])),
@@ -140,3 +142,20 @@ def fake_fish(variables=None, tide="6.1.1", fail_at=None, missing=False, noise="
             return subprocess.CompletedProcess(args, code, stdout=stdout, stderr="")
         return subprocess.CompletedProcess(args, code, stdout=stdout, stderr=b"")
     return run
+
+
+def fake_tide(fish_config, env):
+    """Make the real fish behind ``env`` see Tide 6.1.1 installed by fisher in the folder ``fish_config``.
+
+    It writes a ``tide`` function that reports version 6.1.1 and a stand-in for Tide's fish_prompt, and sets the
+    universal variables fisher keeps for an installed plugin. ``env`` must point HOME and XDG_CONFIG_HOME at
+    temporary folders.
+    """
+    functions = fish_config / "functions"
+    functions.mkdir(parents=True, exist_ok=True)
+    (functions / "tide.fish").write_text("function tide\n    echo 'tide, version 6.1.1'\nend\n", encoding="utf-8")
+    (functions / "fish_prompt.fish").write_text("function fish_prompt\n    echo '> '\nend\n", encoding="utf-8")
+    subprocess.run([shutil.which("fish"), "-c", "set -U _fisher_plugins ilancosman/tide; "
+                    "set -U _fisher_ilancosman_2F_tide_files $argv", "--",
+                    str(functions / "tide.fish"), str(functions / "fish_prompt.fish")],
+                   env=env, check=True, timeout=20, capture_output=True)
