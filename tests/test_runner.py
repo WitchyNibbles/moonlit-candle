@@ -662,6 +662,19 @@ class DoctorFixTest(RunnerTestCase):
         self.write_state({"tide": {}, "fish": {}})
         tide, fish = Drifting("tide", self.log), Drifting("fish", self.log, fix="python3 -m witchy install --only tide")
         runner.doctor(self.ctx(), [tide, fish], fix=True)
+        self.assertEqual(self.log, [("plan", "tide"), ("plan", "fish"), ("apply", "tide"), ("apply", "fish")])
+
+    def test_fixing_tide_sets_fish_up_again_when_fish_is_installed(self):
+        # A missing Tide: fish's prompt variables need Tide in place, and fish plans again once tide has run.
+        self.write_state({"tide": {}, "fish": {}})
+        tide, fish = Drifting("tide", self.log), CheckingFake("fish", self.log, checks=[Check("ok", "fish", "fine")])
+        self.assertEqual(runner.doctor(self.ctx(), [tide, fish], fix=True), 0, self.out.getvalue())
+        self.assertEqual(self.log, [("plan", "tide"), ("plan", "fish"), ("apply", "tide"), ("apply", "fish")])
+        self.assertIn("doctor --fix: python3 -m witchy install --only tide --only fish\n", self.out.getvalue())
+
+    def test_fixing_tide_leaves_a_fish_that_is_not_installed(self):
+        self.write_state({"tide": {}})
+        runner.doctor(self.ctx(), [Drifting("tide", self.log), Fake("fish", self.log)], fix=True)
         self.assertEqual(self.log, [("plan", "tide"), ("apply", "tide")])
 
     def test_a_fix_by_hand_is_printed_and_never_run(self):

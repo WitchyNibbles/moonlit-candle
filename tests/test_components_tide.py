@@ -1143,6 +1143,17 @@ class FreshPcTest(TideTestCase):
         self.assertIn("doctor --fix: python3 -m witchy install --only fish\n", self.out.getvalue())
         self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
 
+    def test_doctor_fix_after_tide_was_removed_ends_clean_in_one_run(self):
+        self.fisher()
+        self.run_install()
+        self.fake.fisher("remove", ["ilancosman/tide@v6.1.1"])  # takes every tide_ variable with it
+        ctx = self.ctx(stamp="20261005-130000")
+        ctx.python = "/usr/bin/python3"
+        self.assertEqual(runner.doctor(ctx, [tide.TideComponent(fake_pins()), fish.FishComponent()], fix=True), 0,
+                         self.out.getvalue())
+        self.assertIn("doctor --fix: python3 -m witchy install --only tide --only fish\n", self.out.getvalue())
+        self.assertEqual(self.variables["tide_pwd_icon"]["value"], ["🧹"])
+
     def test_a_ready_tide_lets_fish_plan_once(self):
         self.fisher(PINNED)
         self.assertEqual(self.run_install(), 0, self.out.getvalue())

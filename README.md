@@ -56,7 +56,7 @@ The sky job runs in the background when a tab opens and moves the Windows Termin
 
 ## Troubleshooting
 
-Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by what fixes it. `doctor --fix` re-installs every component that a `✗` line's fix names (`python3 -m witchy install --only <component>`, even when the `✗` is on another component's line), then checks again (exit 0 when no `✗` is left); `⚠` lines and fixes you do by hand are only printed. A `·` line is information, never a problem.
+Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by what fixes it. `doctor --fix` re-installs every component that a `✗` line's fix names (`python3 -m witchy install --only <component>`, even when the `✗` is on another component's line; fixing `tide` also re-installs `fish` when it is installed, so a missing Tide gets its prompt variables back in the same run), then checks again (exit 0 when no `✗` is left); `⚠` lines and fixes you do by hand are only printed. A `·` line is information, never a problem.
 
 | Doctor says | Meaning | Fix |
 | :- | :- | :- |

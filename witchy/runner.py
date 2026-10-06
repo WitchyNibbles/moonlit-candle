@@ -273,8 +273,11 @@ def doctor(ctx: Any, components: Sequence[Component] | None = None, fix: bool = 
     if not fix or not failed or checks is None:
         return 1 if failed else 0
     # Only fixes that are witchy commands run; the others (sudo apt, editing config.fish) stay printed above.
-    fixable = [component.name for component in _components(components)
-               if any(check.level == "fail" and check.fix == fix_command(component.name) for check in checks)]
+    names = {component.name for component in _components(components)
+             if any(check.level == "fail" and check.fix == fix_command(component.name) for check in checks)}
+    if "tide" in names and "fish" in _installed(ctx):
+        names.add("fish")  # fish sets Tide's variables; it plans again once tide has installed Tide
+    fixable = [component.name for component in _components(components) if component.name in names]
     if not fixable:
         ctx.say("doctor --fix: no witchy command fixes these; do the fixes above by hand.")
         return 1
@@ -284,6 +287,14 @@ def doctor(ctx: Any, components: Sequence[Component] | None = None, fix: bool = 
     ctx.say("doctor --fix: checking again")
     checks = _doctor(ctx, components)
     return 1 if checks is None or any(check.level == "fail" for check in checks) else 0
+
+
+def _installed(ctx: Any) -> dict:
+    """The components state.json records (none when it cannot be read)."""
+    try:
+        return (statefile.load(ctx.state_path) or {}).get("components", {})
+    except Abort:
+        return {}
 
 
 def _doctor(ctx: Any, components: Sequence[Component] | None) -> list[Check] | None:

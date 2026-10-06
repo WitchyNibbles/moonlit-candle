@@ -349,6 +349,7 @@ The lines fill the terminal's width, today's moon phase and time included. The f
 
 1. Runs doctor as usual.
 2. Collects the components with a ✗ whose fix is `python3 -m witchy install --only <component>`.
+   When `tide` is among them and `fish` is installed (it has a state entry), `fish` is added too: it sets Tide's variables and plans again once `tide` has run, so one `--fix` repairs a missing Tide.
 3. Runs `install --only <those, in component order>`, then doctor again.
 4. Fixes that are not witchy commands (`sudo apt …`, removing a `function fish_prompt` block, a symlinked file) are printed, never run.
 
