@@ -1,4 +1,7 @@
-"""Guard: no tracked file carries a real person's account name in a path, nor this machine's own login."""
+"""Guard: no tracked file carries a real person's account name in a path, nor this machine's own login.
+
+A bare name that is not this machine's login (another machine's account, a first name) is only caught inside a path.
+"""
 import getpass
 import re
 import subprocess
@@ -11,15 +14,19 @@ ROOT = Path(__file__).resolve().parent.parent
 # person's name is scrubbed from the file, never added here.
 GENERIC_NAMES = frozenset({"user", "u", "x", "a", "o", "gone"})
 # Logins that tell nothing about a person; the login rule skips them (and every name under three characters).
-GENERIC_LOGINS = frozenset({"root", "runner", "user", "ubuntu", "admin"})
+GENERIC_LOGINS = frozenset({"root", "runner", "user", "ubuntu", "admin", "dev", "node", "git", "vagrant",
+                            "codespace", "data", "fish", "vscode", "home"})
 
 # The account folder after /home/ or Users/. `<user>`, `$USER`, `%USERNAME%`, `.config` and regular-expression
 # pieces do not start with a letter or digit, so they never count as a name.
 ACCOUNT = r"([^/\\\s\"'`)\]:,;|]+)"
 HOME_PATH = re.compile(r"(?<![\w.$}\u2026])/home/" + ACCOUNT)
 WSL_USERS_PATH = re.compile(r"/mnt/[a-z]/Users/" + ACCOUNT, re.IGNORECASE)
-WINDOWS_USERS_PATH = re.compile(r"[a-z]:\\{1,4}Users\\{1,4}" + ACCOUNT, re.IGNORECASE)
-PATH_RULES = (HOME_PATH, WSL_USERS_PATH, WINDOWS_USERS_PATH)
+WINDOWS_USERS_PATH = re.compile(r"[a-z]:[\\/]{1,4}Users[\\/]{1,4}" + ACCOUNT, re.IGNORECASE)
+# The WSL home seen from Windows: \\wsl$\Ubuntu\home\<name> or \\wsl.localhost\Ubuntu\home\<name>.
+WSL_SHARE_PATH = re.compile(r"\\{2,4}wsl(?:\$|\.localhost)\\{1,2}[^\\\s]+\\{1,2}home\\{1,2}" + ACCOUNT,
+                            re.IGNORECASE)
+PATH_RULES = (HOME_PATH, WSL_USERS_PATH, WINDOWS_USERS_PATH, WSL_SHARE_PATH)
 NAME_LIKE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
@@ -93,6 +100,9 @@ class PrivacyTest(unittest.TestCase):
         home, wsl_users, windows_users = "/home/", "/mnt/c/Users/", "C:\\Users\\"
         self.assertEqual(account_names(f"{home}wren/.claude {windows_users}Wren {wsl_users}wren"), ["wren"] * 3)
         self.assertEqual(account_names(windows_users.replace("\\", "\\\\") + "wren"), ["wren"])
+        self.assertEqual(account_names(windows_users.replace("\\", "/") + "wren/.aws"), ["wren"])
+        self.assertEqual(account_names("\\\\wsl$\\Ubuntu" + home.replace("/", "\\") + "wren"), ["wren"])
+        self.assertEqual(account_names("\\\\wsl.localhost\\Ubuntu-24.04" + home.replace("/", "\\") + "wren"), ["wren"])
         self.assertEqual(account_names(f"wren:x:1000:1000::{home}wren:/bin/sh"), ["wren"])
         for fine in ("/home/<user>/x", "/mnt/c/Users/<U>", "C:\\Users\\%USERNAME%", "/home/user/", "$E/home/.config",
                      "/tmp/t/home/b.txt", "/home/o'neil", "/mnt/c/Users/[^/]+", "/home/…/x"):
