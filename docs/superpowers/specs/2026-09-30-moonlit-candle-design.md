@@ -178,7 +178,7 @@ Fondo del terminal `#0D0916`, texto `#F3EAF7`. Todos los valores van en `#RRGGBB
 Formato (una sola línea, con un espacio al principio y otro al final, como archon):
 
 ```
- 🕯️ Opus 5.5·xhigh ⋆ 🌓 48% ⋆ 5h 71% ⋆ 7d 88% ⋆ 📜 GII_claude_2 ⎇ bugfix/INC-98560✦2
+ 🕯️ Opus 5.5·xhigh ⋆ 🌓 48% ⋆ 5h 71% ⋆ 7d 88% ⋆ 📜 witchyterm ⎇ feature/moonlit✦2
 ```
 
 Datos de entrada (campos del JSON que Claude Code envía por stdin, según la [documentación oficial](https://code.claude.com/docs/en/statusline)):
