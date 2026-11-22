@@ -4,6 +4,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from witchy import build, runner
 from witchy.components import opencode
@@ -53,8 +54,14 @@ class OpenCodeComponentTest(unittest.TestCase):
     def tui_data(self):
         return json.loads(self.tui.read_text(encoding="utf-8"))
 
+    def at_level(self, ctx, entry, level):
+        return [check for check in self.component.check(ctx, entry) if check.level == level]
+
+    def levels(self, ctx, entry):
+        return {check.level for check in self.component.check(ctx, entry)}
+
     def fails(self, ctx, entry):
-        return [check for check in self.component.check(ctx, entry) if check.level == "fail"]
+        return self.at_level(ctx, entry, "fail")
 
     def test_install_writes_the_theme_and_selects_it(self):
         ctx, plan, entry = self.install()
@@ -134,7 +141,7 @@ class OpenCodeComponentTest(unittest.TestCase):
         jsonc.write_text('{\n  // mine\n  "theme": "nord", /* wins */\n}\n', encoding="utf-8")
         ctx, _, entry = self.install()
         self.assertIn(TUI_JSONC_WARNING.format(path=jsonc), self.out.getvalue())
-        warns = [check for check in self.component.check(ctx, entry) if check.level == "warn"]
+        warns = self.at_level(ctx, entry, "warn")
         self.assertEqual(len(warns), 1)
         self.assertIn(str(jsonc), warns[0].message)
         self.assertEqual(self.fails(ctx, entry), [])
@@ -148,7 +155,7 @@ class OpenCodeComponentTest(unittest.TestCase):
             jsonc.write_text(text, encoding="utf-8")
             ctx, _, entry = self.install()
             self.assertNotIn("tui.jsonc", self.out.getvalue(), text)
-            levels = {check.level for check in self.component.check(ctx, entry)} - {"info"}
+            levels = self.levels(ctx, entry) - {"info"}
             self.assertEqual(levels, {"ok"}, text)
 
     def test_no_opencode_anywhere_still_installs(self):
@@ -156,7 +163,7 @@ class OpenCodeComponentTest(unittest.TestCase):
         self.assertIsNone(plan.skip)
         self.assertIn(NO_OPENCODE_NOTE, plan.notes)
         self.assertTrue(self.theme.is_file())
-        infos = [check for check in self.component.check(ctx, entry) if check.level == "info"]
+        infos = self.at_level(ctx, entry, "info")
         self.assertEqual([check.message for check in infos], [NO_OPENCODE_NOTE])
         self.assertEqual(self.fails(ctx, entry), [])
 
@@ -169,7 +176,7 @@ class OpenCodeComponentTest(unittest.TestCase):
         env = {"PATH": str(bin_dir)}
         ctx, plan, entry = self.install(env=env)
         self.assertNotIn(NO_OPENCODE_NOTE, plan.notes)
-        self.assertEqual({check.level for check in self.component.check(ctx, entry)}, {"ok"})
+        self.assertEqual(self.levels(ctx, entry), {"ok"})
 
     def test_xdg_config_home(self):
         elsewhere = self.root / "xdg"
@@ -185,7 +192,7 @@ class OpenCodeComponentTest(unittest.TestCase):
 
     def test_check_ok(self):
         ctx, _, entry = self.install()
-        levels = {check.level for check in self.component.check(ctx, entry)} - {"info"}
+        levels = self.levels(ctx, entry) - {"info"}
         self.assertEqual(levels, {"ok"})
 
     def test_check_drift_theme_key(self):
@@ -216,7 +223,7 @@ class OpenCodeComponentTest(unittest.TestCase):
         self.write_tui(OLD_TUI)
         ctx, _, entry = self.install()
         Path(entry["settings"]["backup"]).unlink()
-        warns = [check for check in self.component.check(ctx, entry) if check.level == "warn"]
+        warns = self.at_level(ctx, entry, "warn")
         self.assertTrue(any("backup" in check.message for check in warns))
 
     def test_reinstall_keeps_the_first_previous_value(self):
@@ -233,36 +240,37 @@ class OpenCodeComponentTest(unittest.TestCase):
     def test_a_write_that_fails_part_way_is_recorded(self):
         ctx = self.ctx()
         plan = self.component.plan(ctx, None)
-        real = opencode.apply_changes
 
         def fail_on_settings(ctx_, changes, backups=None):
-            real(ctx_, changes[:1], backups)
+            apply_changes(ctx_, changes[:1], backups)
             raise PermissionError(13, "Permission denied", str(self.tui))
 
-        opencode.apply_changes = fail_on_settings
-        try:
+        with mock.patch.object(opencode, "apply_changes", fail_on_settings):
             entry = self.component.apply(ctx, plan)
-        finally:
-            opencode.apply_changes = real
         self.assertTrue(plan.outcome.startswith("failed: could not write ("))
         self.assertEqual([record["path"] for record in entry["files"]], [str(self.theme)])
         self.assertNotIn("settings", entry)
         self.assertEqual(entry["files"][0]["installed_sha256"], sha(self.theme.read_bytes()))
 
 
+def refuse(*args, **kwargs):
+    raise AssertionError("no subprocess may run in tests")
+
+
+def install_context(root, home, out=None, **kwargs):
+    return Context(home=home, env={"PATH": ""}, out=out or io.StringIO(), python="/usr/bin/python3",
+                   stamp="20261102-120000", run=refuse, dist=root / "dist", lock_path=root / "witchy.lock",
+                   only=("opencode",), **kwargs)
+
+
 class OpenCodeInstallTest(unittest.TestCase):
     def test_dry_run_writes_nothing(self):
-        def refuse(*args, **kwargs):
-            raise AssertionError("no subprocess may run in tests")
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             home = root / "home"
             home.mkdir()
             out = io.StringIO()
-            ctx = Context(home=home, env={"PATH": ""}, out=out, dry_run=True, python="/usr/bin/python3",
-                          stamp="20261102-120000", run=refuse, dist=root / "dist", lock_path=root / "witchy.lock",
-                          only=("opencode",))
+            ctx = install_context(root, home, out, dry_run=True)
             self.assertEqual(runner.install(ctx), 0)
             self.assertEqual(list(home.iterdir()), [])
             self.assertFalse((root / "dist").exists())
@@ -270,24 +278,15 @@ class OpenCodeInstallTest(unittest.TestCase):
             self.assertIn("themes/moonlit-candle.json", out.getvalue())
 
     def test_install_and_uninstall_through_the_runner(self):
-        def refuse(*args, **kwargs):
-            raise AssertionError("no subprocess may run in tests")
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             home = root / "home"
             home.mkdir()
-
-            def ctx():
-                return Context(home=home, env={"PATH": ""}, out=io.StringIO(), python="/usr/bin/python3",
-                               stamp="20261102-120000", run=refuse, dist=root / "dist",
-                               lock_path=root / "witchy.lock", only=("opencode",))
-
-            first = ctx()
+            first = install_context(root, home)
             self.assertEqual(runner.install(first), 0)
             self.assertIn(NO_OPENCODE_NOTE, first.out.getvalue())
             self.assertTrue((home / ".config/opencode/themes/moonlit-candle.json").is_file())
-            self.assertEqual(runner.uninstall(ctx()), 0)
+            self.assertEqual(runner.uninstall(install_context(root, home)), 0)
             leftovers = [str(p.relative_to(home)) for p in home.rglob("*") if p.is_file()]
             self.assertEqual(leftovers, [])
 

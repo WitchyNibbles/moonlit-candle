@@ -164,13 +164,10 @@ class OpencodeRulesTest(unittest.TestCase):
     def test_opencode_passes(self):
         self.assertEqual(self.check(), [])
 
-    def test_opencode_text_on_panel_fails(self):
-        theme = dict(palette.OPENCODE, textMuted="#3A3050")
-        self.assertIn(("text-contrast", "opencode.textMuted on backgroundPanel"), pairs(self.check(theme)))
-
-    def test_opencode_text_on_the_background_fails(self):
-        theme = dict(palette.OPENCODE, textMuted="#3A3050")
-        self.assertIn(("text-contrast", "opencode.textMuted"), pairs(self.check(theme)))
+    def test_opencode_text_on_a_surface_fails(self):
+        found = pairs(self.check(dict(palette.OPENCODE, textMuted="#3A3050")))
+        self.assertIn(("text-contrast", "opencode.textMuted on backgroundPanel"), found)
+        self.assertIn(("text-contrast", "opencode.textMuted"), found)
 
     def test_opencode_diff_text_fails(self):
         theme = dict(palette.OPENCODE, diffRemovedBg="#B04070")
