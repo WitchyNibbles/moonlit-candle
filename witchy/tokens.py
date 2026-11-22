@@ -42,3 +42,45 @@ EXEMPT = {
     },
 }
 ALL = frozenset((*TEXT, *SECONDARY, *BACKGROUNDS, ON_ACCENT, *EXEMPT))
+
+
+# OpenCode's theme keys, grouped the same way. Source (the colour keys and where they show):
+# https://github.com/anomalyco/opencode/blob/v1.18.34/packages/tui/src/theme/index.ts
+OPENCODE_SURFACES = ("background", "backgroundPanel", "backgroundElement", "backgroundMenu")
+OPENCODE_MARKDOWN = (
+    "markdownText", "markdownHeading", "markdownLink", "markdownLinkText", "markdownCode", "markdownBlockQuote",
+    "markdownEmph", "markdownStrong", "markdownListItem", "markdownListEnumeration", "markdownImage",
+    "markdownImageText", "markdownCodeBlock",
+)
+OPENCODE_SYNTAX = (
+    "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable", "syntaxString", "syntaxNumber",
+    "syntaxType", "syntaxOperator", "syntaxPunctuation",
+)
+# Read as text: 4.5:1 on every surface.
+OPENCODE_TEXT = (
+    "primary", "secondary", "accent", "error", "warning", "success", "info", "text", "textMuted",
+    *OPENCODE_MARKDOWN, *OPENCODE_SYNTAX,
+    "diffContext", "diffHunkHeader", "diffLineNumber", "diffAdded", "diffRemoved",
+)
+# (text keys, surface key): the text must reach 4.5:1 on the surface.
+OPENCODE_DIFF_PAIRS: tuple[tuple[tuple[str, ...], str], ...] = (
+    *((("text", *OPENCODE_SYNTAX), surface) for surface in ("diffAddedBg", "diffRemovedBg", "diffContextBg")),
+    (("diffAdded", "diffHighlightAdded"), "diffAddedBg"),
+    (("diffRemoved", "diffHighlightRemoved"), "diffRemovedBg"),
+    (("diffLineNumber",), "diffContextBg"),
+    (("diffLineNumber",), "diffAddedLineNumberBg"),
+    (("diffLineNumber",), "diffRemovedLineNumberBg"),
+)
+# Drawn on accent fills (selected rows, the permission card's chosen option): 4.5:1 against each.
+OPENCODE_ON_ACCENT = "selectedListItemText"
+OPENCODE_ACCENT_FILLS = ("primary", "secondary", "accent", "warning", "error", "success", "info")
+# Borders and rules: 3:1 on the background.
+OPENCODE_SECONDARY = ("border", "borderActive", "markdownHorizontalRule")
+OPENCODE_EXEMPT = {
+    "borderSubtle": "a divider line, not information",
+}
+# The diff surfaces and the highlights are only named in OPENCODE_DIFF_PAIRS, so the key set takes them from there.
+OPENCODE_ALL = frozenset((
+    *OPENCODE_SURFACES, *OPENCODE_TEXT, OPENCODE_ON_ACCENT, *OPENCODE_SECONDARY, *OPENCODE_EXEMPT,
+    *(key for keys, surface in OPENCODE_DIFF_PAIRS for key in (*keys, surface)),
+))

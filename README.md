@@ -1,10 +1,11 @@
 # Moonlit Candle
 
-A witchy theme for Claude Code and Windows Terminal on WSL, inspired by [WitchyNibbles/Spellbound-Themes](https://github.com/WitchyNibbles/Spellbound-Themes): an aubergine night background, candle-gold accents, and pink for permissions.
+A witchy theme for Claude Code, OpenCode and Windows Terminal on WSL, inspired by [WitchyNibbles/Spellbound-Themes](https://github.com/WitchyNibbles/Spellbound-Themes): an aubergine night background, candle-gold accents, and pink for permissions.
 
 It installs:
 
 - The `moonlit-candle` Claude Code theme (`~/.claude/themes/`)
+- The `moonlit-candle` OpenCode theme (`~/.config/opencode/themes/`), selected in `tui.json`
 - Maple Mono NF for your Windows user (no admin rights needed; it stays installed after uninstall)
 - On your WSL profile in Windows Terminal: the "Moonlit Candle" colour scheme, Maple Mono NF, a box cursor, a 🌙 tab titled "witchyterm", and a starfield whose moon shows the current phase
 - Windows Terminal's default colour scheme becomes "Moonlit Candle" when it was `PastelOneDark`; that old scheme is removed from every profile and from `schemes` (uninstall gives it back); a profile without a `guid` is left alone, and while one still names it the scheme stays defined
@@ -28,9 +29,10 @@ It installs:
 /usr/bin/python3 -m witchy uninstall                     # give everything back
 ```
 
-Components, in install order: `claude`, `font`, `windows-terminal`, `tide`, `fish`.
+Components, in install order: `claude`, `opencode`, `font`, `windows-terminal`, `tide`, `fish`.
 
 - `tide` installs [fisher](https://github.com/jorgebucaran/fisher) 4.4.5 and [Tide](https://github.com/IlanCosman/tide) 6.1.1 when they are missing (fisher needs `curl`), replaces another Tide version, and checks every file against `content/pins.json` twice: each release before fisher installs it (nothing unverified runs), and each installed file after. If the check after fails, fisher and a freshly installed Tide are removed again; a Tide that replaced another one is swapped back for the earlier version, with your Tide variables kept. It makes Tide the only prompt: a hand-written `functions/fish_prompt.fish` is moved aside, another fisher prompt plugin (pure, hydro, …) is removed, and `starship init`, `oh-my-posh init` and `set -g tide_…` lines in `config.fish` and `conf.d` are commented out, together with calls to the functions those init lines define (`enable_transience`, `disable_transience`, `enable_poshtransientprompt`, `enable_poshtooltips`), which would otherwise fail at every shell start, with `# witchy-disabled: `, after a backup. Text inside comments and quotes is not mistaken for such a line. A `function fish_prompt` block, a line that cannot be commented out safely (continued with `\`, `&&`, `||` or `|`, one that opens or closes a block, or one whose `(…)` or quoted string goes on over the next lines, which witchy asks fish itself about with `fish --no-execute`), and a symlinked `config.fish`, `conf.d` file or folder (only when it holds a line witchy would disable) are never edited: install fails and says what to change. Downloads and fisher's output go to `~/.cache/witchy/install.log`. `uninstall` gives all of it back: a Tide that witchy installed fresh is removed with a plain `fisher remove`, so its variables go with it; an earlier Tide is swapped back and your Tide variables are kept; fisher is removed only when witchy installed it. Only witchy's own Tide (`ilancosman/tide@v6.1.1`) and fisher (`jorgebucaran/fisher@4.4.5`) are taken out: one you put in after the install stays, with a warning. A `fish_prompt.fish` moved aside comes back exactly as it was (a symlink as the same link, a file with its mode).
+- `opencode` writes the theme to `~/.config/opencode/themes/moonlit-candle.json` (under `$XDG_CONFIG_HOME` when that is an absolute path) and sets `"theme": "moonlit-candle"` in `tui.json`, creating it when it is missing; `uninstall` gives back the old `theme`. It installs even when `opencode` is not on `PATH`, with a note. A `tui.json` with comments is not rewritten: the theme file is installed, you get the line to add by hand, and doctor says the theme is not selected until you have added it. An empty `tui.json` is treated like `{}`. If `tui.json` gains comments after install, `uninstall` leaves it as it is, tells you to remove the `theme` line by hand, and finishes the rest. `uninstall` also removes the `opencode` and `themes` folders when witchy made them and they are empty. A `tui.jsonc` that sets `theme` is never edited, but it wins over `tui.json`, so a warning names it. OpenCode 2 probably loads the same theme file (not tested); it selects themes in `~/.config/opencode/cli.json` as `{"theme": {"name": "moonlit-candle"}}`, which witchy does not edit.
 - `fish` sets every Tide variable once Tide 6.1.1 is the active prompt. Without it, `fish` still installs the greeting and `ll`/`lt`, and the summary line says `skipped: Tide not ready (run: python3 -m witchy install --only tide)` (or `skipped: fish not found`).
 - `install --fresh` first lists which of `fish`, `curl` and `eza` are missing, asks once before `sudo apt-get install`, and offers `chsh -s` to make fish the login shell. It needs a terminal to ask.
 
@@ -62,6 +64,12 @@ Run `python3 -m witchy doctor`. Each `⚠` or `✗` line is followed by what fix
 | :- | :- | :- |
 | `✗ claude  changed or missing: …` | an installed file was edited or deleted | `python3 -m witchy install --only claude` |
 | `✗ claude  settings changed: theme, …` | a settings key no longer holds the witchy value | same as above, or keep your change |
+| `✗ opencode  changed or missing: …` | the theme file was edited or deleted | `python3 -m witchy install --only opencode` |
+| `✗ opencode  settings changed: theme` | `tui.json` no longer names `moonlit-candle` | same as above, or keep your change |
+| `✗ opencode  theme not selected in …/tui.json` | `tui.json` has comments, so witchy did not edit it | add `"theme": "moonlit-candle"` to it by hand (`doctor --fix` does not touch it; once you have, doctor shows `✓ … selected by hand`) |
+| `✗ opencode  cannot read …/tui.json: …` | `tui.json` gained comments after install | check that it still sets `"theme": "moonlit-candle"` by hand; witchy does not edit it any more |
+| `⚠ opencode  …/tui.jsonc sets "theme" and wins over tui.json` | OpenCode reads `tui.jsonc` after `tui.json` | remove `theme` from `tui.jsonc` |
+| `· opencode  opencode was not found on PATH; …` | OpenCode is not installed here; the theme waits for it | nothing to fix |
 | `✗ windows-terminal  profile colour scheme is …` | the profile uses another scheme | `python3 -m witchy install --only windows-terminal` |
 | `⚠ windows-terminal  not installed` | `settings.json` was not found (install prints "Windows Terminal settings.json not found") or the profile did not match | pass `--wt-settings PATH` or set `WT_PROFILE_ID`, then install |
 | `⚠ font  not installed` | Maple Mono NF was not downloaded or registered | `python3 -m witchy install --only font`, then restart Windows Terminal |

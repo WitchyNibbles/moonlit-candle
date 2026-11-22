@@ -156,6 +156,56 @@ class ValidateAllTest(unittest.TestCase):
         self.assertEqual({f.rule for f in failures}, {"content"})
 
 
+class OpencodeRulesTest(unittest.TestCase):
+    def check(self, theme=None):
+        theme = palette.OPENCODE if theme is None else theme
+        return validate.validate_opencode(theme, palette.BACKGROUND, palette.FOREGROUND)
+
+    def test_opencode_passes(self):
+        self.assertEqual(self.check(), [])
+
+    def test_opencode_text_on_a_surface_fails(self):
+        found = pairs(self.check(dict(palette.OPENCODE, textMuted="#3A3050")))
+        self.assertIn(("text-contrast", "opencode.textMuted on backgroundPanel"), found)
+        self.assertIn(("text-contrast", "opencode.textMuted"), found)
+
+    def test_opencode_diff_text_fails(self):
+        theme = dict(palette.OPENCODE, diffRemovedBg="#B04070")
+        found = pairs(self.check(theme))
+        self.assertIn(("background-contrast", "opencode.syntaxKeyword on diffRemovedBg"), found)
+        self.assertIn(("background-contrast", "opencode.diffRemoved on diffRemovedBg"), found)
+
+    def test_opencode_selected_text_fails(self):
+        theme = dict(palette.OPENCODE, selectedListItemText="#FFFFFF")
+        self.assertIn(("on-accent-contrast", "opencode.selectedListItemText on primary"), pairs(self.check(theme)))
+
+    def test_opencode_border_fails(self):
+        theme = dict(palette.OPENCODE, border="#2A1D3A")
+        self.assertIn(("secondary-contrast", "opencode.border"), pairs(self.check(theme)))
+
+    def test_opencode_border_subtle_is_exempt(self):
+        self.assertEqual(self.check(dict(palette.OPENCODE, borderSubtle="#0E0A17")), [])
+
+    def test_opencode_unknown_and_missing_keys(self):
+        theme = {key: value for key, value in palette.OPENCODE.items() if key != "syntaxType"}
+        theme["foo"] = "#FFD477"
+        found = pairs(self.check(theme))
+        self.assertIn(("unknown-token", "opencode.foo"), found)
+        self.assertIn(("missing-token", "opencode.syntaxType"), found)
+
+    def test_opencode_bad_format(self):
+        theme = dict(palette.OPENCODE, primary="#ffd477")
+        self.assertIn(("format", "opencode.primary"), pairs(self.check(theme)))
+
+    def test_opencode_background_must_match(self):
+        theme = dict(palette.OPENCODE, background="#000000")
+        self.assertIn(("consistency", "opencode.background"), pairs(self.check(theme)))
+
+    def test_opencode_text_must_match(self):
+        theme = dict(palette.OPENCODE, text="#EEEEEE")
+        self.assertIn(("consistency", "opencode.text"), pairs(self.check(theme)))
+
+
 class VariantValidateTest(unittest.TestCase):
     def test_every_variant_is_validated(self):
         midnight = palette.VARIANTS["midnight"]
@@ -165,6 +215,13 @@ class VariantValidateTest(unittest.TestCase):
         with mock.patch.dict(palette.VARIANTS, {"broken": broken}):
             failures = validate.validate_all()
         self.assertIn(("text-contrast", "claude.claude"), {(f.rule, f.item) for f in failures})
+
+    def test_every_variants_opencode_theme_is_validated(self):
+        midnight = palette.VARIANTS["midnight"]
+        broken = dataclasses.replace(midnight, name="broken", opencode=dict(midnight.opencode, textMuted="#3A3050"))
+        with mock.patch.dict(palette.VARIANTS, {"broken": broken}):
+            failures = validate.validate_all()
+        self.assertIn(("text-contrast", "opencode.textMuted"), pairs(failures))
 
 
 class SkyValidateTest(unittest.TestCase):

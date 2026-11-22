@@ -76,6 +76,8 @@ class TideReadyTest(unittest.TestCase):
             ({"tide": ""}, "Tide is of an unknown version, not 6.1.1"),
             ({"prompt_path": "/home/user/.config/fish/functions/fish_prompt.fish.mine"},
              "fish_prompt is not Tide's (/home/user/.config/fish/functions/fish_prompt.fish.mine)"),
+            ({"prompt_path": "embedded:functions/fish_prompt.fish"},  # fish 4 embeds its own default prompt
+             "fish_prompt is not Tide's (embedded:functions/fish_prompt.fish)"),
             ({"prompt_path": None}, "fish_prompt is not Tide's (no fish_prompt)"),
             ({"plugins": {}}, f"fish_prompt is not Tide's ({FAKE_PROMPT})"),
         )
@@ -134,7 +136,11 @@ class RealFishProbeTest(unittest.TestCase):
         found = fishprobe.probe(ctx(subprocess.run, home=self.home, env=self.env))
         self.assertEqual((found.fisher, found.tide, found.plugins), (None, None, {}))
         self.assertEqual(fishprobe.tide_ready(found), "Tide not found")
-        self.assertTrue(found.prompt_path.endswith("/functions/fish_prompt.fish"), found.prompt_path)
+        # fish's own prompt, not one in the user's config: embedded in the binary (fish 4) or in fish's share dir.
+        embedded = "embedded:functions/fish_prompt.fish"
+        self.assertTrue(found.prompt_path == embedded or (found.prompt_path.endswith("/functions/fish_prompt.fish")
+                                                         and not found.prompt_path.startswith(str(self.home))),
+                        found.prompt_path)
 
 
 if __name__ == "__main__":

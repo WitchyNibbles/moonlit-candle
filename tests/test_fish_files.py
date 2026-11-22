@@ -82,6 +82,10 @@ class FishTestCase(unittest.TestCase):
         return subprocess.run(command, capture_output=True, text=True, timeout=20, env={**self.env, **(env or {})},
                               stdin=subprocess.DEVNULL)
 
+    def fish_version(self):
+        """The version of the fish binary under test, asked of that same fish."""
+        return self.fish("echo $FISH_VERSION").stdout.strip()
+
     def python_args(self):
         path = self.home / "python-args"
         return path.read_text(encoding="utf-8").splitlines() if path.exists() else None
@@ -129,7 +133,7 @@ class GreetingTest(FishTestCase):
         self.assertEqual(done.stdout, "python ran\nshown=1\n")
         args = self.python_args()
         self.assertEqual(args[:3], ["-I", "-B", f"{self.witchy}/ritual"])
-        self.assertTrue(args[3].startswith("FISH_VERSION=3"), args)
+        self.assertEqual(args[3], f"FISH_VERSION={self.fish_version()}")
 
     def test_quiet_unless_every_condition_holds(self):
         cases = {"not interactive": (self.WT, False), "no WT_SESSION": ({}, True),

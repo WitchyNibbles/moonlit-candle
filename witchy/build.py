@@ -20,6 +20,8 @@ OUTPUT_STYLE = "claude/output-styles/witchynibbles.md"
 STATUSLINE = "claude/witchy/statusline.py"
 TIPS = "claude/witchy/tips.json"
 WT_SCHEME = "windows-terminal/moonlit-candle.scheme.json"
+OPENCODE_THEME = "opencode/themes/moonlit-candle.json"
+OPENCODE_SCHEMA = "https://opencode.ai/theme.json"
 
 
 def dict_block(name: str, values: dict[str, str]) -> str:
@@ -127,6 +129,7 @@ def render_outputs(content_dir: Path = content.CONTENT_DIR,
         STATUSLINE: statusline_source(colours.statusline),
         TIPS: _json({"tips": spinner["tips"]}),
         WT_SCHEME: _json(colours.wt_scheme),
+        OPENCODE_THEME: _json({"$schema": OPENCODE_SCHEMA, "theme": colours.opencode}),
     }
 
 
