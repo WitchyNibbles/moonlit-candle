@@ -71,8 +71,9 @@ class OpenCodeComponent:
             ctx.say(TUI_JSONC_WARNING.format(path=override))
         notes = [] if _on_path(ctx) else [NO_OPENCODE_NOTE]
         changes = [theme, *([settings.change] if settings else [])]
-        return Plan(changes=changes, notes=notes, data={"earlier": earlier, "settings": settings,
-                                                        "recorded": (entry or {}).get("settings")})
+        # "kept" is the record that stands when this run does not (fully) write tui.json: the one it gave back.
+        return Plan(changes=changes, notes=notes, data={"earlier": earlier, "theme": theme, "settings": settings,
+                                                        "kept": (entry or {}).get("settings")})
 
     def _plan_settings(self, ctx: Any, path: Path, previous: dict | None) -> JsonPlan | None:
         """The tui.json rewrite, or None (after a warning) when the file is not plain JSON."""
@@ -91,35 +92,39 @@ class OpenCodeComponent:
         return JsonPlan(Change(path, before, after), previous, {"keys": keys})
 
     def apply(self, ctx: Any, plan: Plan) -> dict:
-        settings: JsonPlan | None = plan.data["settings"]
-        copies = [change for change in plan.changes if settings is None or change is not settings.change]
+        theme: Change = plan.data["theme"]
         backups: dict[Path, Path] = {}
         try:
             apply_changes(ctx, plan.changes, backups)
         except OSError as exc:
-            return self._partial(ctx, plan, copies, backups, exc)
-        entry: dict[str, Any] = {"files": [file_record(change, plan.data["earlier"], backups) for change in copies]}
-        if settings is not None:
-            entry["settings"] = settings.entry(backups.get(settings.change.path))
-        elif plan.data["recorded"]:
-            entry["settings"] = plan.data["recorded"]  # tui.json is not ours to rewrite now; keep what it gave back
+            return self._partial(ctx, plan, backups, exc)
+        entry: dict[str, Any] = {"files": [file_record(theme, plan.data["earlier"], backups)]}
+        settings = self._settings_record(plan, backups, written=True)
+        if settings:
+            entry["settings"] = settings
         return entry
 
-    def _partial(self, ctx: Any, plan: Plan, copies: list[Change], backups: dict[Path, Path], exc: OSError) -> dict:
+    def _partial(self, ctx: Any, plan: Plan, backups: dict[Path, Path], exc: OSError) -> dict:
         """Record what a write that failed part-way left in place, so uninstall gives back the right bytes."""
         settings: JsonPlan | None = plan.data["settings"]
         ctx.say(f"opencode: could not write ({exc}); run install again.")
-        entry: dict[str, Any] = {"files": applied_records(copies, plan.data["earlier"], backups)}
-        if settings is not None and read(settings.change.path) == settings.change.after:
-            entry["settings"] = settings.entry(backups.get(settings.change.path))
-        elif settings is not None and settings.previous:
-            entry["settings"] = settings.previous
-        elif settings is None and plan.data["recorded"]:
-            entry["settings"] = plan.data["recorded"]
+        entry: dict[str, Any] = {"files": applied_records([plan.data["theme"]], plan.data["earlier"], backups)}
+        written = settings is not None and read(settings.change.path) == settings.change.after
+        record = self._settings_record(plan, backups, written=written)
+        if record:
+            entry["settings"] = record
         if not entry["files"] and "settings" not in entry:
             raise ComponentFailed(f"could not write ({exc})") from exc
         plan.outcome = f"failed: could not write ({exc})"
         return entry
+
+    @staticmethod
+    def _settings_record(plan: Plan, backups: dict[Path, Path], written: bool) -> dict | None:
+        """The tui.json record to keep: the new one when the rewrite landed, else the one it gave back."""
+        settings: JsonPlan | None = plan.data["settings"]
+        if settings is not None and written:
+            return settings.entry(backups.get(settings.change.path))
+        return plan.data["kept"]
 
     def restore(self, ctx: Any, entry: dict) -> Plan:
         warnings: list[str] = []
