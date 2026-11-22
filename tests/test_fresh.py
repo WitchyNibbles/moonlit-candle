@@ -29,7 +29,7 @@ class FreshTest(unittest.TestCase):
 
     def fake_run(self, args, **kwargs):
         if args[:2] == ["getent", "passwd"]:
-            return subprocess.CompletedProcess(args, 0, stdout=f"eimi:x:1000:1000::/home/eimi:{self.shell}\n")
+            return subprocess.CompletedProcess(args, 0, stdout=f"user:x:1000:1000::/home/user:{self.shell}\n")
         self.calls.append(args)
         if args[-1] == "fish" and "install" in args:
             self.tool("fish")  # apt put it on PATH
@@ -45,7 +45,7 @@ class FreshTest(unittest.TestCase):
             return replies.pop(0)
 
         self.out = io.StringIO()
-        ctx = Context(home=self.home, env={"PATH": str(self.bin), "USER": "eimi"}, out=self.out, dry_run=dry_run,
+        ctx = Context(home=self.home, env={"PATH": str(self.bin), "USER": "user"}, out=self.out, dry_run=dry_run,
                       run=self.fake_run)
         return fresh.prepare(ctx, ask=ask, interactive=interactive)
 

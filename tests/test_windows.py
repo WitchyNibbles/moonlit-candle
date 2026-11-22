@@ -8,7 +8,7 @@ from witchy import windows
 
 class ToWslTest(unittest.TestCase):
     def test_drive_paths(self):
-        self.assertEqual(windows.to_wsl("C:\\Users\\manue"), Path("/mnt/c/Users/manue"))
+        self.assertEqual(windows.to_wsl("C:\\Users\\user"), Path("/mnt/c/Users/user"))
         self.assertEqual(windows.to_wsl("D:\\Data\\x\\", Path("/m")), Path("/m/d/Data/x"))
 
     def test_other_paths_are_not_mapped(self):
@@ -23,10 +23,10 @@ class UserHomeTest(unittest.TestCase):
         self.mnt = Path(tmp.name) / "mnt"
 
     def test_profile_folder_from_userprofile(self):
-        (self.mnt / "c" / "Users" / "manue").mkdir(parents=True)
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n"})
+        (self.mnt / "c" / "Users" / "user").mkdir(parents=True)
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\user\r\n"})
         self.assertEqual(windows.user_home(run, self.mnt),
-                         windows.WindowsHome("C:\\Users\\manue", self.mnt / "c" / "Users" / "manue"))
+                         windows.WindowsHome("C:\\Users\\user", self.mnt / "c" / "Users" / "user"))
 
     def test_a_percent_sign_in_the_profile_path_is_a_value_not_an_unset_variable(self):
         (self.mnt / "c" / "Users" / "100%").mkdir(parents=True)
