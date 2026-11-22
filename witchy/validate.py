@@ -438,6 +438,47 @@ def validate_content(spinner: Mapping[str, Any], output_style: str) -> list[Fail
     return failures
 
 
+def validate_opencode(theme: Mapping[str, Any], background: str, foreground: str) -> list[Failure]:
+    """OpenCode's theme against the contrast rules; ``background`` and ``foreground`` are the variant's."""
+    failures: list[Failure] = []
+    bad = set()
+    for key, value in theme.items():
+        if not isinstance(value, str) or not HEX.match(value):
+            failures.append(Failure("format", f"opencode.{key}", str(value), "is not #RRGGBB in uppercase"))
+            bad.add(key)
+    for key in sorted(set(theme) - tokens.OPENCODE_ALL):
+        failures.append(Failure("unknown-token", f"opencode.{key}", str(theme[key]), "is not an OpenCode theme colour"))
+    for key in sorted(tokens.OPENCODE_ALL - set(theme)):
+        failures.append(Failure("missing-token", f"opencode.{key}", "-", "has no colour, so OpenCode would reject the theme"))
+    for key, expected in (("background", background), ("text", foreground)):
+        if key in theme and theme[key] != expected:
+            failures.append(Failure("consistency", f"opencode.{key}", str(theme[key]),
+                                    f"must equal the palette {'foreground' if key == 'text' else key} {expected}"))
+
+    def usable(*keys: str) -> bool:
+        return all(key in theme and key not in bad for key in keys)
+
+    for surface in tokens.OPENCODE_SURFACES:
+        for key in tokens.OPENCODE_TEXT:
+            if usable(key, surface):
+                item = f"opencode.{key}" if surface == "background" else f"opencode.{key} on {surface}"
+                _contrast(failures, "text-contrast", item, theme[key], theme[surface], TEXT_MIN, theme[key])
+    for keys, surface in tokens.OPENCODE_DIFF_PAIRS:
+        for key in keys:
+            if usable(key, surface):
+                _contrast(failures, "background-contrast", f"opencode.{key} on {surface}", theme[key], theme[surface],
+                          TEXT_MIN, theme[key])
+    for fill in tokens.OPENCODE_ACCENT_FILLS:
+        if usable(tokens.OPENCODE_ON_ACCENT, fill):
+            _contrast(failures, "on-accent-contrast", f"opencode.{tokens.OPENCODE_ON_ACCENT} on {fill}",
+                      theme[tokens.OPENCODE_ON_ACCENT], theme[fill], TEXT_MIN, theme[tokens.OPENCODE_ON_ACCENT])
+    for key in tokens.OPENCODE_SECONDARY:
+        if usable(key, "background"):
+            _contrast(failures, "secondary-contrast", f"opencode.{key}", theme[key], theme["background"],
+                      SECONDARY_MIN, theme[key])
+    return failures
+
+
 def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
     failures: list[Failure] = []
     try:
@@ -448,6 +489,7 @@ def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
     for variant in palette.VARIANTS.values():
         failures += validate_palette(variant.claude_overrides, variant.wt_scheme, variant.statusline,
                                      variant.background, variant.foreground)
+        failures += validate_opencode(variant.opencode, variant.background, variant.foreground)
         failures += validate_sky(variant.sky)
         failures += validate_ritual_palette(variant.ritual, variant.background)
         if defaults is not None:

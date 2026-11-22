@@ -47,6 +47,19 @@ class PaletteTest(unittest.TestCase):
         )
 
 
+class OpencodeTest(unittest.TestCase):
+    def test_opencode_has_every_theme_key(self):
+        self.assertEqual(set(palette.OPENCODE), tokens.OPENCODE_ALL)
+        self.assertEqual(len(tokens.OPENCODE_ALL), 52)
+
+    def test_opencode_keeps_the_candle_feel(self):
+        theme = palette.OPENCODE
+        self.assertEqual(theme["background"], palette.BACKGROUND)
+        self.assertEqual(theme["text"], palette.FOREGROUND)
+        self.assertEqual(theme["primary"], palette.CLAUDE_OVERRIDES["claude"])
+        self.assertEqual(theme["warning"], palette.CLAUDE_OVERRIDES["permission"])
+
+
 class VariantTest(unittest.TestCase):
     def test_midnight_is_the_default_and_holds_the_module_colours(self):
         midnight = palette.VARIANTS[palette.DEFAULT_VARIANT]
@@ -59,6 +72,7 @@ class VariantTest(unittest.TestCase):
         self.assertEqual((midnight.background, midnight.foreground), (palette.BACKGROUND, palette.FOREGROUND))
         self.assertIs(midnight.sky, palette.SKY)
         self.assertIs(midnight.wt_profile, palette.WT_PROFILE)
+        self.assertIs(midnight.opencode, palette.OPENCODE)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import tempfile
 import unittest
@@ -12,11 +13,19 @@ class BuildTest(unittest.TestCase):
         self.outputs = build.render_outputs()
 
     def test_outputs_cover_every_artifact(self):
-        self.assertEqual(set(self.outputs), {build.THEME, build.OUTPUT_STYLE, build.STATUSLINE, build.TIPS, build.WT_SCHEME})
+        self.assertEqual(set(self.outputs), {build.THEME, build.OUTPUT_STYLE, build.STATUSLINE, build.TIPS, build.WT_SCHEME,
+                                                  build.OPENCODE_THEME})
 
     def test_theme_file(self):
         self.assertEqual(json.loads(self.outputs[build.THEME]),
                          {"name": "Moonlit Candle", "base": "dark", "overrides": palette.CLAUDE_OVERRIDES})
+
+    def test_opencode_theme_file(self):
+        data = json.loads(self.outputs[build.OPENCODE_THEME])
+        self.assertEqual(data["$schema"], "https://opencode.ai/theme.json")
+        self.assertEqual(data["theme"], palette.OPENCODE)
+        self.assertEqual(set(data), {"$schema", "theme"})
+        self.assertTrue(all(isinstance(value, str) for value in data["theme"].values()))
 
     def test_scheme_file(self):
         self.assertEqual(json.loads(self.outputs[build.WT_SCHEME]), palette.WT_SCHEME)
@@ -100,6 +109,13 @@ class VariantBuildTest(unittest.TestCase):
         self.assertEqual(theme["base"], "light")
         self.assertEqual(theme["overrides"]["claude"], "#AA5500")
         self.assertEqual(theme["name"], palette.THEME_NAME)
+
+    def test_render_uses_the_variants_opencode_colours(self):
+        midnight = palette.VARIANTS["midnight"]
+        dawn = dataclasses.replace(midnight, name="dawn", opencode=dict(midnight.opencode, primary="#AA5500"))
+        with mock.patch.dict(palette.VARIANTS, {"dawn": dawn}):
+            theme = json.loads(build.render_outputs(variant="dawn")[build.OPENCODE_THEME])
+        self.assertEqual(theme["theme"]["primary"], "#AA5500")
 
 
 if __name__ == "__main__":

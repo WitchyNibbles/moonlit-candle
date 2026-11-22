@@ -87,6 +87,70 @@ CLAUDE_OVERRIDES: dict[str, str] = {
     "rainbow_violet_shimmer": "#E8C7FF",
 }
 
+# OpenCode's theme (52 keys, one bare #RRGGBB each: dark only, like the Claude theme). The colours come from
+# CLAUDE_OVERRIDES; the syntax colours from the Spellbound VS Code theme "WitchyNibbles Moonlit Candle"
+# (Spellbound-Themes, themes/WitchyNibbles-color-theme-moonlit-candle.json, tokenColors).
+OPENCODE: dict[str, str] = {
+    # Surfaces
+    "background": BACKGROUND,
+    "backgroundPanel": CLAUDE_OVERRIDES["userMessageBackground"],
+    "backgroundElement": CLAUDE_OVERRIDES["userMessageBackgroundHover"],
+    "backgroundMenu": CLAUDE_OVERRIDES["userMessageBackgroundHover"],
+    # Text and accents (OpenCode draws the permission card in warning, so it takes the permission pink)
+    "text": FOREGROUND,
+    "textMuted": CLAUDE_OVERRIDES["inactive"],
+    "primary": CLAUDE_OVERRIDES["claude"],
+    "secondary": CLAUDE_OVERRIDES["planMode"],
+    "accent": CLAUDE_OVERRIDES["bashBorder"],
+    "warning": CLAUDE_OVERRIDES["permission"],
+    "error": CLAUDE_OVERRIDES["error"],
+    "success": CLAUDE_OVERRIDES["success"],
+    "info": CLAUDE_OVERRIDES["rainbow_indigo"],
+    "selectedListItemText": CLAUDE_OVERRIDES["inverseText"],
+    # Borders
+    "border": CLAUDE_OVERRIDES["promptBorder"],
+    "borderActive": "#B99AFF",
+    "borderSubtle": "#38234D",
+    # Diffs
+    "diffAdded": CLAUDE_OVERRIDES["success"],
+    "diffRemoved": CLAUDE_OVERRIDES["error"],
+    "diffHighlightAdded": CLAUDE_OVERRIDES["rainbow_green_shimmer"],
+    "diffHighlightRemoved": CLAUDE_OVERRIDES["rainbow_red_shimmer"],
+    "diffContext": CLAUDE_OVERRIDES["inactive"],
+    "diffLineNumber": CLAUDE_OVERRIDES["inactive"],
+    "diffHunkHeader": CLAUDE_OVERRIDES["merged"],
+    "diffAddedBg": CLAUDE_OVERRIDES["diffAdded"],
+    "diffRemovedBg": CLAUDE_OVERRIDES["diffRemoved"],
+    "diffContextBg": "#120C1F",
+    "diffAddedLineNumberBg": CLAUDE_OVERRIDES["diffAddedDimmed"],
+    "diffRemovedLineNumberBg": CLAUDE_OVERRIDES["diffRemovedDimmed"],
+    # Markdown
+    "markdownHeading": "#FFD477",
+    "markdownListItem": "#FFD477",
+    "markdownStrong": CLAUDE_OVERRIDES["warning"],
+    "markdownEmph": "#F6B5DD",
+    "markdownLink": "#77D9FF",
+    "markdownListEnumeration": "#77D9FF",
+    "markdownImage": "#77D9FF",
+    "markdownLinkText": "#9CCBFF",
+    "markdownImageText": "#9CCBFF",
+    "markdownCode": "#74E8B8",
+    "markdownBlockQuote": "#B99AFF",
+    "markdownText": FOREGROUND,
+    "markdownCodeBlock": FOREGROUND,
+    "markdownHorizontalRule": CLAUDE_OVERRIDES["subtle"],
+    # Syntax
+    "syntaxComment": "#A99AB9",
+    "syntaxKeyword": "#B99AFF",
+    "syntaxFunction": "#FFD477",
+    "syntaxVariable": FOREGROUND,
+    "syntaxString": "#74E8B8",
+    "syntaxNumber": "#FF9BD7",
+    "syntaxType": "#77D9FF",
+    "syntaxOperator": "#D3B4FF",
+    "syntaxPunctuation": "#D3B4FF",
+}
+
 WT_SCHEME: dict[str, str] = {
     "name": THEME_NAME,
     "background": BACKGROUND,
@@ -336,10 +400,11 @@ class Variant:
     ritual: dict[str, str] = field(default_factory=dict)
     tide: dict[str, str | tuple[str, ...]] = field(default_factory=dict)
     eza: dict[str, str] = field(default_factory=dict)
+    opencode: dict[str, str] = field(default_factory=dict)
 
 
 DEFAULT_VARIANT = "midnight"
 VARIANTS: dict[str, Variant] = {
     "midnight": Variant("midnight", "dark", BACKGROUND, FOREGROUND, CLAUDE_OVERRIDES, WT_SCHEME, STATUSLINE,
-                        sky=SKY, wt_profile=WT_PROFILE, ritual=RITUAL, tide=TIDE, eza=EZA),
+                        sky=SKY, wt_profile=WT_PROFILE, ritual=RITUAL, tide=TIDE, eza=EZA, opencode=OPENCODE),
 }
