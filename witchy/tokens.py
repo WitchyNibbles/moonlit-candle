@@ -79,12 +79,8 @@ OPENCODE_SECONDARY = ("border", "borderActive", "markdownHorizontalRule")
 OPENCODE_EXEMPT = {
     "borderSubtle": "a divider line, not information",
 }
-# The diff surfaces and the highlights are checked through OPENCODE_DIFF_PAIRS.
-OPENCODE_DIFF_KEYS = (
-    "diffAddedBg", "diffRemovedBg", "diffContextBg", "diffAddedLineNumberBg", "diffRemovedLineNumberBg",
-    "diffHighlightAdded", "diffHighlightRemoved",
-)
+# The diff surfaces and the highlights are only named in OPENCODE_DIFF_PAIRS, so the key set takes them from there.
 OPENCODE_ALL = frozenset((
-    *OPENCODE_SURFACES, *OPENCODE_TEXT, *OPENCODE_DIFF_KEYS, OPENCODE_ON_ACCENT, *OPENCODE_SECONDARY,
-    *OPENCODE_EXEMPT,
+    *OPENCODE_SURFACES, *OPENCODE_TEXT, OPENCODE_ON_ACCENT, *OPENCODE_SECONDARY, *OPENCODE_EXEMPT,
+    *(key for keys, surface in OPENCODE_DIFF_PAIRS for key in (*keys, surface)),
 ))
