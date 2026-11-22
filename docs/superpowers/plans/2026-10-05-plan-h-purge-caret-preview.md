@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/eimi/.pyenv/versions/3.10.0/bin/python3`.
+- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/<user>/.pyenv/versions/3.10.0/bin/python3`.
 - Test command, from the repo root: `/usr/bin/python3 -m unittest discover -s tests -t .`, and the same with the 3.10 interpreter. `python3 -m witchy validate` must print `Moonlit Candle: all checks passed`.
 - No test touches the real `~/.claude`, `~/.cache`, `~/.config/fish`, fish universal variables, Windows Terminal, `cmd.exe`, `reg.exe`, the registry or the network. Use `tests/fakes.py`, `--wt-settings` with a fixture, and temporary folders. Tests that run real fish set `HOME` and `XDG_CONFIG_HOME` to a temporary folder and are skipped when fish is missing.
 - **Every manual run of witchy code uses a temporary HOME and XDG_CONFIG_HOME** (`HOME=$(mktemp -d)`), including `preview`, `ritual --caret` and the fish templates. Never use `fish --no-config` for Tide work: it also turns off universal variables.
@@ -544,7 +544,7 @@ In the Troubleshooting table, after the row that starts ``| `✗ windows-termina
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 781 tests … OK (skipped=2)` on both, and `Moonlit Candle: all checks passed`.
@@ -1014,7 +1014,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 797 tests … OK (skipped=2)` on both, and `Moonlit Candle: all checks passed`.
@@ -1360,7 +1360,7 @@ The sky job runs in the background when a tab opens and moves the Windows Termin
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 809 tests … OK (skipped=2)` on both, and `Moonlit Candle: all checks passed`.
@@ -1675,7 +1675,7 @@ In `README.md`'s Troubleshooting table, before the row that starts ``| `⚠ fish
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 818 tests … OK (skipped=2)` on both, and `Moonlit Candle: all checks passed`.
@@ -2162,7 +2162,7 @@ The lines fill the terminal's width, today's moon phase and time included. The f
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 H=$(mktemp -d); env HOME="$H" XDG_CONFIG_HOME="$H/.config" PATH=/usr/bin:/bin /usr/bin/python3 -m witchy preview; echo "exit=$?"; ls -A "$H"
 ```
@@ -2270,7 +2270,7 @@ git commit -m "docs: the shell-ritual spec no longer promises the pink prompt ba
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 git diff --stat <Plan G's last commit>..HEAD
 ```

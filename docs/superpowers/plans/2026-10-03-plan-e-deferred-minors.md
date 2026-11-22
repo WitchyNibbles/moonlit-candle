@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/eimi/.pyenv/versions/3.10.0/bin/python3`.
+- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/<user>/.pyenv/versions/3.10.0/bin/python3`.
 - Test command, from the repo root: `/usr/bin/python3 -m unittest discover -s tests -t .`, and the same with the 3.10 interpreter. `python3 -m witchy validate` must print `Moonlit Candle: all checks passed`.
 - No test touches the real `~/.claude`, `~/.cache`, `~/.config/fish`, fish universal variables, Windows Terminal, `cmd.exe`, `reg.exe`, the registry or the network. Use `tests/fakes.py` and temporary folders. Tests that run real fish set `HOME` and `XDG_CONFIG_HOME` to a temporary folder and are skipped when fish is missing.
 - **Every manual run of witchy code uses a temporary HOME** (`HOME=$(mktemp -d)`), including the CLI, the greeting, `--sky` and the fish templates. During prototyping one run of `ritual` with a bad `--date` against the real HOME wrote `~/.cache/witchy/ritual.log` (Task 12's C6 logs argument errors when stderr is not a terminal). Never use `fish --no-config` for Tide work.
@@ -398,7 +398,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 476 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -865,7 +865,7 @@ In section 9, after the row `| claude | \`settings.json\` not plain JSON | …`,
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 491 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -1056,7 +1056,7 @@ No source changes. This task adds tests only.
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 494 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -1423,7 +1423,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 505 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -1594,7 +1594,7 @@ Nothing to implement: `witchy/components/font.py` already behaves as the tests e
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 509 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -2417,7 +2417,7 @@ In section 9, after the row `| fish | \`set -U\` non-zero (\`CalledProcessError\
 Run (any manual witchy run uses a temporary HOME):
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 H=$(mktemp -d); HOME=$H XDG_CONFIG_HOME=$H/.config python3 -m witchy validate; rm -rf $H
 ```
 Expected: `Ran 523 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -2663,7 +2663,7 @@ A sky fail marker for today adds `(it retries tomorrow)` to a sky error from tod
 Run (any manual witchy run uses a temporary HOME):
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 H=$(mktemp -d); HOME=$H XDG_CONFIG_HOME=$H/.config python3 -m witchy validate; rm -rf $H
 ```
 Expected: `Ran 526 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -2796,7 +2796,7 @@ FAILED (failures=2)
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 526 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -2989,7 +2989,7 @@ index b2b2258..922e5ad 100644
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 530 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -3266,7 +3266,7 @@ index 4474c9f..506b9bd 100644
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 537 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -3307,7 +3307,7 @@ index 9eb0b11..7498064 100644
 --- a/tests/test_windows.py
 +++ b/tests/test_windows.py
 @@ -29,4 +29,12 @@ class UserHomeTest(unittest.TestCase):
-                          windows.WindowsHome("C:\\Users\\manue", self.mnt / "c" / "Users" / "manue"))
+                          windows.WindowsHome("C:\\Users\\<user>", self.mnt / "c" / "Users" / "<user>"))
  
 +    def test_a_percent_sign_in_the_profile_path_is_a_value_not_an_unset_variable(self):
 +        (self.mnt / "c" / "Users" / "100%").mkdir(parents=True)
@@ -3326,9 +3326,9 @@ index b8615f7..13079f3 100644
 @@ -210,7 +210,9 @@ class LookupFixTest(unittest.TestCase):
  
      def test_profile_folder_wins_over_a_renamed_account(self):
--        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"})
+-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\<user>\r\n", "USERNAME": "<name>\r\n"})
 +        calls = []
-+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"}, calls=calls)
++        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\<user>\r\n", "USERNAME": "<name>\r\n"}, calls=calls)
          found = wt.locate_settings(None, run=run, users_root=self.mnt / "c" / "Users", mount_root=self.mnt)
          self.assertEqual(found, self.settings)
 +        self.assertNotIn(["cmd.exe", "/c", "echo %USERNAME%"], calls)
@@ -3385,7 +3385,7 @@ index 87d5b99..48aab8c 100644
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 538 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -3565,7 +3565,7 @@ class PreviewZoneTest(CliTestCase):
 
 - [ ] **Step 2: Run them and watch them fail**
 
-Run: `/usr/bin/python3 -m unittest tests.test_ritual_cli` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest tests.test_ritual_cli`
+Run: `/usr/bin/python3 -m unittest tests.test_ritual_cli` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest tests.test_ritual_cli`
 Expected (real output from the prototype, 3.12; the three `SkyModeTest` additions pin existing behaviour and pass):
 ```
 ERROR: test_the_date_must_be_yyyy_mm_dd (tests.test_ritual_cli.ArgumentErrorTest.test_the_date_must_be_yyyy_mm_dd)
@@ -3726,7 +3726,7 @@ Never check the error path by hand with the real HOME: with stderr not a termina
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 545 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -4023,7 +4023,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 551 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -4235,7 +4235,7 @@ When the profile already shows tonight's image it only writes `sky-bin`, also un
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 555 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -4324,7 +4324,7 @@ Nothing: no source change.
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 557 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -4355,7 +4355,7 @@ This task runs witchy against the user's real HOME, which the Global Constraints
 - [ ] **Step 1: Take a snapshot of every place witchy touches**
 
 ```bash
-snap() { find ~/.cache/witchy ~/.claude/witchy ~/.claude/state* ~/.claude/settings.json ~/.config/fish /mnt/c/Users/manue/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState -maxdepth 3 -printf '%p %T@ %s\n' 2>/dev/null | sort | sha256sum; }
+snap() { find ~/.cache/witchy ~/.claude/witchy ~/.claude/state* ~/.claude/settings.json ~/.config/fish /mnt/c/Users/<user>/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState -maxdepth 3 -printf '%p %T@ %s\n' 2>/dev/null | sort | sha256sum; }
 before=$(snap)
 ```
 
@@ -4370,7 +4370,7 @@ python3 -m witchy uninstall --dry-run > /tmp/witchy-uninstall-dry.txt 2>&1; echo
 Expected (seen on the merged prototype):
 - `doctor`: ten `✓` lines (claude ×2, font, windows-terminal ×3, fish ×4, the last being `no greeting or sky errors in the last 7 days`), then `exit=0`.
 - `install --dry-run`: `exit=0`, ending `Dry run: nothing was written.`. Each component's actions now follow its own diff (Task 1).
-- `uninstall --dry-run`: `exit=0`, with `fish: restore 31 Tide variables`, `fish: refresh Tide's prompt items` and the new `fish: remove /home/eimi/.claude/witchy/ritual if empty` (Task 1). It ends `Dry run: nothing was written.`.
+- `uninstall --dry-run`: `exit=0`, with `fish: restore 31 Tide variables`, `fish: refresh Tide's prompt items` and the new `fish: remove /home/<user>/.claude/witchy/ritual if empty` (Task 1). It ends `Dry run: nothing was written.`.
 
 A `✗`, a traceback or a non-zero exit is a failure. Stop and report it verbatim.
 

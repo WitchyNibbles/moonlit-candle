@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only; every test passes on `/usr/bin/python3` (3.12) and on Python 3.10 (`/home/eimi/.pyenv/versions/3.10.0/bin/python3` on this machine; `/usr/bin/python3.10` does not exist here).
+- Python 3.10 or newer, standard library only; every test passes on `/usr/bin/python3` (3.12) and on Python 3.10 (`/home/<user>/.pyenv/versions/3.10.0/bin/python3` on this machine; `/usr/bin/python3.10` does not exist here).
 - Test command: `/usr/bin/python3 -m unittest discover -s tests -t .` (run from the repo root), and the same with the 3.10 interpreter.
 - No test touches the real `~/.claude`, Windows Terminal, `cmd.exe`, `reg.exe`, the registry or the network: tests use a temporary `HOME`, `wt_settings` or a temporary `mount_root`, a fake `run` (`tests/fakes.py`), a fake `fetch`, and `lock_path` inside the temp dir.
 - Every subprocess gets list arguments, never a shell string; values come from constants (spec 10.2).
@@ -343,7 +343,7 @@ def show_changes(ctx: Any, changes: list[Change]) -> None:
 
 - [ ] **Step 4: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (200 Plan A tests + 11 new).
 
 - [ ] **Step 5: Commit**
@@ -421,7 +421,7 @@ from witchy import windows
 
 class ToWslTest(unittest.TestCase):
     def test_drive_paths(self):
-        self.assertEqual(windows.to_wsl("C:\\Users\\manue"), Path("/mnt/c/Users/manue"))
+        self.assertEqual(windows.to_wsl("C:\\Users\\<user>"), Path("/mnt/c/Users/<user>"))
         self.assertEqual(windows.to_wsl("D:\\Data\\x\\", Path("/m")), Path("/m/d/Data/x"))
 
     def test_other_paths_are_not_mapped(self):
@@ -436,10 +436,10 @@ class UserHomeTest(unittest.TestCase):
         self.mnt = Path(tmp.name) / "mnt"
 
     def test_profile_folder_from_userprofile(self):
-        (self.mnt / "c" / "Users" / "manue").mkdir(parents=True)
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n"})
+        (self.mnt / "c" / "Users" / "<user>").mkdir(parents=True)
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\<user>\r\n"})
         self.assertEqual(windows.user_home(run, self.mnt),
-                         windows.WindowsHome("C:\\Users\\manue", self.mnt / "c" / "Users" / "manue"))
+                         windows.WindowsHome("C:\\Users\\<user>", self.mnt / "c" / "Users" / "<user>"))
 
     def test_missing_folder_or_variable_is_none(self):
         self.assertIsNone(windows.user_home(fake_windows(echo={"USERPROFILE": "C:\\Users\\gone\r\n"}), self.mnt))
@@ -477,12 +477,12 @@ class LookupFixTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.mnt = Path(tmp.name) / "mnt"
-        self.settings = wt.settings_path_in(self.mnt / "c" / "Users" / "manue")
+        self.settings = wt.settings_path_in(self.mnt / "c" / "Users" / "<user>")
         self.settings.parent.mkdir(parents=True)
         self.settings.write_text("{}")
 
     def test_profile_folder_wins_over_a_renamed_account(self):
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"})
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\<user>\r\n", "USERNAME": "<name>\r\n"})
         found = wt.locate_settings(None, run=run, users_root=self.mnt / "c" / "Users", mount_root=self.mnt)
         self.assertEqual(found, self.settings)
 
@@ -493,7 +493,7 @@ class LookupFixTest(unittest.TestCase):
         self.assertEqual((found, calls), (self.settings, []))
 
     def test_stale_recorded_path_falls_back_to_the_profile_folder(self):
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n"})
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\<user>\r\n"})
         found = wt.locate_settings(None, run=run, recorded=str(self.mnt / "old.json"), mount_root=self.mnt)
         self.assertEqual(found, self.settings)
 
@@ -651,7 +651,7 @@ In `witchy/components/windows_terminal.py`, `plan`: replace the `path = wt.locat
 
 - [ ] **Step 5: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both.
 
 - [ ] **Step 6: Commit**
@@ -1223,7 +1223,7 @@ The font component would run `cmd.exe` and download in the install tests; they c
 
 - [ ] **Step 8: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both. Any other failing assertion is a regression: fix the code, not the test.
 
 - [ ] **Step 9: Commit**
@@ -1579,7 +1579,7 @@ and change the midnight entry to:
 
 - [ ] **Step 6: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both. The full-size render test takes about 0.2 s.
 
 - [ ] **Step 7: Commit**
@@ -1963,7 +1963,7 @@ class WindowsTerminalComponent:
 
 - [ ] **Step 6: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both. `tests/test_install.py` passes unchanged: uninstall restores the profile byte for byte.
 
 - [ ] **Step 7: Commit**
@@ -2411,7 +2411,7 @@ class WindowsTerminalComponent:
 
 - [ ] **Step 5: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both. In `tests/test_install.py` the images appear in the fake Windows Terminal folder after install and are gone after uninstall, so every byte-for-byte round trip still holds. Any other failing assertion is a regression: fix the code, not the test.
 
 - [ ] **Step 6: Commit**
@@ -2475,7 +2475,7 @@ In `docs/superpowers/specs/2026-10-02-shell-ritual-design.md`, check that each a
 
 - [ ] **Step 3: Run the full suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both.
 
 - [ ] **Step 4: Real-machine dry run and doctor (controller only)**
