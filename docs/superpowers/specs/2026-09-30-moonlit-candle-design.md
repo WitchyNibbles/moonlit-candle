@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-09-30
 - **Estado:** diseño aprobado en conversación, pendiente de revisar esta spec
-- **Uso:** personal (Manuel, WSL Ubuntu dentro de Windows Terminal, Claude Code 2.1.285)
+- **Uso:** personal (the author, WSL Ubuntu dentro de Windows Terminal, Claude Code 2.1.285)
 - **Inspiración:** repos de [WitchyNibbles](https://github.com/WitchyNibbles), sobre todo `Spellbound-Themes` (paleta Moonlit) y `devgod`/`archon` (vela, luna dorada, "keep the receipts")
 
 ## 1. Objetivo
@@ -178,7 +178,7 @@ Fondo del terminal `#0D0916`, texto `#F3EAF7`. Todos los valores van en `#RRGGBB
 Formato (una sola línea, con un espacio al principio y otro al final, como archon):
 
 ```
- 🕯️ Opus 5.5·xhigh ⋆ 🌓 48% ⋆ 5h 71% ⋆ 7d 88% ⋆ 📜 GII_claude_2 ⎇ bugfix/INC-98560✦2
+ 🕯️ Opus 5.5·xhigh ⋆ 🌓 48% ⋆ 5h 71% ⋆ 7d 88% ⋆ 📜 witchyterm ⎇ feature/moonlit✦2
 ```
 
 Datos de entrada (campos del JSON que Claude Code envía por stdin, según la [documentación oficial](https://code.claude.com/docs/en/statusline)):
@@ -246,7 +246,7 @@ Cada fallo se imprime como `<regla>: <elemento> <valor> <ratio o motivo>`, y el 
 
 ### 7.3 Windows Terminal
 
-- **Ruta**: `--wt-settings PATH` si se indica. Si no, `/mnt/c/Users/<U>/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json`, donde `<U>` es la salida de `cmd.exe /c echo %USERNAME%` sin `\r`. **No se usa glob**: en esta máquina existen los usuarios `admin` y `mmarenas`, y hay que tocar solo el del usuario actual. Si no se encuentra, se muestra un aviso, se omite Windows Terminal y la instalación sigue.
+- **Ruta**: `--wt-settings PATH` si se indica. Si no, `/mnt/c/Users/<U>/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json`, donde `<U>` es la salida de `cmd.exe /c echo %USERNAME%` sin `\r`. **No se usa glob**: en esta máquina existen los usuarios `admin` y `<user>`, y hay que tocar solo el del usuario actual. Si no se encuentra, se muestra un aviso, se omite Windows Terminal y la instalación sigue.
 - **Perfil**: el GUID de la variable de entorno `WT_PROFILE_ID` (ahora es `{05f3f843-450a-55ad-a264-cacf368dafe5}`, "Ubuntu"). Si no está, el único perfil con `source == "Microsoft.WSL"` cuyo `name` coincida con `$WSL_DISTRO_NAME`. Si hay cero o varios, se muestra un aviso y se omite Windows Terminal.
 - **Cambios**: se añade el esquema a `schemes` (si ya existe uno con ese `name`, se reemplaza) y se pone `"colorScheme": "Moonlit Candle"` **solo** en ese perfil. El valor anterior ahora es `"One Half Dark"`.
 - Windows Terminal recarga su `settings.json` en caliente; no hace falta reiniciarlo.

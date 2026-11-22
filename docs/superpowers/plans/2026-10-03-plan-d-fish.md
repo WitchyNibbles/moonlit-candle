@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only; every test passes on `/usr/bin/python3` (3.12) and `/home/eimi/.pyenv/versions/3.10.0/bin/python3`.
+- Python 3.10 or newer, standard library only; every test passes on `/usr/bin/python3` (3.12) and `/home/<user>/.pyenv/versions/3.10.0/bin/python3`.
 - Test command (from the repo root): `/usr/bin/python3 -m unittest discover -s tests -t .`, and the same with the 3.10 interpreter. `python3 -m witchy validate` must print `Moonlit Candle: all checks passed`.
 - No test touches the real `~/.claude`, `~/.cache`, `~/.config/fish`, fish universal variables, Windows Terminal, the registry or the network. Unit tests use `tests.fakes.fake_fish`; tests that run real fish set `HOME` and `XDG_CONFIG_HOME` to a temporary folder and are skipped when fish is missing.
 - Every fish call uses list arguments, a 5 s timeout and `ctx.env`, through the injectable `ctx.run` (spec 5.3, 10.2). Values never go into a script string.
@@ -773,7 +773,7 @@ Expected: `OK`.
 
 - [ ] **Step 5: Run the whole suite on both Pythons, and validate**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .`, `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .` and `/usr/bin/python3 -m witchy validate`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .`, `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .` and `/usr/bin/python3 -m witchy validate`
 Expected: `Ran 387 tests … OK` on both; `Moonlit Candle: all checks passed`.
 
 - [ ] **Step 6: Commit**
@@ -1247,7 +1247,7 @@ echo "python ran"
 
 class RenderTest(unittest.TestCase):
     def test_every_template_is_rendered_without_placeholders(self):
-        files = build.fish_files("/usr/bin/python3", Path("/home/eimi/.claude/witchy"))
+        files = build.fish_files("/usr/bin/python3", Path("/home/<user>/.claude/witchy"))
         self.assertEqual(set(files), NAMES)
         for name, data in files.items():
             self.assertNotIn("@", data.decode("utf-8").replace("@PWD@", ""), name)

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/eimi/.pyenv/versions/3.10.0/bin/python3`.
+- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/<user>/.pyenv/versions/3.10.0/bin/python3`.
 - Test command, from the repo root: `/usr/bin/python3 -m unittest discover -s tests -t .`, and the same with the 3.10 interpreter. `python3 -m witchy validate` must print `Moonlit Candle: all checks passed`.
 - No test touches the real `~/.claude`, `~/.cache`, `~/.config/fish`, fish universal variables, Windows Terminal, `cmd.exe`, `reg.exe`, the registry or the network. Use `tests/fakes.py` and temporary folders. Tests that run real fish set `HOME` and `XDG_CONFIG_HOME` to a temporary folder and are skipped when fish is missing. The one exception is `tests/test_tide_network.py`, which is skipped unless `WITCHY_NETWORK_TESTS=1` and then downloads only into a temporary HOME.
 - **Every manual run of witchy code uses a temporary HOME** (`HOME=$(mktemp -d)`, and `XDG_RUNTIME_DIR` in the same folder). Never run a real `install`, `uninstall`, `mood`, `doctor --fix`, `sudo`, `apt`, `apt-get` or `chsh` against the real HOME. Reading real files (for example `~/.config/fish`) is allowed; Task 13 copies them into a temporary HOME before anything runs. Never use `fish --no-config` for Tide work.
@@ -472,7 +472,7 @@ def load_pins(content_dir: Path = CONTENT_DIR) -> dict[str, Any]:
 Generate the pins from the real releases (the only network use of this task):
 
 Run: `python3 scripts/pins.py`
-Expected: `wrote the pins of 85 files to /home/eimi/projects/witchyterm/content/pins.json`
+Expected: `wrote the pins of 85 files to /home/<user>/projects/witchyterm/content/pins.json`
 
 The file must be exactly this (if GitHub is unreachable, write it by hand from here):
 
@@ -584,7 +584,7 @@ Expected: `Ran 8 tests … OK`
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 646 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -4066,7 +4066,7 @@ class FreshTest(unittest.TestCase):
 
     def fake_run(self, args, **kwargs):
         if args[:2] == ["getent", "passwd"]:
-            return subprocess.CompletedProcess(args, 0, stdout=f"eimi:x:1000:1000::/home/eimi:{self.shell}\n")
+            return subprocess.CompletedProcess(args, 0, stdout=f"<user>:x:1000:1000::/home/<user>:{self.shell}\n")
         self.calls.append(args)
         if args[-1] == "fish" and "install" in args:
             self.tool("fish")  # apt put it on PATH
@@ -4082,7 +4082,7 @@ class FreshTest(unittest.TestCase):
             return replies.pop(0)
 
         self.out = io.StringIO()
-        ctx = Context(home=self.home, env={"PATH": str(self.bin), "USER": "eimi"}, out=self.out, dry_run=dry_run,
+        ctx = Context(home=self.home, env={"PATH": str(self.bin), "USER": "<user>"}, out=self.out, dry_run=dry_run,
                       run=self.fake_run)
         return fresh.prepare(ctx, ask=ask, interactive=interactive)
 

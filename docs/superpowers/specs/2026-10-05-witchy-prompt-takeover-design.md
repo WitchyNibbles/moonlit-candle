@@ -3,7 +3,7 @@
 - **Date:** 2026-10-05
 - **Revision:** 2 (folds in the [CEO review](../../reviews/2026-10-05-prompt-takeover-ceo-review.md))
 - **Status:** revision 1 approved; revision 2 pending review
-- **Use:** personal (eimi, WSL2 Ubuntu inside Windows Terminal, fish 3.7.0)
+- **Use:** personal (the author, WSL2 Ubuntu inside Windows Terminal, fish 3.7.0)
 - **Builds on:** [`2026-10-02-shell-ritual-design.md`](2026-10-02-shell-ritual-design.md). Everything there still holds unless this spec changes it. Section numbers below such as "ritual 5.2" point into that spec.
 
 ## 1. Problem

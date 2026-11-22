@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/eimi/.pyenv/versions/3.10.0/bin/python3`.
+- Python 3.10 or newer, standard library only. Every test passes on `/usr/bin/python3` (3.12) and `/home/<user>/.pyenv/versions/3.10.0/bin/python3`.
 - Test command, from the repo root: `/usr/bin/python3 -m unittest discover -s tests -t .`, and the same with the 3.10 interpreter. `python3 -m witchy validate` must print `Moonlit Candle: all checks passed`.
 - No test touches the real `~/.claude`, `~/.cache`, `~/.config/fish`, fish universal variables, Windows Terminal, `cmd.exe`, `reg.exe`, the registry or the network. Use `tests/fakes.py` and temporary folders. Tests that run real fish set `HOME` and `XDG_CONFIG_HOME` to a temporary folder and are skipped when fish is missing.
 - **Every manual run of witchy code uses a temporary HOME and XDG_CONFIG_HOME** (`HOME=$(mktemp -d)`). The Tide source for Tasks 2 and 9 is the v6.1.1 release tarball, downloaded into a temporary folder (the only network use in this plan). The Tide installed in `~/.config/fish` on this PC is a development build and is not used, except for one read-only check that the generator refuses it (Task 2 Step 4). Never use `fish --no-config` for Tide work: it also turns off universal variables.
@@ -318,7 +318,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 558 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -750,7 +750,7 @@ Expected: `wrote 156 Tide variables to <repo>/content/tide-6.1.1-defaults.json`,
 The installed Tide on this PC is refused (read only, nothing is written):
 
 Run: `python3 scripts/tide_defaults.py ~/.config/fish /dev/null; echo "exit=$?"`
-Expected: `tide_defaults: /home/eimi/.config/fish/functions/tide/configure/icons.fish is not the one in the Tide 6.1.1 release (a development build of Tide?)`, then `exit=1`.
+Expected: `tide_defaults: /home/<user>/.config/fish/functions/tide/configure/icons.fish is not the one in the Tide 6.1.1 release (a development build of Tide?)`, then `exit=1`.
 
 Check the file is the prototype's, byte for byte:
 
@@ -1028,7 +1028,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 574 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -1528,7 +1528,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 585 tests … OK` on both, and `Moonlit Candle: all checks passed`. The fish component tests still pass: they read `palette.TIDE` (now 141 names) through the variant, which Task 7 replaces with `build.tide`.
@@ -1990,7 +1990,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 594 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -2412,7 +2412,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 609 tests … OK` on both, and `Moonlit Candle: all checks passed`. `tests/test_validate.py::ValidateAllTest.test_unreadable_content_is_a_failure` still sees only `content` failures for an empty folder.
@@ -2817,7 +2817,7 @@ Expected: `ok`
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 620 tests … OK` on both, and `Moonlit Candle: all checks passed`. The real-fish probe tests run in about a tenth of a second each; a hang there means a `string replace` is reading standard input.
@@ -3530,7 +3530,7 @@ Expected: `ok`
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 626 tests … OK` on both, and `Moonlit Candle: all checks passed`.
@@ -4065,7 +4065,7 @@ with:
 Run:
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -t .
-/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
+/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .
 python3 -m witchy validate
 ```
 Expected: `Ran 638 tests … OK` on both, and `Moonlit Candle: all checks passed`.

@@ -24,7 +24,7 @@ echo "python ran"
 
 class RenderTest(unittest.TestCase):
     def test_every_template_is_rendered_without_placeholders(self):
-        files = build.fish_files("/usr/bin/python3", Path("/home/eimi/.claude/witchy"))
+        files = build.fish_files("/usr/bin/python3", Path("/home/user/.claude/witchy"))
         self.assertEqual(set(files), NAMES)
         for name, data in files.items():
             self.assertNotIn("@", data.decode("utf-8"), name)

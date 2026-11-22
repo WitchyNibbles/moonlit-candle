@@ -62,7 +62,6 @@ TIP_ID_MAX = 64
 SABBATS = ("Imbolc", "Ostara", "Beltane", "Litha", "Lughnasadh", "Mabon", "Samhain", "Yule")
 LUNAR_LINES = ("new", "full", "blue")
 TAROT_CARDS = 22
-NAME_MAX = 24
 LINE_MAX = 48
 MEANING_MAX = 60
 
@@ -282,9 +281,8 @@ def _short_text(failures: list[Failure], item: str, value: Any, limit: int) -> N
 
 
 def validate_ritual(data: Mapping[str, Any]) -> list[Failure]:
-    """content/ritual.json: the salutation name, 8 sabbat blessings, 3 lunar lines and 22 tarot cards."""
+    """content/ritual.json: 8 sabbat blessings, 3 lunar lines and 22 tarot cards."""
     failures: list[Failure] = []
-    _short_text(failures, "ritual.name", data.get("name"), NAME_MAX)
     sabbats = data.get("sabbats") if isinstance(data.get("sabbats"), dict) else {}
     for name in SABBATS:
         _short_text(failures, f"ritual.sabbats.{name}", sabbats.get(name), LINE_MAX)

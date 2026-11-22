@@ -3,7 +3,7 @@
 - **Date:** 2026-10-02
 - **Revision:** 2 (folds in the [CEO review](../reviews/2026-10-02-shell-ritual-ceo-review.md))
 - **Status:** revision 1 approved; revision 2 pending review
-- **Use:** personal (eimi, WSL2 Ubuntu 24.04 inside Windows Terminal, fish 3.7.0, Tide 6.1.1, Claude Code 2.1.287)
+- **Use:** personal (the author, WSL2 Ubuntu 24.04 inside Windows Terminal, fish 3.7.0, Tide 6.1.1, Claude Code 2.1.287)
 - **Builds on:** [`2026-09-30-moonlit-candle-design.md`](2026-09-30-moonlit-candle-design.md) (Spanish, historical). Everything in that spec still holds unless this one changes it.
 - **Diagram:** [`docs/diagrams/witchy-components.html`](../../diagrams/witchy-components.html)
 
@@ -103,7 +103,7 @@ Variants change colours only; theme name, scheme name and installed paths stay t
 ### 3.5 Content changes
 
 - `content/output-style.md` becomes the user's edited version (one vocabulary touch per message; the reply-shape section), with the sentence that names a diagnosis reworded to *"Write for a reader who skims: short blocks, one idea per line."* The rules stay the same.
-- `content/ritual.json`: salutation `name` (`eimi`), the 22 tarot cards, the 8 sabbats and the lunar event lines.
+- `content/ritual.json`: salutation `name` (`<user>`), the 22 tarot cards, the 8 sabbats and the lunar event lines.
 
 ### 3.6 Files by component
 
@@ -274,7 +274,7 @@ The `ritual` fish command always runs the full ritual, ignoring every condition.
 ### 6.5 Info column
 
 ```
-Good witching hour, eimi
+Good witching hour, <user>
 🕯️ Samhain — the veil is thin tonight
 🌕 Full moon — charge your crystals
 ⋆ Waxing Gibbous  74%

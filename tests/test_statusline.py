@@ -117,7 +117,7 @@ class GitSegmentTest(unittest.TestCase):
         self.assertTrue(self.line().endswith("🌿 main✦2 "), self.line())
 
     def test_long_branch_is_cut_to_28(self):
-        name = "feature/INC-98560-notificacion-juzgado"
+        name = "feature/TICKET-12345-moonlit-status-line"
         git(self.repo, "checkout", "-b", name)
         self.assertTrue(self.line().endswith(f"🌿 {name[:27]}… "), self.line())
 

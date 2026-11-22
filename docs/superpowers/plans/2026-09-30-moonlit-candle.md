@@ -12,11 +12,11 @@
 
 ## Global Constraints
 
-- Project root: `/home/mmarenas/proyectos/witchy-claude-theme`. The Bash tool resets the working directory after every call, so **every command must start with `cd /home/mmarenas/proyectos/witchy-claude-theme && ...`**.
-- **Never touch `/home/gii/apps/lexer/GII_claude_2`** (an unrelated work repo with uncommitted changes), the real `~/.claude/`, or the real Windows Terminal `settings.json`. Tests use `tempfile` directories only, and never call the real `cmd.exe` (inject a fake `run`).
+- Project root: `/home/<user>/proyectos/witchy-claude-theme`. The Bash tool resets the working directory after every call, so **every command must start with `cd /home/<user>/proyectos/witchy-claude-theme && ...`**.
+- **Never touch the unrelated work repository with uncommitted changes**, the real `~/.claude/`, or the real Windows Terminal `settings.json`. Tests use `tempfile` directories only, and never call the real `cmd.exe` (inject a fake `run`).
 - Python ≥ 3.10, standard library only, no third-party packages. Every module starts with `from __future__ import annotations`.
 - Test command (run with both interpreters before each commit):
-  `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+  `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 - Colors are `#RRGGBB`, uppercase hex.
 - Names: theme slug `moonlit-candle`, display name `Moonlit Candle`, base preset `dark`; Windows Terminal scheme `Moonlit Candle`; output style `WitchyNibbles`; tips label `Grimoire`.
 - Code, comments, docstrings, commit messages, installer output and README are plain and neutral: **no witchy voice** outside `content/`. Code comments are in English, sparse, and explain *why* (match the docstring style of the code shown in this plan).
@@ -161,7 +161,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v`
 Expected: errors `ModuleNotFoundError: No module named 'witchy'`.
 
 - [ ] **Step 3: Write the implementation**
@@ -371,13 +371,13 @@ STATUSLINE: dict[str, str] = {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all tests PASS on both interpreters.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy tests && git commit -m "feat: Moonlit Candle palette, token groups and contrast math
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy tests && git commit -m "feat: Moonlit Candle palette, token groups and contrast math
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -684,7 +684,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_validate -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_validate -v`
 Expected: `ImportError: cannot import name 'content' from 'witchy'` (or `validate`).
 
 - [ ] **Step 4: Write the implementation**
@@ -964,13 +964,13 @@ def validate_all(content_dir: Path = content.CONTENT_DIR) -> list[Failure]:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add content witchy tests && git commit -m "feat: spinner content, output style and validation rules
+cd /home/<user>/proyectos/witchy-claude-theme && git add content witchy tests && git commit -m "feat: spinner content, output style and validation rules
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1110,7 +1110,7 @@ class GitSegmentTest(unittest.TestCase):
         self.assertTrue(self.line().endswith("⎇ main✦2 "), self.line())
 
     def test_long_branch_is_cut_to_28(self):
-        name = "feature/INC-98560-notificacion-juzgado"
+        name = "feature/TICKET-12345-moonlit-status-line"
         git(self.repo, "checkout", "-b", name)
         self.assertTrue(self.line().endswith(f"⎇ {name[:27]}… "), self.line())
 
@@ -1153,7 +1153,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_statusline -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_statusline -v`
 Expected: `ImportError: cannot import name 'statusline'`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1336,13 +1336,13 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy/statusline.py tests/test_statusline.py && git commit -m "feat: moon-phase status line with git segment
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy/statusline.py tests/test_statusline.py && git commit -m "feat: moon-phase status line with git segment
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1441,7 +1441,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_build -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_build -v`
 Expected: `ImportError: cannot import name 'build'`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1518,13 +1518,13 @@ def build(dist: Path | None = None, content_dir: Path = content.CONTENT_DIR) -> 
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all PASS. If `test_source_palette_block_matches_palette` fails, the `PALETTE` block in `witchy/statusline.py` does not match `palette.STATUSLINE`. Fix the block (4-space indent, trailing commas, same order); don't touch the test.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy/build.py tests/test_build.py && git commit -m "feat: build dist artifacts from the palette
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy/build.py tests/test_build.py && git commit -m "feat: build dist artifacts from the palette
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1724,7 +1724,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_jsonio tests.test_claude_settings -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_jsonio tests.test_claude_settings -v`
 Expected: `ImportError` for `jsonio` / `records` / `claude_settings`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1886,13 +1886,13 @@ def restore_keys(data: dict, records: dict) -> tuple[dict, list[str]]:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy tests && git commit -m "feat: style-preserving JSON io and Claude settings key merge/restore
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy tests && git commit -m "feat: style-preserving JSON io and Claude settings key merge/restore
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1957,7 +1957,7 @@ def fake_run(stdout="", returncode=0, error=None):
 
 class LocateTest(unittest.TestCase):
     def test_windows_username(self):
-        self.assertEqual(wt.windows_username(fake_run("mmarenas\r\n")), "mmarenas")
+        self.assertEqual(wt.windows_username(fake_run("<user>\r\n")), "<user>")
         self.assertIsNone(wt.windows_username(fake_run("", returncode=1)))
         self.assertIsNone(wt.windows_username(fake_run("%USERNAME%\r\n")))
         self.assertIsNone(wt.windows_username(fake_run(error=FileNotFoundError("cmd.exe"))))
@@ -1965,12 +1965,12 @@ class LocateTest(unittest.TestCase):
     def test_locate_uses_the_current_windows_user_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for user in ("admin", "mmarenas"):
+            for user in ("admin", "<user>"):
                 path = wt.settings_path_for(user, root)
                 path.parent.mkdir(parents=True)
                 path.write_text("{}")
-            found = wt.locate_settings(None, run=fake_run("mmarenas\r\n"), users_root=root)
-            self.assertEqual(found, wt.settings_path_for("mmarenas", root))
+            found = wt.locate_settings(None, run=fake_run("<user>\r\n"), users_root=root)
+            self.assertEqual(found, wt.settings_path_for("<user>", root))
             self.assertIsNone(wt.locate_settings(None, run=fake_run("nobody\r\n"), users_root=root))
 
     def test_explicit_path(self):
@@ -2091,7 +2091,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_wt -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_wt -v`
 Expected: `ImportError: cannot import name 'wt'`.
 
 - [ ] **Step 3: Write the implementation**
@@ -2259,13 +2259,13 @@ def manual_snippet(scheme: dict, guid: str) -> str:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy/wt.py tests/test_wt.py && git commit -m "feat: Windows Terminal settings lookup and scheme apply/restore
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy/wt.py tests/test_wt.py && git commit -m "feat: Windows Terminal settings lookup and scheme apply/restore
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -2522,7 +2522,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_install -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_install -v`
 Expected: `ImportError: cannot import name 'install'`.
 
 - [ ] **Step 3: Write the implementation**
@@ -2864,13 +2864,13 @@ def uninstall(ctx: Context) -> int:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t .`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy/install.py tests/test_install.py && git commit -m "feat: install and uninstall with backups, state and dry-run
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy/install.py tests/test_install.py && git commit -m "feat: install and uninstall with backups, state and dry-run
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -2956,7 +2956,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_cli -v`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest tests.test_cli -v`
 Expected: `ModuleNotFoundError: No module named 'witchy.__main__'`.
 
 - [ ] **Step 3: Write the implementation**
@@ -3052,13 +3052,13 @@ Los colores están en `witchy/palette.py`. El diseño está en `docs/superpowers
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t . && /usr/bin/python3 -m witchy validate`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . -v && /usr/bin/python3.10 -m unittest discover -s tests -t . && /usr/bin/python3 -m witchy validate`
 Expected: all PASS; last line `Moonlit Candle: all checks passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/mmarenas/proyectos/witchy-claude-theme && git add witchy/__main__.py README.md tests/test_cli.py && git commit -m "feat: command line entry point and README
+cd /home/<user>/proyectos/witchy-claude-theme && git add witchy/__main__.py README.md tests/test_cli.py && git commit -m "feat: command line entry point and README
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -3069,16 +3069,16 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 This task touches the real `~/.claude/settings.json` and Windows Terminal settings. The controller runs it in the main session, with the user watching. It is not delegated.
 
-**Files:** none created. Reads `~/.claude/settings.json`, `/mnt/c/Users/mmarenas/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json`.
+**Files:** none created. Reads `~/.claude/settings.json`, `/mnt/c/Users/<user>/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json`.
 
 - [ ] **Step 1: Full verification**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . && /usr/bin/python3.10 -m unittest discover -s tests -t . && /usr/bin/python3 -m witchy validate`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m unittest discover -s tests -t . && /usr/bin/python3.10 -m unittest discover -s tests -t . && /usr/bin/python3 -m witchy validate`
 Expected: `OK` twice, then `Moonlit Candle: all checks passed`.
 
 - [ ] **Step 2: Dry run against the real machine and show it to the user**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy install --dry-run`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy install --dry-run`
 Expected:
 - 4 `create` lines under `~/.claude/`.
 - A diff of `~/.claude/settings.json` touching only `theme`, `statusLine`, `spinnerVerbs`, `spinnerTipsOverride` and `outputStyle`.
@@ -3088,10 +3088,10 @@ Show the output to the user and **wait for an explicit go** before Step 3.
 
 - [ ] **Step 3: Install**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy install`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy install`
 Then verify:
 `/usr/bin/python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude/settings.json'))); print(d['theme'], d['outputStyle'], d['statusLine']['command'])"`
-Expected: `custom:moonlit-candle WitchyNibbles /usr/bin/python3 -I /home/mmarenas/.claude/witchy/statusline.py`
+Expected: `custom:moonlit-candle WitchyNibbles /usr/bin/python3 -I /home/<user>/.claude/witchy/statusline.py`
 
 - [ ] **Step 4: Visual acceptance by the user**
 
@@ -3106,6 +3106,6 @@ Collect any tweaks. Color changes go in `witchy/palette.py`, followed by `instal
 
 - [ ] **Step 5: Uninstall check, then reinstall if the user wants to keep it**
 
-Run: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy uninstall`
+Run: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy uninstall`
 Verify: `~/.claude/settings.json` has `"theme": "dark"` and the archon `statusLine` command again; the Ubuntu profile has `"colorScheme": "One Half Dark"`; `~/.claude/witchy/` is gone.
-Then, if the user wants to keep the theme: `cd /home/mmarenas/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy install`.
+Then, if the user wants to keep the theme: `cd /home/<user>/proyectos/witchy-claude-theme && /usr/bin/python3 -m witchy install`.

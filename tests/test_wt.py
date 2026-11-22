@@ -33,7 +33,7 @@ def fake_run(stdout="", returncode=0, error=None):
 
 class LocateTest(unittest.TestCase):
     def test_windows_username(self):
-        self.assertEqual(wt.windows_username(fake_run("mmarenas\r\n")), "mmarenas")
+        self.assertEqual(wt.windows_username(fake_run("user\r\n")), "user")
         self.assertIsNone(wt.windows_username(fake_run("", returncode=1)))
         self.assertIsNone(wt.windows_username(fake_run("%USERNAME%\r\n")))
         self.assertIsNone(wt.windows_username(fake_run(error=FileNotFoundError("cmd.exe"))))
@@ -46,12 +46,12 @@ class LocateTest(unittest.TestCase):
     def test_locate_uses_the_current_windows_user_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for user in ("admin", "mmarenas"):
+            for user in ("admin", "user"):
                 path = wt.settings_path_for(user, root)
                 path.parent.mkdir(parents=True)
                 path.write_text("{}")
-            found = wt.locate_settings(None, run=fake_run("mmarenas\r\n"), users_root=root)
-            self.assertEqual(found, wt.settings_path_for("mmarenas", root))
+            found = wt.locate_settings(None, run=fake_run("user\r\n"), users_root=root)
+            self.assertEqual(found, wt.settings_path_for("user", root))
             self.assertIsNone(wt.locate_settings(None, run=fake_run("nobody\r\n"), users_root=root))
 
     def test_explicit_path(self):
@@ -353,13 +353,13 @@ class LookupFixTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.mnt = Path(tmp.name) / "mnt"
-        self.settings = wt.settings_path_in(self.mnt / "c" / "Users" / "manue")
+        self.settings = wt.settings_path_in(self.mnt / "c" / "Users" / "user")
         self.settings.parent.mkdir(parents=True)
         self.settings.write_text("{}")
 
     def test_profile_folder_wins_over_a_renamed_account(self):
         calls = []
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n", "USERNAME": "Manuel\r\n"}, calls=calls)
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\user\r\n", "USERNAME": "Wren\r\n"}, calls=calls)
         found = wt.locate_settings(None, run=run, users_root=self.mnt / "c" / "Users", mount_root=self.mnt)
         self.assertEqual(found, self.settings)
         self.assertNotIn(["cmd.exe", "/c", "echo %USERNAME%"], calls)
@@ -371,7 +371,7 @@ class LookupFixTest(unittest.TestCase):
         self.assertEqual((found, calls), (self.settings, []))
 
     def test_stale_recorded_path_falls_back_to_the_profile_folder(self):
-        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\manue\r\n"})
+        run = fake_windows(echo={"USERPROFILE": "C:\\Users\\user\r\n"})
         found = wt.locate_settings(None, run=run, recorded=str(self.mnt / "old.json"), mount_root=self.mnt)
         self.assertEqual(found, self.settings)
 

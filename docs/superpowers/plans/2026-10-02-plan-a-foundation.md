@@ -354,7 +354,7 @@ data = json.loads(text)
 assert data["version"] == 1, data["version"]
 Path("tests/fixtures/state-v1.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 EOF
-grep -ciE "eimi|manue" tests/fixtures/state-v1.json
+grep -ciE "<user>|<windows-user>" tests/fixtures/state-v1.json
 ```
 
 Expected: the last command prints `0`. If it prints more, extend the replacements until it prints `0`.

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Python 3.10 or newer, standard library only; every test passes on `/usr/bin/python3` (3.12) and on Python 3.10 (`/home/eimi/.pyenv/versions/3.10.0/bin/python3` on this machine).
+- Python 3.10 or newer, standard library only; every test passes on `/usr/bin/python3` (3.12) and on Python 3.10 (`/home/<user>/.pyenv/versions/3.10.0/bin/python3` on this machine).
 - Test command: `/usr/bin/python3 -m unittest discover -s tests -t .` (run from the repo root), and the same with the 3.10 interpreter.
 - `witchy/ritual/` imports nothing from `witchy`; inside the package, imports are relative (`from . import moon`). The installed copy runs as `python3 -I -B <dir>/ritual` (spec 6.1, 10.5).
 - No test touches the real `~/.claude`, `~/.cache`, `~/.config/fish`, Windows Terminal, the network or today's date: tests pass `home`, `env`, `root`, `columns` and `now` explicitly.
@@ -290,7 +290,7 @@ def lunar_events(day: date, tz: tzinfo) -> list[str]:
 
 - [ ] **Step 4: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (285 + 4 = 289 tests).
 
 - [ ] **Step 5: Commit**
@@ -451,7 +451,7 @@ def upcoming(day: date, tz: tzinfo) -> tuple[str, int] | None:
 
 - [ ] **Step 4: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (294 tests).
 
 - [ ] **Step 5: Commit**
@@ -572,7 +572,7 @@ Create `content/ritual.json`:
 
 ```json
 {
-  "name": "eimi",
+  "name": "<user>",
   "sabbats": {
     "Imbolc": "the first light returns; kindle a flame",
     "Ostara": "day and night in balance; plant a seed",
@@ -798,7 +798,7 @@ def with_palette(source: Path, colours: dict[str, str]) -> str:
 
 - [ ] **Step 7: Run the whole suite on both Pythons, and validate**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .`, `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .` and `/usr/bin/python3 -m witchy validate`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .`, `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .` and `/usr/bin/python3 -m witchy validate`
 Expected: OK on both (304 tests); `Moonlit Candle: all checks passed`.
 
 - [ ] **Step 8: Commit**
@@ -1266,7 +1266,7 @@ def lines(env: Mapping[str, str], root: Path = Path("/"),
 
 - [ ] **Step 4: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (318 tests). If a golden comparison fails, print the disc (`python3 -c "from witchy.ritual import art; [print('|' + ''.join(c for c, _ in r) + '|') for r in art.disc(2/8)]"`) and compare it with the file character by character; the code is the reference only after you have checked that the file was copied exactly.
 
 - [ ] **Step 5: Commit**
@@ -1505,7 +1505,7 @@ def last(path: Path) -> str | None:
 
 - [ ] **Step 4: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (328 tests).
 
 - [ ] **Step 5: Commit**
@@ -1821,7 +1821,7 @@ def run(home: Path, now: datetime) -> int:
 
 - [ ] **Step 4: Run the whole suite on both Pythons**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (338 tests). `tests.test_sky_job` takes well under a second; if it takes about 10 s, `LOCK_TIMEOUT` is being read at definition time instead of call time (it must be read inside `_locked`, so the test's patch applies).
 
 - [ ] **Step 5: Commit**
@@ -1902,7 +1902,7 @@ class FullRitualTest(CliTestCase):
         lines = self.run_cli(["--full"]).splitlines()
         self.assertEqual(lines[-1], "")  # one blank line after the greeting
         info = [line[31:] for line in lines if len(line) > 31]
-        self.assertIn("Good evening, eimi", info)
+        self.assertIn("Good evening, <user>", info)
         self.assertIn("🕯️ Samhain — the veil is thin tonight", info)
         self.assertIn("✦ XVII · The Star", info)
         self.assertIn("  hope and renewal after the storm", info)
@@ -1913,9 +1913,9 @@ class FullRitualTest(CliTestCase):
     def test_stacked_at_70_and_info_only_at_39(self):
         stacked = self.run_cli(["--full"], columns=70).splitlines()
         self.assertTrue(all("░" in line or "▒" in line for line in stacked[1:10]))  # the art first
-        self.assertEqual(stacked[11:13], ["", "Good evening, eimi"])  # then a blank line and the info
+        self.assertEqual(stacked[11:13], ["", "Good evening, <user>"])  # then a blank line and the info
         narrow = self.run_cli(["--full"], columns=39).splitlines()
-        self.assertEqual(narrow[0], "Good evening, eimi")
+        self.assertEqual(narrow[0], "Good evening, <user>")
         self.assertFalse(any("░" in line for line in narrow))
 
     def test_no_line_is_wider_than_the_terminal(self):
@@ -1927,12 +1927,12 @@ class FullRitualTest(CliTestCase):
 
     def test_countdown_lunar_line_and_salutations(self):
         text = self.run_cli(["--full"], now=datetime(2026, 10, 26, 8, 0, tzinfo=CET))
-        self.assertIn("Good morning, eimi", text)
+        self.assertIn("Good morning, <user>", text)
         self.assertIn("⋆ Samhain in 5 days", text)
         self.assertIn("🌕 Full moon — charge your crystals", text)
         self.assertIn("⋆ Samhain tomorrow", self.run_cli(["--full"], now=datetime(2026, 10, 30, 13, 0, tzinfo=CET)))
         blue = self.run_cli(["--full"], now=datetime(2026, 5, 31, 2, 0, tzinfo=CEST))
-        self.assertIn("Good witching hour, eimi", blue)
+        self.assertIn("Good witching hour, <user>", blue)
         self.assertIn("🌕 Blue moon — a rare moon; make a bold wish", blue)
 
     def test_salutation_hours(self):
@@ -1942,10 +1942,10 @@ class FullRitualTest(CliTestCase):
 
     def test_colours_and_the_sabbat_accent(self):
         text = self.run_cli(["--full"], env={"FISH_VERSION": "3.7.0"})
-        self.assertIn("\x1b[1;38;2;255;184;107mGood evening, eimi", text)  # Samhain's accent, bold
+        self.assertIn("\x1b[1;38;2;255;184;107mGood evening, <user>", text)  # Samhain's accent, bold
         self.assertIn("\x1b[38;2;255;103;183m✦ XVII · The Star", text)
         plain = self.run_cli(["--full"], env={"FISH_VERSION": "3.7.0"}, now=datetime(2026, 10, 3, 9, tzinfo=CEST))
-        self.assertIn("\x1b[1;38;2;255;212;119mGood morning, eimi", plain)
+        self.assertIn("\x1b[1;38;2;255;212;119mGood morning, <user>", plain)
 
     def test_no_color(self):
         self.assertNotRegex(self.run_cli(["--full"]), ESCAPE)
@@ -1972,7 +1972,7 @@ class OmenTest(CliTestCase):
 class AutoModeTest(CliTestCase):
     def test_first_shell_gets_the_full_ritual_then_the_omen(self):
         first = self.run_cli()
-        self.assertIn("Good evening, eimi", first)
+        self.assertIn("Good evening, <user>", first)
         self.assertTrue(self.stamp.is_file())
         self.assertEqual(len(self.run_cli().splitlines()), 2)
 
@@ -1980,7 +1980,7 @@ class AutoModeTest(CliTestCase):
         self.run_cli()
         old = SAMHAIN_NIGHT.timestamp() - cli.FULL_EVERY - 1
         os.utime(self.stamp, (old, old))
-        self.assertIn("Good evening, eimi", self.run_cli())
+        self.assertIn("Good evening, <user>", self.run_cli())
 
     def test_narrow_terminals_get_the_omen(self):
         self.assertEqual(len(self.run_cli(columns=59).splitlines()), 2)
@@ -1988,7 +1988,7 @@ class AutoModeTest(CliTestCase):
 
     def test_explicit_full_ignores_the_stamp(self):
         self.run_cli()
-        self.assertIn("Good evening, eimi", self.run_cli(["--full"]))
+        self.assertIn("Good evening, <user>", self.run_cli(["--full"]))
 
 
 class FailureTest(CliTestCase):
@@ -2000,7 +2000,7 @@ class FailureTest(CliTestCase):
     def test_bad_data_prints_nothing(self):
         bad = self.home / "data.json"
         bad.parent.mkdir(parents=True)
-        bad.write_text(json.dumps({"name": "eimi"}), encoding="utf-8")
+        bad.write_text(json.dumps({"name": "<user>"}), encoding="utf-8")
         with mock.patch.object(cli, "DATA_FILES", (bad,)):
             self.assertEqual(self.run_cli(["--omen"]), "")
         self.assertIn("KeyError", self.log.read_text(encoding="utf-8"))
@@ -2012,7 +2012,7 @@ class FailureTest(CliTestCase):
 
     def test_data_comes_from_the_package_then_content(self):
         self.assertEqual(cli.DATA_FILES[0].name, "data.json")
-        self.assertEqual(cli.load_data()["name"], "eimi")
+        self.assertEqual(cli.load_data()["name"], "<user>")
 
 
 if __name__ == "__main__":
@@ -2222,11 +2222,11 @@ sys.exit(main())
 
 - [ ] **Step 4: Run the whole suite on both Pythons, and preview**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .` and `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .`
 Expected: OK on both (356 tests).
 
 Run: `/usr/bin/python3 -B -m witchy.ritual --full --date 2026-10-31`
-Expected: the moon on the left, `Good …, eimi` and `🕯️ Samhain — the veil is thin tonight` on the right, in colour, then one blank line. This only reads `/etc/os-release` and `/proc`; with `--full` it also touches `~/.cache/witchy/last-ritual`, which is disposable.
+Expected: the moon on the left, `Good …, <user>` and `🕯️ Samhain — the veil is thin tonight` on the right, in colour, then one blank line. This only reads `/etc/os-release` and `/proc`; with `--full` it also touches `~/.cache/witchy/last-ritual`, which is disposable.
 
 - [ ] **Step 5: Commit**
 
@@ -2346,7 +2346,7 @@ In `docs/superpowers/specs/2026-10-02-shell-ritual-design.md`, check that each a
 
 - [ ] **Step 5: Run the whole suite on both Pythons, and validate**
 
-Run: `/usr/bin/python3 -m unittest discover -s tests -t .`, `/home/eimi/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .` and `/usr/bin/python3 -m witchy validate`
+Run: `/usr/bin/python3 -m unittest discover -s tests -t .`, `/home/<user>/.pyenv/versions/3.10.0/bin/python3 -m unittest discover -s tests -t .` and `/usr/bin/python3 -m witchy validate`
 Expected: OK on both (360 tests); `Moonlit Candle: all checks passed`.
 
 - [ ] **Step 6: Commit**
