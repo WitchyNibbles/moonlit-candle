@@ -43,10 +43,6 @@ class RitualTextTest(unittest.TestCase):
     def test_real_content_passes(self):
         self.assertEqual(validate.validate_ritual(self.data), [])
 
-    def test_name(self):
-        self.assertIn("ritual.name", self.check(lambda d: d.update(name="")))
-        self.assertIn("ritual.name", self.check(lambda d: d.update(name="x" * 25)))
-
     def test_sabbats_and_lunar_lines(self):
         self.assertIn("ritual.sabbats.Yule", self.check(lambda d: d["sabbats"].pop("Yule")))
         self.assertIn("ritual.sabbats.Samhain", self.check(lambda d: d["sabbats"].update(Samhain="x" * 49)))
@@ -87,8 +83,8 @@ class ValidateAllTest(unittest.TestCase):
     def test_a_broken_ritual_file_fails_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copytree(content.CONTENT_DIR, tmp, dirs_exist_ok=True)
-            (Path(tmp) / content.RITUAL).write_text('{"name": ""}', encoding="utf-8")
-            self.assertIn("ritual.name", items(validate.validate_all(Path(tmp))))
+            (Path(tmp) / content.RITUAL).write_text('{"sabbats": {}}', encoding="utf-8")
+            self.assertIn("ritual.sabbats.Yule", items(validate.validate_all(Path(tmp))))
 
 
 if __name__ == "__main__":

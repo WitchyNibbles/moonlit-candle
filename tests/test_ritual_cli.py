@@ -28,6 +28,9 @@ class Terminal(io.StringIO):
 
 class CliTestCase(unittest.TestCase):
     def setUp(self):
+        login = mock.patch.dict(os.environ, {"LOGNAME": "wren"})
+        login.start()
+        self.addCleanup(login.stop)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name) / "home"
@@ -64,7 +67,7 @@ class FullRitualTest(CliTestCase):
         lines = self.run_cli(["--full"]).splitlines()
         self.assertEqual(lines[-1], "")  # one blank line after the greeting
         info = [line[31:] for line in lines if len(line) > 31]
-        self.assertIn("Good evening, eimi", info)
+        self.assertIn("Good evening, wren", info)
         self.assertIn("🕯️ Samhain — the veil is thin tonight", info)
         self.assertIn("✦ XVII · The Star", info)
         self.assertIn("  hope and renewal after the storm", info)
@@ -75,9 +78,9 @@ class FullRitualTest(CliTestCase):
     def test_stacked_at_70_and_info_only_at_39(self):
         stacked = self.run_cli(["--full"], columns=70).splitlines()
         self.assertTrue(all("░" in line or "▒" in line for line in stacked[1:10]))  # the art first
-        self.assertEqual(stacked[11:13], ["", "Good evening, eimi"])  # then a blank line and the info
+        self.assertEqual(stacked[11:13], ["", "Good evening, wren"])  # then a blank line and the info
         narrow = self.run_cli(["--full"], columns=39).splitlines()
-        self.assertEqual(narrow[0], "Good evening, eimi")
+        self.assertEqual(narrow[0], "Good evening, wren")
         self.assertFalse(any("░" in line for line in narrow))
 
     def test_no_line_is_wider_than_the_terminal(self):
@@ -89,13 +92,43 @@ class FullRitualTest(CliTestCase):
 
     def test_countdown_lunar_line_and_salutations(self):
         text = self.run_cli(["--full"], now=datetime(2026, 10, 26, 8, 0, tzinfo=CET))
-        self.assertIn("Good morning, eimi", text)
+        self.assertIn("Good morning, wren", text)
         self.assertIn("⋆ Samhain in 5 days", text)
         self.assertIn("🌕 Full moon — charge your crystals", text)
         self.assertIn("⋆ Samhain tomorrow", self.run_cli(["--full"], now=datetime(2026, 10, 30, 13, 0, tzinfo=CET)))
         blue = self.run_cli(["--full"], now=datetime(2026, 5, 31, 2, 0, tzinfo=CEST))
-        self.assertIn("Good witching hour, eimi", blue)
+        self.assertIn("Good witching hour, wren", blue)
         self.assertIn("🌕 Blue moon — a rare moon; make a bold wish", blue)
+
+    def test_the_greeting_names_the_login_from_the_environment(self):
+        with mock.patch.dict(os.environ, {"LOGNAME": "sparrow"}):
+            self.assertIn("Good evening, sparrow", self.run_cli(["--full"]))
+
+    def test_no_login_name_leaves_the_salutation_alone(self):
+        for failure in (OSError("no passwd entry"), KeyError("uid")):
+            with self.subTest(failure=failure), mock.patch.object(cli.getpass, "getuser", side_effect=failure):
+                text = self.run_cli(["--full"])
+                self.assertIn("Good evening", text)
+                self.assertNotIn("Good evening,", text)
+
+    def test_a_name_with_nothing_printable_leaves_the_salutation_alone(self):
+        with mock.patch.dict(os.environ, {"LOGNAME": "\x1b\x07 \t"}):
+            text = self.run_cli(["--full"])
+        self.assertIn("Good evening", text)
+        self.assertNotIn("Good evening,", text)
+
+    def test_control_characters_are_stripped_from_the_name(self):
+        with mock.patch.dict(os.environ, {"LOGNAME": "wr\x1b[2Jen\x07"}):
+            text = self.run_cli(["--full"])
+        self.assertIn("Good evening, wr[2Jen", text)
+        self.assertNotIn("\x07", text)
+        self.assertNotIn("\x1b[2J", text)
+
+    def test_a_long_name_is_cut_to_the_limit(self):
+        with mock.patch.dict(os.environ, {"LOGNAME": "w" * 40}):
+            text = self.run_cli(["--full"])
+        self.assertIn("Good evening, " + "w" * cli.NAME_MAX, text)
+        self.assertNotIn("w" * (cli.NAME_MAX + 1), text)
 
     def test_salutation_hours(self):
         expected = {0: "Good witching hour", 3: "Good witching hour", 4: "Good morning", 11: "Good morning",
@@ -104,10 +137,10 @@ class FullRitualTest(CliTestCase):
 
     def test_colours_and_the_sabbat_accent(self):
         text = self.run_cli(["--full"], env={"FISH_VERSION": "3.7.0"})
-        self.assertIn("\x1b[1;38;2;255;184;107mGood evening, eimi", text)  # Samhain's accent, bold
+        self.assertIn("\x1b[1;38;2;255;184;107mGood evening, wren", text)  # Samhain's accent, bold
         self.assertIn("\x1b[38;2;255;103;183m✦ XVII · The Star", text)
         plain = self.run_cli(["--full"], env={"FISH_VERSION": "3.7.0"}, now=datetime(2026, 10, 3, 9, tzinfo=CEST))
-        self.assertIn("\x1b[1;38;2;255;212;119mGood morning, eimi", plain)
+        self.assertIn("\x1b[1;38;2;255;212;119mGood morning, wren", plain)
 
     def test_every_sabbat_day_shows_its_line(self):
         for name, day in wheel.sabbat_dates(2026, CET).items():
@@ -148,7 +181,7 @@ class OmenTest(CliTestCase):
 class AutoModeTest(CliTestCase):
     def test_first_shell_gets_the_full_ritual_then_the_omen(self):
         first = self.run_cli()
-        self.assertIn("Good evening, eimi", first)
+        self.assertIn("Good evening, wren", first)
         self.assertTrue(self.stamp.is_file())
         self.assertEqual(len(self.run_cli().splitlines()), 2)
 
@@ -156,7 +189,7 @@ class AutoModeTest(CliTestCase):
         self.run_cli()
         old = SAMHAIN_NIGHT.timestamp() - cli.FULL_EVERY - 1
         os.utime(self.stamp, (old, old))
-        self.assertIn("Good evening, eimi", self.run_cli())
+        self.assertIn("Good evening, wren", self.run_cli())
 
     def test_narrow_terminals_get_the_omen(self):
         self.assertEqual(len(self.run_cli(columns=59).splitlines()), 2)
@@ -170,11 +203,11 @@ class AutoModeTest(CliTestCase):
         self.run_cli()
         future = SAMHAIN_NIGHT.timestamp() + 86400
         os.utime(self.stamp, (future, future))
-        self.assertIn("Good evening, eimi", self.run_cli())
+        self.assertIn("Good evening, wren", self.run_cli())
 
     def test_explicit_full_ignores_the_stamp(self):
         self.run_cli()
-        self.assertIn("Good evening, eimi", self.run_cli(["--full"]))
+        self.assertIn("Good evening, wren", self.run_cli(["--full"]))
 
 
 class SkyModeTest(CliTestCase):
@@ -266,7 +299,7 @@ class FailureTest(CliTestCase):
     def test_bad_data_prints_nothing(self):
         bad = self.home / "data.json"
         bad.parent.mkdir(parents=True)
-        bad.write_text(json.dumps({"name": "eimi"}), encoding="utf-8")
+        bad.write_text(json.dumps({"lunar": {}}), encoding="utf-8")
         with mock.patch.object(cli, "DATA_FILES", (bad,)):
             self.assertEqual(self.run_cli(["--omen"]), "")
         self.assertIn("KeyError", self.log.read_text(encoding="utf-8"))
@@ -278,7 +311,7 @@ class FailureTest(CliTestCase):
 
     def test_data_comes_from_the_package_then_content(self):
         self.assertEqual(cli.DATA_FILES[0].name, "data.json")
-        self.assertEqual(cli.load_data()["name"], "eimi")
+        self.assertIn("tarot", cli.load_data())
 
 
 if __name__ == "__main__":

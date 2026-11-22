@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import re
@@ -21,6 +22,7 @@ DATA_FILES = (HERE / "data.json", HERE.parent.parent / "content" / "ritual.json"
 CACHE = Path(".cache/witchy")
 STAMP = "last-ritual"
 FULL_EVERY = 600  # seconds between two full rituals in auto mode
+NAME_MAX = 24  # characters of the login name the greeting keeps
 MIN_FULL_COLUMNS = 60
 SIDE_BY_SIDE = 80
 STACKED = 40
@@ -40,6 +42,15 @@ def salutation(hour: int) -> str:
     return next(text for end, text in SALUTATIONS if hour < end)
 
 
+def greeting(hour: int) -> str:
+    """The salutation, followed by the login name when there is a printable one."""
+    try:
+        name = fetch.clean(getpass.getuser())[:NAME_MAX].strip()
+    except (OSError, KeyError):
+        name = ""
+    return f"{salutation(hour)}, {name}" if name else salutation(hour)
+
+
 def _countdown(name: str, days: int) -> str:
     star = palette.GLYPHS["separator"]
     return f"{star} {name} tomorrow" if days == 1 else f"{star} {name} in {days} days"
@@ -50,7 +61,7 @@ def info_lines(now: datetime, data: dict, fetched: list[tuple[str, str]], width:
     day, tz = now.date(), now.tzinfo
     sabbat = wheel.upcoming(day, tz)
     on_sabbat = sabbat is not None and sabbat[1] == 0
-    lines = [[(f"{salutation(now.hour)}, {fetch.clean(data['name'])}",
+    lines = [[(greeting(now.hour),
                sabbat[0].lower() if on_sabbat else "salutation", True)]]
     if sabbat:
         name, days = sabbat
