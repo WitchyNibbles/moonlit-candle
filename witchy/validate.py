@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -130,6 +131,21 @@ def _contrast(failures: list[Failure], rule: str, item: str, foreground: str, ba
         failures.append(Failure(rule, item, shown, f"{ratio:.2f}:1 < {minimum}:1"))
 
 
+def _check_format(colours: Mapping[str, Any], failures: list[Failure], prefix: str = "") -> set[str]:
+    """Fail every colour that is not #RRGGBB in uppercase; return the failed item names (``prefix`` + key)."""
+    bad = set()
+    for key, value in colours.items():
+        if not isinstance(value, str) or not HEX.match(value):
+            failures.append(Failure("format", f"{prefix}{key}", str(value), "is not #RRGGBB in uppercase"))
+            bad.add(f"{prefix}{key}")
+    return bad
+
+
+def _usable(bad: set[str], prefix: str, mapping: Mapping[str, Any], *keys: str) -> bool:
+    """True when every key is in ``mapping`` and did not fail the format check as ``prefix.key``."""
+    return all(key in mapping and f"{prefix}.{key}" not in bad for key in keys)
+
+
 def validate_palette(
     overrides: Mapping[str, Any] = palette.CLAUDE_OVERRIDES,
     scheme: Mapping[str, Any] = palette.WT_SCHEME,
@@ -142,16 +158,10 @@ def validate_palette(
     colours.update({f"claude.{k}": v for k, v in overrides.items()})
     colours.update({f"wt.{k}": v for k, v in scheme.items() if k != "name"})
     colours.update({f"statusline.{k}": v for k, v in statusline.items()})
-    bad = set()
-    for item, value in colours.items():
-        if not isinstance(value, str) or not HEX.match(value):
-            failures.append(Failure("format", item, str(value), "is not #RRGGBB in uppercase"))
-            bad.add(item)
+    bad = _check_format(colours, failures)
     if {"background", "foreground"} & bad:
         return failures
-
-    def usable(prefix: str, mapping: Mapping[str, Any], key: str) -> bool:
-        return key in mapping and f"{prefix}.{key}" not in bad
+    usable = partial(_usable, bad)
 
     for name, value in overrides.items():
         if name not in tokens.ALL:
@@ -441,11 +451,7 @@ def validate_content(spinner: Mapping[str, Any], output_style: str) -> list[Fail
 def validate_opencode(theme: Mapping[str, Any], background: str, foreground: str) -> list[Failure]:
     """OpenCode's theme against the contrast rules; ``background`` and ``foreground`` are the variant's."""
     failures: list[Failure] = []
-    bad = set()
-    for key, value in theme.items():
-        if not isinstance(value, str) or not HEX.match(value):
-            failures.append(Failure("format", f"opencode.{key}", str(value), "is not #RRGGBB in uppercase"))
-            bad.add(key)
+    bad = _check_format(theme, failures, "opencode.")
     for key in sorted(set(theme) - tokens.OPENCODE_ALL):
         failures.append(Failure("unknown-token", f"opencode.{key}", str(theme[key]), "is not an OpenCode theme colour"))
     for key in sorted(tokens.OPENCODE_ALL - set(theme)):
@@ -455,8 +461,7 @@ def validate_opencode(theme: Mapping[str, Any], background: str, foreground: str
             failures.append(Failure("consistency", f"opencode.{key}", str(theme[key]),
                                     f"must equal the palette {'foreground' if key == 'text' else key} {expected}"))
 
-    def usable(*keys: str) -> bool:
-        return all(key in theme and key not in bad for key in keys)
+    usable = partial(_usable, bad, "opencode", theme)
 
     for surface in tokens.OPENCODE_SURFACES:
         for key in tokens.OPENCODE_TEXT:
