@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 import stat
 import tempfile
 import unittest
@@ -119,7 +120,7 @@ class OpenCodeComponentTest(unittest.TestCase):
         fails = self.fails(ctx, entry)
         self.assertEqual(len(fails), 1)
         self.assertIn(f"theme not selected in {self.tui}", fails[0].message)
-        self.assertEqual(fails[0].fix, "python3 -m witchy install --only opencode")
+        self.assertEqual(fails[0].fix, f'add "theme": "{THEME}" to {self.tui} by hand')
         self.assertEqual(self.uninstall(entry).warnings, [])
         self.assertFalse(self.theme.exists())
         self.assertEqual(self.tui.read_text(encoding="utf-8"), text)
@@ -157,6 +158,122 @@ class OpenCodeComponentTest(unittest.TestCase):
             self.assertNotIn("tui.jsonc", self.out.getvalue(), text)
             levels = self.levels(ctx, entry) - {"info"}
             self.assertEqual(levels, {"ok"}, text)
+
+    def jsonc_install(self):
+        self.config.mkdir(parents=True)
+        self.tui.write_text('{\n  // my keys\n  "keybinds": {},\n}\n', encoding="utf-8")
+        return self.install()
+
+    def add_theme_by_hand(self):
+        self.tui.write_text(f'{{\n  // my keys\n  "keybinds": {{}},\n  "theme": "{THEME}",\n}}\n', encoding="utf-8")
+
+    def test_a_jsonc_tui_json_fixed_by_hand_passes_doctor(self):
+        ctx, _, entry = self.jsonc_install()
+        self.assertEqual(len(self.fails(ctx, entry)), 1)
+        self.add_theme_by_hand()
+        checks = self.component.check(ctx, entry)
+        self.assertEqual([check for check in checks if check.level == "fail"], [])
+        self.assertTrue(any(check.level == "ok" and "by hand" in check.message for check in checks))
+
+    def test_a_reinstall_over_a_jsonc_tui_json_fixed_by_hand_does_not_warn(self):
+        _, _, entry = self.jsonc_install()
+        self.add_theme_by_hand()
+        ctx = self.ctx()
+        self.component.plan(ctx, entry)
+        self.assertNotIn(JSONC_WARNING.format(path=self.tui), self.out.getvalue())
+        self.assertNotIn("by hand", self.out.getvalue())
+
+    def test_the_not_selected_fix_is_a_hand_edit_that_doctor_fix_leaves_alone(self):
+        ctx, _, entry = self.jsonc_install()
+        fix = self.fails(ctx, entry)[0].fix
+        self.assertIn(f'"theme": "{THEME}"', fix)
+        self.assertIn(str(self.tui), fix)
+        self.assertNotIn("install --only", fix)
+
+    def test_a_missing_tui_json_after_a_part_way_install_is_still_fixed_by_install(self):
+        ctx = self.ctx()
+        plan = self.component.plan(ctx, None)
+
+        def fail_on_settings(ctx_, changes, backups=None):
+            apply_changes(ctx_, changes[:1], backups)
+            raise PermissionError(13, "Permission denied", str(self.tui))
+
+        with mock.patch.object(opencode, "apply_changes", fail_on_settings):
+            entry = self.component.apply(ctx, plan)
+        self.assertEqual(self.fails(ctx, entry)[0].fix, "python3 -m witchy install --only opencode")
+
+    def test_an_empty_or_blank_tui_json_is_treated_like_an_empty_object(self):
+        for original in (b"", b"  \n\n"):
+            with self.subTest(original=original):
+                self.config.mkdir(parents=True, exist_ok=True)
+                self.tui.write_bytes(original)
+                ctx, _, entry = self.install()
+                self.assertEqual(self.tui_data(), {"theme": THEME})
+                self.assertNotIn(JSONC_WARNING.format(path=self.tui), self.out.getvalue())
+                self.assertEqual(self.fails(ctx, entry), [])
+                self.assertTrue(entry["settings"]["existed"])
+                self.assertEqual(self.uninstall(entry).warnings, [])
+                self.assertEqual(self.tui.read_bytes(), original)
+
+    def test_uninstall_leaves_a_tui_json_that_became_jsonc_and_says_so(self):
+        self.write_tui(OLD_TUI)
+        ctx, _, entry = self.install()
+        text = f'{{\n  // mine\n  "theme": "{THEME}"\n}}\n'
+        self.tui.write_text(text, encoding="utf-8")
+        plan = self.uninstall(entry)
+        self.assertIsNone(plan.skip)
+        self.assertEqual(self.tui.read_text(encoding="utf-8"), text)
+        self.assertFalse(self.theme.exists())
+        self.assertEqual(len(plan.warnings), 1)
+        self.assertIn(str(self.tui), plan.warnings[0])
+        self.assertIn(f'"theme": "{THEME}"', plan.warnings[0])
+        self.assertIn("by hand", plan.warnings[0])
+
+    def test_doctor_on_a_tui_json_that_became_jsonc_gives_a_hand_edit_fix(self):
+        self.write_tui(OLD_TUI)
+        ctx, _, entry = self.install()
+        self.tui.write_text('{\n  // mine\n  "theme": "nord"\n}\n', encoding="utf-8")
+        fails = self.fails(ctx, entry)
+        self.assertEqual(len(fails), 1)
+        self.assertIn("cannot read", fails[0].message)
+        self.assertNotIn("install --only", fails[0].fix)
+        self.assertIn(str(self.tui), fails[0].fix)
+        self.add_theme_by_hand()
+        self.assertEqual(self.fails(ctx, entry), [])
+
+    def test_uninstall_removes_the_folders_it_created(self):
+        _, _, entry = self.install()
+        plan = self.uninstall(entry)
+        self.assertEqual(plan.prune, [self.config / "themes", self.config])
+        self.assertEqual(entry["created_dirs"], [str(self.config / "themes"), str(self.config)])
+
+    def test_a_reinstall_still_knows_which_folders_it_created(self):
+        _, _, first = self.install()
+        ctx = self.ctx()
+        second = self.component.apply(ctx, self.component.plan(ctx, first))
+        self.assertEqual(second["created_dirs"], first["created_dirs"])
+
+    def test_folders_that_existed_are_not_pruned(self):
+        (self.config / "themes").mkdir(parents=True)
+        _, _, entry = self.install()
+        self.assertNotIn("created_dirs", entry)
+        self.assertEqual(self.uninstall(entry).prune, [])
+        shutil.rmtree(self.config / "themes")
+        _, _, entry = self.install()
+        self.assertEqual(self.uninstall(entry).prune, [self.config / "themes"])
+
+    def test_a_malformed_tui_jsonc_that_mentions_theme_is_reported(self):
+        self.config.mkdir(parents=True)
+        jsonc = self.config / "tui.jsonc"
+        jsonc.write_text('{\n  "theme": "nord"\n  "keybinds": {}\n', encoding="utf-8")
+        self.install()
+        self.assertIn(TUI_JSONC_WARNING.format(path=jsonc), self.out.getvalue())
+
+    def test_a_malformed_tui_jsonc_without_theme_is_not_reported(self):
+        self.config.mkdir(parents=True)
+        (self.config / "tui.jsonc").write_text('{\n  "keybinds": {}\n  "leader": \n', encoding="utf-8")
+        self.install()
+        self.assertNotIn("tui.jsonc", self.out.getvalue())
 
     def test_no_opencode_anywhere_still_installs(self):
         ctx, plan, entry = self.install()
@@ -289,6 +406,54 @@ class OpenCodeInstallTest(unittest.TestCase):
             self.assertEqual(runner.uninstall(install_context(root, home)), 0)
             leftovers = [str(p.relative_to(home)) for p in home.rglob("*") if p.is_file()]
             self.assertEqual(leftovers, [])
+            self.assertFalse((home / ".config/opencode").exists())
+
+    def test_doctor_fix_leaves_a_jsonc_tui_json_to_the_user_until_it_is_fixed_by_hand(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            config = home / ".config/opencode"
+            config.mkdir(parents=True)
+            tui = config / "tui.json"
+            tui.write_text('{\n  // mine\n}\n', encoding="utf-8")
+            self.assertEqual(runner.install(install_context(root, home)), 0)
+            fixing = install_context(root, home)
+            self.assertEqual(runner.doctor(fixing, fix=True), 1)
+            self.assertIn("no witchy command fixes these", fixing.out.getvalue())
+            self.assertNotIn("doctor --fix: python3", fixing.out.getvalue())
+            tui.write_text('{\n  // mine\n  "theme": "moonlit-candle"\n}\n', encoding="utf-8")
+            reinstall = install_context(root, home)
+            self.assertEqual(runner.install(reinstall), 0)
+            self.assertNotIn("by hand", reinstall.out.getvalue())
+            self.assertEqual(runner.doctor(install_context(root, home)), 0)
+
+    def test_uninstall_keeps_a_config_folder_that_holds_other_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            config = home / ".config/opencode"
+            config.mkdir(parents=True)
+            (config / "opencode.json").write_text("{}\n", encoding="utf-8")
+            self.assertEqual(runner.install(install_context(root, home)), 0)
+            self.assertEqual(runner.uninstall(install_context(root, home)), 0)
+            self.assertTrue((config / "opencode.json").is_file())
+            self.assertFalse((config / "themes").exists())
+
+    def test_uninstall_finishes_when_tui_json_gained_comments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            self.assertEqual(runner.install(install_context(root, home)), 0)
+            tui = home / ".config/opencode/tui.json"
+            text = '{\n  // mine\n  "theme": "moonlit-candle"\n}\n'
+            tui.write_text(text, encoding="utf-8")
+            last = install_context(root, home)
+            self.assertEqual(runner.uninstall(last), 0)
+            self.assertEqual(tui.read_text(encoding="utf-8"), text)
+            self.assertFalse((home / ".config/opencode/themes").exists())
+            self.assertIn("by hand", last.out.getvalue())
+            self.assertNotIn("still installed", last.out.getvalue())
 
 
 if __name__ == "__main__":

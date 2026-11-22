@@ -157,9 +157,9 @@ class ValidateAllTest(unittest.TestCase):
 
 
 class OpencodeRulesTest(unittest.TestCase):
-    def check(self, theme=None, **kwargs):
+    def check(self, theme=None):
         theme = palette.OPENCODE if theme is None else theme
-        return validate.validate_opencode(theme, palette.BACKGROUND, palette.FOREGROUND, **kwargs)
+        return validate.validate_opencode(theme, palette.BACKGROUND, palette.FOREGROUND)
 
     def test_opencode_passes(self):
         self.assertEqual(self.check(), [])
